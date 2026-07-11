@@ -1,1 +1,1 @@
-add_library(cpu_model STATIC linear.cc linear.h)
+add_library(cpu_model STATIC linear.cc linear.h kernels.cc kernels.h)
