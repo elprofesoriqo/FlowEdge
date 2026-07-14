@@ -1,1 +1,1 @@
-add_library(cpu_model STATIC attention.cc attention.h linear.cc linear.h)
+add_library(cpu_model STATIC linear.cc linear.h)

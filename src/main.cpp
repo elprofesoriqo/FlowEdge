@@ -1,8 +1,8 @@
-#include <iostream>
 #include "../api/engine.h"
 
-int main() {
-    Engine engine;
-    engine.run();
-    return 0;
+int main()
+{
+  Engine engine;
+  engine.run();
+  return 0;
 }

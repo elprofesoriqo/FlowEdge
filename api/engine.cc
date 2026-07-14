@@ -1,11 +1,13 @@
 #include "engine.h"
+
 #include "../model/model.h"
+
 #include <iostream>
 
-Engine::Engine()
-    : model(std::make_shared<Model>()) {}
+Engine::Engine() = default;
 
-void Engine::run() {
-    std::cout << "Running engine..." << std::endl;
-    model->execute();
+void Engine::run()
+{
+  std::cout << "Running engine...\n";
+  model->execute();
 }

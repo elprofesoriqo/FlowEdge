@@ -1,0 +1,50 @@
+---
+BasedOnStyle: LLVM
+Standard: Latest
+
+ColumnLimit: 100
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: Inline
+
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+  AfterClass: true
+  AfterStruct: true
+  AfterEnum: true
+  AfterNamespace: false
+  AfterControlStatement: Never
+  BeforeElse: false
+  BeforeLambdaBody: false
+
+# Trailing comments: align within a block.
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 1
+
+SpaceAfterTemplateKeyword: false
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Project headers first.
+  - Regex: '^"'
+    Priority: 1
+  # System / stdlib last.
+  - Regex: "^<"
+    Priority: 2
+
+PenaltyReturnTypeOnItsOwnLine: 200
+PenaltyBreakBeforeFirstCallParameter: 150
+
+RequiresClausePosition: OwnLine
+IndentRequiresClause: true

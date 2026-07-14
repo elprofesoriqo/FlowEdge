@@ -1,0 +1,31 @@
+# Enabled groups:
+#   performance-*            latency & throughput issues
+#   concurrency-*            data races, atomic misuse
+#   cppcoreguidelines-*      C++ Core Guidelines
+#   bugprone-*               common logic bugs
+#   modernize-*              C++17/20/23 idioms
+#   readability-identifier-naming  naming convention enforcement
+
+# Flat string - clang-tidy rejects leading whitespace in block-scalar multiline.
+Checks: "performance-*,concurrency-*,cppcoreguidelines-*,bugprone-*,modernize-*,readability-identifier-naming,-cppcoreguidelines-pro-type-reinterpret-cast,-cppcoreguidelines-pro-bounds-pointer-arithmetic,-cppcoreguidelines-pro-bounds-array-to-pointer-decay,-cppcoreguidelines-avoid-magic-numbers,-cppcoreguidelines-pro-type-union-access,-modernize-use-trailing-return-type,-readability-identifier-length,-bugprone-easily-swappable-parameters,-cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,-cppcoreguidelines-pro-bounds-constant-array-index"
+
+# Every warning is an error — no silent regressions.
+WarningsAsErrors: "*"
+
+# Lint project headers; exclude third-party and build artifacts.
+HeaderFilterRegex: "^(arena|loader|model|api|src)/.*\\.h$"
+
+CheckOptions:
+  # Naming: snake_case locals/members, CamelCase types, UPPER_CASE macros.
+  - { key: readability-identifier-naming.NamespaceCase,        value: lower_case  }
+  - { key: readability-identifier-naming.ClassCase,             value: CamelCase   }
+  - { key: readability-identifier-naming.StructCase,            value: CamelCase   }
+  - { key: readability-identifier-naming.FunctionCase,          value: lower_case  }
+  - { key: readability-identifier-naming.VariableCase,          value: lower_case  }
+  - { key: readability-identifier-naming.ParameterCase,         value: lower_case  }
+  - { key: readability-identifier-naming.MemberCase,            value: lower_case  }
+  - { key: readability-identifier-naming.PrivateMemberSuffix,   value: "_"         }
+  - { key: readability-identifier-naming.MacroDefinitionCase,   value: UPPER_CASE  }
+  - { key: readability-identifier-naming.TemplateParameterCase, value: CamelCase   }
+  - { key: performance-unnecessary-value-param.AllowedTypes,    value: ""          }
+  - { key: modernize-use-default-member-init.UseAssignment,     value: "0"         }
