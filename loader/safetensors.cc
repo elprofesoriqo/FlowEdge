@@ -172,8 +172,8 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
 
 } // namespace
 
-bool SafetensorsLoader::load(std::string_view path, Arena& arena, std::span<TensorView> out,
-                             std::size_t& tensors_loaded) const noexcept
+bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView> out,
+                      std::size_t& tensors_loaded) noexcept
 {
   tensors_loaded = 0uz;
 
@@ -210,7 +210,9 @@ bool SafetensorsLoader::load(std::string_view path, Arena& arena, std::span<Tens
                              if (tensors_loaded >= out.size()) [[unlikely]]
                                return false;
                              if (byte_len > data_size || byte_off > data_size - byte_len)
-                                 [[unlikely]] // in-bounds
+                                 [[unlikely]]                                  // in-bounds
+                               return false;
+                             if (byte_len % sizeof(float) != 0uz) [[unlikely]] // whole F32 elems
                                return false;
 
                              auto* dst =
