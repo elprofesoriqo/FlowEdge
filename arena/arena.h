@@ -39,9 +39,6 @@ public:
     return static_cast<T*>(alloc(count * sizeof(T), align));
   }
 
-  void reset_to(std::byte* mark) noexcept { cursor_ = mark; }
-
-  [[nodiscard]] std::byte* mark() const noexcept { return cursor_; }
   [[nodiscard]] std::size_t used() const noexcept
   {
     return static_cast<std::size_t>(cursor_ - begin_);

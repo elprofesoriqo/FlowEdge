@@ -20,10 +20,9 @@ struct TensorView
   [[nodiscard]] std::string_view name_view() const noexcept { return {name.data()}; }
 };
 
-struct SafetensorsLoader
-{
-  [[nodiscard]] bool load(std::string_view path, Arena& arena, std::span<TensorView> out,
-                          std::size_t& tensors_loaded) const noexcept;
-};
+// Parse an F32 .safetensors file, copying each tensor into the arena (64B-aligned,
+// pre-faulted). Returns false on I/O error, malformed header, or if out is too small.
+[[nodiscard]] bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView> out,
+                                    std::size_t& tensors_loaded) noexcept;
 
 } // namespace fe
