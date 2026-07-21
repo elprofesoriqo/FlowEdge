@@ -38,4 +38,13 @@ void selective_scan(std::span<const float> delta_a, std::span<const float> delta
                     std::span<const float> u, std::span<float> h, std::span<float> y,
                     std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept;
 
+// Discretize into scan inputs, output layout [t][n][c]
+// delta_a[t,n,c]=exp(delta[t,c]·A[n,c]), A=-exp(a_log)
+// delta_bu[t,n,c]=delta[t,c]·b[t,n]·u[t,c]
+// a_work[d_state*d_inner]: scratch for A, computed once and transposed to [n][c] for the scan
+void discretize(std::span<const float> delta, std::span<const float> a_log,
+                std::span<const float> b, std::span<const float> u, std::span<float> delta_a,
+                std::span<float> delta_bu, std::span<float> a_work, std::size_t length,
+                std::size_t d_inner, std::size_t d_state) noexcept;
+
 } // namespace fe
