@@ -14,7 +14,7 @@ class Arena
 {
 public:
   constexpr explicit Arena(std::span<std::byte> slab) noexcept
-      : begin_{slab.data()}, cursor_{slab.data()}, end_{slab.data() + slab.size()}
+      : cursor_{slab.data()}, end_{slab.data() + slab.size()}
   {
   }
 
@@ -39,17 +39,10 @@ public:
     return static_cast<T*>(alloc(count * sizeof(T), align));
   }
 
-  [[nodiscard]] std::size_t used() const noexcept
-  {
-    return static_cast<std::size_t>(cursor_ - begin_);
-  }
-  [[nodiscard]] std::size_t capacity() const noexcept
-  {
-    return static_cast<std::size_t>(end_ - begin_);
-  }
+  [[nodiscard]] std::byte* mark() const noexcept { return cursor_; }
+  void reset_to(std::byte* mark) noexcept { cursor_ = mark; }
 
 private:
-  std::byte* const begin_;
   std::byte* cursor_;
   std::byte* const end_;
 };
