@@ -14,7 +14,6 @@ struct MambaConfig
   std::size_t d_model{}, d_inner{}, d_state{}, d_conv{}, dt_rank{}, n_layers{}, vocab{};
 };
 
-// forward() runs the selective-scan pipeline over caller-provided hidden states, drawing
 class Mamba
 {
 public:

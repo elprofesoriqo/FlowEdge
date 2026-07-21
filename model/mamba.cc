@@ -3,7 +3,6 @@
 #include "cpu/kernels.h"
 
 #include <array>
-#include <cmath>
 #include <cstddef>
 #include <span>
 #include <string_view>
@@ -114,13 +113,17 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> normed = buf(l * dm);
   const std::span<float> xz = buf(l * 2uz * di);
   const std::span<float> z = buf(l * di);
-  const std::span<float> x_cm = buf(di * l); // channel-major for conv
-  const std::span<float> x_sm = buf(l * di); // seq-major conv+silu output = scan input u
+  const std::span<float> x_cm = buf(di * l);   // channel-major conv input
+  const std::span<float> x_conv = buf(di * l); // conv output distinct (kernel forbids overlap)
+  const std::span<float> x_sm = buf(l * di);   // seq-major conv+silu output = scan input u
   const std::span<float> dbl = buf(l * wd);
+  const std::span<float> dt_in = buf(l * dr);  // gathered dt slice of dbl
   const std::span<float> dt = buf(l * di);
   const std::span<float> c_buf = buf(l * ds);
+  const std::span<float> b_buf = buf(l * ds);
   const std::span<float> da = buf(l * ds * di);
   const std::span<float> dbu = buf(l * ds * di);
+  const std::span<float> a_neg = buf(ds * di); // transposed A scratch for discretize
   const std::span<float> h = buf(ds * di);
   const std::span<float> yv = buf(l * di);
   const std::span<float> out = buf(l * dm);
@@ -134,38 +137,31 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
       z[(t * di) + c] = xz[(t * 2uz * di) + di + c];
     }
 
-  conv1d_causal(x_cm, {lw.conv_w, di * cfg_.d_conv}, {lw.conv_b, di}, x_cm, di, l, cfg_.d_conv);
-  silu(x_cm);
+  conv1d_causal(x_cm, {lw.conv_w, di * cfg_.d_conv}, {lw.conv_b, di}, x_conv, di, l, cfg_.d_conv);
+  silu(x_conv);
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t c{0uz}; c < di; ++c)
-      x_sm[(t * di) + c] = x_cm[(c * l) + t];
+      x_sm[(t * di) + c] = x_conv[(c * l) + t];
 
   matmul(x_sm, {lw.x_proj, wd * di}, dbl, l, di, wd); // [l][dt | B | C]
 
+  // dt = softplus(dt_proj · dbl[:, :dt_rank] + bias); gather the dt slice for matmul
   for (std::size_t t{0uz}; t < l; ++t)
-    for (std::size_t o{0uz}; o < di; ++o) {
-      float acc = lw.dt_b[o];
-      for (std::size_t k{0uz}; k < dr; ++k)
-        acc += dbl[(t * wd) + k] * lw.dt_w[(o * dr) + k];
-      dt[(t * di) + o] = acc;
-    }
+    for (std::size_t k{0uz}; k < dr; ++k)
+      dt_in[(t * dr) + k] = dbl[(t * wd) + k];
+  matmul(dt_in, {lw.dt_w, di * dr}, dt, l, dr, di);
+  for (std::size_t t{0uz}; t < l; ++t)
+    for (std::size_t o{0uz}; o < di; ++o)
+      dt[(t * di) + o] += lw.dt_b[o];
   softplus(dt);
 
   for (std::size_t t{0uz}; t < l; ++t)
-    for (std::size_t nn{0uz}; nn < ds; ++nn)
+    for (std::size_t nn{0uz}; nn < ds; ++nn) {
+      b_buf[(t * ds) + nn] = dbl[(t * wd) + dr + nn];
       c_buf[(t * ds) + nn] = dbl[(t * wd) + dr + ds + nn];
+    }
 
-  // discretize: A = exp(Δ·A), Bu = Δ·B·u, state-major [t][n][c] for the scan.
-  for (std::size_t t{0uz}; t < l; ++t)
-    for (std::size_t nn{0uz}; nn < ds; ++nn)
-      for (std::size_t c{0uz}; c < di; ++c) {
-        const float a = -std::exp(lw.a_log[(c * ds) + nn]);
-        const float dtc = dt[(t * di) + c];
-        const std::size_t idx = ((t * ds) + nn) * di + c;
-        da[idx] = std::exp(dtc * a);
-        dbu[idx] = dtc * dbl[(t * wd) + dr + nn] * x_sm[(t * di) + c];
-      }
-
+  discretize(dt, {lw.a_log, di * ds}, b_buf, x_sm, da, dbu, a_neg, l, di, ds);
   selective_scan(da, dbu, c_buf, {lw.d, di}, x_sm, h, yv, l, di, ds);
   gate_silu(yv, z, yv); // y · silu(z)
   matmul(yv, {lw.out_proj, dm * di}, out, l, di, dm);
