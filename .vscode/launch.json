@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug FlowEdge",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/src/flowedge",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "FlowEdge: build (scripts/build.sh)"
+    }
+  ]
+}

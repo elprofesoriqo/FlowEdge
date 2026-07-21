@@ -1,0 +1,18 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "FlowEdge: build (scripts/build.sh)",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/build.sh",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "FlowEdge: lint",
+      "type": "shell",
+      "command": "${workspaceFolder}/scripts/lint.sh",
+      "problemMatcher": []
+    }
+  ]
+}
