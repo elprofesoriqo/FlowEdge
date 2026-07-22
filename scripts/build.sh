@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# LLVM/clang build. Usage: ./scripts/build.sh [Debug|Release]
+# LLVM/clang build. Usage: ./scripts/build.sh [Debug|Release] [extra -D cmake args...]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,6 +22,8 @@ case "$(uname -s)" in
     ARGS+=(-DCMAKE_C_COMPILER_TARGET=x86_64-w64-mingw32
            -DCMAKE_CXX_COMPILER_TARGET=x86_64-w64-mingw32) ;;
 esac
+
+ARGS+=("${@:2}") # forward extra -D flags (e.g. -DFLOWEDGE_BENCH=ON)
 
 cmake "${ARGS[@]}"
 cmake --build "$ROOT/build"
