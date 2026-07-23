@@ -26,6 +26,16 @@ public:
   // [seq_len][d_model]
   void forward(std::span<const float> input, std::span<float> output, std::size_t seq_len) noexcept;
 
+  // persistent decode state (conv window + SSM h) per layer, in floats
+  [[nodiscard]] std::size_t state_size() const noexcept
+  {
+    return cfg_.n_layers * cfg_.d_inner * (cfg_.d_conv + cfg_.d_state);
+  }
+
+  // advance one token: x[d_model] in, out[d_model] out
+  // `state` carries SSM+conv across calls
+  void decode(std::span<const float> x, std::span<float> state, std::span<float> out) noexcept;
+
 private:
   struct Layer
   {
@@ -42,6 +52,13 @@ private:
   };
 
   void layer_forward(const Layer& lw, std::span<float> hidden, std::size_t seq_len) noexcept;
+  void decode_layer(const Layer& lw, std::span<float> hidden, std::span<float> lstate) noexcept;
+
+  // 64B-aligned scratch span carved from the arena
+  [[nodiscard]] std::span<float> arena_span(std::size_t n) noexcept
+  {
+    return {scratch_->alloc_array<float>(n, kSimdAlign), n};
+  }
 
   static constexpr std::size_t kMaxLayers = 64uz;
   MambaConfig cfg_{};
