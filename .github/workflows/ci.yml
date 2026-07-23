@@ -13,25 +13,14 @@ jobs:
       - run: ./scripts/build.sh
       - run: ./scripts/lint.sh
 
-  verify:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-llvm
-      - run: ./scripts/build.sh Release -DFLOWEDGE_VERIFY=ON
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install torch (CPU)
-        run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch
-          pip install numpy safetensors
-      - name: Synthetic checkpoint + baseline reference
-        run: |
-          python scripts/gen_synthetic_model.py models/synthetic.safetensors
-          python scripts/torch_ref.py dump models/synthetic.safetensors models/baseline_synth
-      - name: Correctness gate
-        run: ./build/verify/verify models/synthetic.safetensors models/baseline_synth.bin
+      - run: ./scripts/build.sh Release -DFLOWEDGE_TESTS=ON
+      - name: Test suite (ctest)
+        run: ctest --test-dir build --output-on-failure
 
   bench:
     runs-on: ubuntu-latest
@@ -48,6 +37,8 @@ jobs:
         run: |
           ./build/bench/flowedge_kernels_bench \
             --benchmark_out=kernels.json --benchmark_out_format=json | tee kernels.txt
+      - name: Flow head + ODE benchmark (report-only)
+        run: ./build/bench/flowedge_flow_bench | tee flow.txt
       - name: Job summary
         if: always()
         run: |
@@ -55,6 +46,10 @@ jobs:
             echo '### Kernel microbenchmarks — Mamba-130M sizes, seq=4'
             echo '```'
             cat kernels.txt
+            echo '```'
+            echo '### Flow head + ODE (Euler/Heun)'
+            echo '```'
+            cat flow.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload results

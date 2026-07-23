@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(FLOWEDGE_VERIFY "Build to verify harness (dev/CI-only)" OFF)
+option(FLOWEDGE_TESTS "Build the GoogleTest suite (dev/CI-only)" OFF)
 option(FLOWEDGE_BENCH "Build the Google Benchmark microbenchmarks (dev-only)" OFF)
 
 # Enable AVX2+FMA on x86
@@ -22,8 +22,9 @@ add_subdirectory(api)
 add_subdirectory(model)
 add_subdirectory(examples)
 
-if(FLOWEDGE_VERIFY)
-  add_subdirectory(verify)
+if(FLOWEDGE_TESTS)
+  enable_testing()
+  add_subdirectory(test)
 endif()
 if(FLOWEDGE_BENCH)
   add_subdirectory(bench)
