@@ -251,14 +251,33 @@ std::size_t safetensors_f32_bytes(std::string_view path) noexcept
   const std::string_view json = header_json(mf, path);
   std::size_t total{0uz};
   static_cast<void>(
-      foreach_tensor(json, [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
-                               const std::array<std::uint64_t, 4>&, std::uint8_t,
-                               bool bf16) noexcept {
-        total += bf16 ? (2uz * byte_len) : byte_len; // F32 arena size (BF16 exp 2×)
-        return true;
-      }));
+      foreach_tensor(json,
+                     [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
+                         const std::array<std::uint64_t, 4>&, std::uint8_t, bool bf16) noexcept {
+                       total += bf16 ? (2uz * byte_len) : byte_len; // F32 arena size (BF16 exp 2×)
+                       return true;
+                     }));
   mf.close();
   return total;
+}
+
+std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
+                                                    std::string_view name) noexcept
+{
+  MappedFile mf{};
+  const std::string_view json = header_json(mf, path);
+  std::array<std::size_t, 4> out{};
+  static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
+                                             const std::array<std::uint64_t, 4>& shape,
+                                             std::uint8_t ndim, bool) noexcept {
+    if (n != name)
+      return true; // keep scanning
+    for (std::size_t i{0uz}; i < ndim; ++i)
+      out[i] = static_cast<std::size_t>(shape[i]);
+    return false; // found
+  }));
+  mf.close();
+  return out;
 }
 
 } // namespace fe

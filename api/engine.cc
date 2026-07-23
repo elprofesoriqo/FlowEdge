@@ -5,6 +5,7 @@
 #include "../model/flow/flow.h"
 #include "../model/mamba.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -17,12 +18,20 @@
 namespace {
 
 constexpr std::size_t max_tensors = 1024uz;
-constexpr std::size_t scratch_margin = std::size_t{128} << 20; // forward buffers above the weights
+constexpr std::size_t k_max_decode_seq = 512uz; // scratch is sized for prefills up to this length
 
 std::size_t slab_bytes(const char* path)
 {
   const std::size_t weights = fe::safetensors_f32_bytes(path); // F32-expanded (handles BF16)
-  return (weights == 0uz) ? 0uz : weights + scratch_margin;
+  if (weights == 0uz)
+    return 0uz;
+  const auto emb = fe::safetensors_tensor_shape(path, "backbone.embeddings.weight");
+  const auto a_log = fe::safetensors_tensor_shape(path, "backbone.layers.0.mixer.A_log");
+  const std::size_t d_model = emb[1];
+  const std::size_t d_inner = a_log[0];
+  const std::size_t d_state = a_log[1];
+  const std::size_t per_token = (3uz * d_state * d_inner) + (16uz * d_inner) + (8uz * d_model);
+  return weights + (k_max_decode_seq * per_token * sizeof(float));
 }
 
 } // namespace
@@ -35,12 +44,16 @@ struct FeEngine
   std::size_t n;
   fe::Mamba model;
   fe::FlowHead flow;
+  std::span<float> dstate; // persistent streaming state (zero-initialized with the slab)
 
   explicit FeEngine(const char* path)
       : slab(slab_bytes(path)), arena{std::span<std::byte>{slab}}, n{load(path)},
         model{std::span<const fe::TensorView>{views.data(), n}, arena},
         flow{std::span<const fe::TensorView>{views.data(), n}, arena}
   {
+    if (model.valid())
+      if (auto* const p = arena.alloc_array<float>(model.state_size(), fe::kSimdAlign))
+        dstate = {p, model.state_size()};
   }
 
   std::size_t load(const char* path) noexcept
@@ -108,6 +121,37 @@ int fe_engine_run(fe_engine* engine, const std::int32_t* tokens, std::size_t seq
   const int rc = engine->run_backbone(tokens, seq_len, out);
   engine->arena.reset_to(mark);
   return rc;
+}
+
+int fe_engine_step(fe_engine* engine, std::int32_t token, float* out)
+{
+  if (engine == nullptr || out == nullptr)
+    return 1;
+  if (engine->dstate.empty()) [[unlikely]] // model invalid / no state
+    return 2;
+  const fe::MambaConfig& c = engine->model.config();
+  if (std::cmp_less(token, 0) || std::cmp_greater_equal(token, c.vocab))
+    return 3;
+  fe::Arena& arena = engine->arena;
+  std::byte* const mark = arena.mark();
+  auto* const x = arena.alloc_array<float>(c.d_model, fe::kSimdAlign);
+  if (x == nullptr) {
+    arena.reset_to(mark);
+    return 2;
+  }
+  const float* const emb = engine->model.embedding();
+  const auto utok = static_cast<std::size_t>(token);
+  for (std::size_t i{0uz}; i < c.d_model; ++i)
+    x[i] = emb[(utok * c.d_model) + i];
+  engine->model.decode({x, c.d_model}, engine->dstate, {out, c.d_model});
+  arena.reset_to(mark);
+  return 0;
+}
+
+void fe_engine_reset(fe_engine* engine)
+{
+  if (engine != nullptr)
+    std::ranges::fill(engine->dstate, 0.0F); // begin a fresh sequence
 }
 
 std::size_t fe_engine_action_dim(const fe_engine* engine)

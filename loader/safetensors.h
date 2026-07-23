@@ -26,4 +26,9 @@ struct TensorView
 
 [[nodiscard]] std::size_t safetensors_f32_bytes(std::string_view path) noexcept;
 
+// shape of a named tensor from the header
+// for pre-load arena sizing
+[[nodiscard]] std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
+                                                                  std::string_view name) noexcept;
+
 } // namespace fe

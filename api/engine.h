@@ -17,6 +17,12 @@ void fe_engine_dims(const fe_engine* engine, size_t* d_model, size_t* n_layers);
 
 int fe_engine_run(fe_engine* engine, const int32_t* tokens, size_t seq_len, float* out);
 
+// streaming decode: advance one token against the engine's persistent SSM state, out is d_model
+int fe_engine_step(fe_engine* engine, int32_t token, float* out);
+
+// begin a fresh sequence
+void fe_engine_reset(fe_engine* engine);
+
 // Flow-head action dimension, or 0 if the checkpoint has no flow head.
 size_t fe_engine_action_dim(const fe_engine* engine);
 
