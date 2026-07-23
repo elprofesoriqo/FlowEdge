@@ -293,6 +293,50 @@ void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
             std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
 {
+  if (rows == 1uz) { // single vector
+    const float* __restrict__ ir = in.data();
+    for (std::size_t o{0uz}; o < out_dim; ++o) {
+      const float* __restrict__ wr = w.data() + (o * in_dim);
+      float acc{0.0F};
+      std::size_t i{0uz};
+#if defined(__AVX2__)
+      __m256 a0 = _mm256_setzero_ps();
+      __m256 a1 = a0;
+      __m256 a2 = a0;
+      __m256 a3 = a0;
+      for (; i + 32uz <= in_dim; i += 32uz) {
+        a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), a0);
+        a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), _mm256_loadu_ps(wr + i + 8uz), a1);
+        a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), _mm256_loadu_ps(wr + i + 16uz), a2);
+        a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), _mm256_loadu_ps(wr + i + 24uz), a3);
+      }
+      __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
+      for (; i + 8uz <= in_dim; i += 8uz)
+        av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), av);
+      acc = hsum8(av);
+#elif defined(__ARM_NEON)
+      float32x4_t a0 = vdupq_n_f32(0.0F);
+      float32x4_t a1 = a0;
+      float32x4_t a2 = a0;
+      float32x4_t a3 = a0;
+      for (; i + 16uz <= in_dim; i += 16uz) {
+        a0 = vfmaq_f32(a0, vld1q_f32(ir + i), vld1q_f32(wr + i));
+        a1 = vfmaq_f32(a1, vld1q_f32(ir + i + 4uz), vld1q_f32(wr + i + 4uz));
+        a2 = vfmaq_f32(a2, vld1q_f32(ir + i + 8uz), vld1q_f32(wr + i + 8uz));
+        a3 = vfmaq_f32(a3, vld1q_f32(ir + i + 12uz), vld1q_f32(wr + i + 12uz));
+      }
+      float32x4_t av = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
+      for (; i + 4uz <= in_dim; i += 4uz)
+        av = vfmaq_f32(av, vld1q_f32(ir + i), vld1q_f32(wr + i));
+      acc = vaddvq_f32(av);
+#endif
+      for (; i < in_dim; ++i)
+        acc += ir[i] * wr[i];
+      out.data()[o] = acc;
+    }
+    return;
+  }
+
   for (std::size_t o{0uz}; o < out_dim; ++o) {
     const float* __restrict__ wr = w.data() + (o * in_dim);
     for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
