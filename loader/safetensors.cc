@@ -155,8 +155,9 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
 
     if (name == "__metadata__")
       continue;
-    if (obj.find("\"F32\"") == std::string_view::npos)
-      continue;
+    const bool bf16 = obj.find("\"BF16\"") != std::string_view::npos;
+    if (!bf16 && obj.find("\"F32\"") == std::string_view::npos)
+      continue; // only F32 and BF16
 
     std::array<std::uint64_t, 4> shape{};
     auto ndim = parse_u64s(after_colon(obj, "\"shape\""), std::span{shape});
@@ -164,10 +165,25 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
     if (parse_u64s(after_colon(obj, "\"data_offsets\""), std::span{offs}) < 2)
       continue;
 
-    if (!cb(name, offs[0], offs[1] - offs[0], shape, static_cast<std::uint8_t>(ndim)))
+    if (!cb(name, offs[0], offs[1] - offs[0], shape, static_cast<std::uint8_t>(ndim), bf16))
       return false;
   }
   return true;
+}
+
+[[nodiscard]] std::string_view header_json(MappedFile& mf, std::string_view path) noexcept
+{
+  std::array<char, 512> buf{};
+  if (path.size() >= buf.size())
+    return {};
+  std::memcpy(buf.data(), path.data(), path.size());
+  if (!mf.open(buf.data()) || mf.size < 8uz)
+    return {};
+  std::uint64_t header_len{};
+  std::memcpy(&header_len, mf.data, 8uz);
+  if (header_len > mf.size - 8uz) // overflow-safe: mf.size >= 8
+    return {};
+  return {reinterpret_cast<const char*>(mf.data + 8uz), static_cast<std::size_t>(header_len)};
 }
 
 } // namespace
@@ -176,64 +192,73 @@ bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView>
                       std::size_t& tensors_loaded) noexcept
 {
   tensors_loaded = 0uz;
-
-  std::array<char, 512> buf{};
-  if (path.size() >= buf.size())
-    return false;
-  std::memcpy(buf.data(), path.data(), path.size());
-
   MappedFile mf{};
-  if (!mf.open(buf.data()))
-    return false;
-
-  if (mf.size < 8uz) {
+  const std::string_view json = header_json(mf, path);
+  if (json.empty()) {
     mf.close();
     return false;
   }
+  const std::byte* const weights_base = mf.data + 8uz + json.size();
+  const std::uint64_t data_size = mf.size - 8uz - json.size();
 
-  std::uint64_t header_len{};
-  std::memcpy(&header_len, mf.data, 8uz);
-  if (header_len > mf.size - 8uz) { // overflow-safe: mf.size >= 8 here
-    mf.close();
-    return false;
-  }
+  const bool ok =
+      foreach_tensor(json,
+                     [&](std::string_view name, std::uint64_t byte_off, std::uint64_t byte_len,
+                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
+                         bool bf16) noexcept -> bool {
+                       if (tensors_loaded >= out.size()) [[unlikely]]
+                         return false;
+                       if (byte_len > data_size || byte_off > data_size - byte_len)
+                           [[unlikely]] // in-bounds
+                         return false;
+                       const std::size_t elem = bf16 ? 2uz : sizeof(float);
+                       if (byte_len % elem != 0uz) [[unlikely]] // whole elements
+                         return false;
 
-  const std::string_view json{reinterpret_cast<const char*>(mf.data + 8uz),
-                              static_cast<std::size_t>(header_len)};
-  const std::byte* weights_base = mf.data + 8uz + header_len;
-  const std::uint64_t data_size = mf.size - 8uz - header_len;
+                       const std::size_t count = byte_len / elem;
+                       auto* const dst = arena.alloc_array<float>(count, kSimdAlign);
+                       if (!dst) [[unlikely]]
+                         return false;
+                       const std::byte* const src = weights_base + byte_off;
+                       if (bf16) // bf16 is the high 16 bits of an f32
+                         for (std::size_t i{0uz}; i < count; ++i) {
+                           std::uint16_t hi{};
+                           std::memcpy(&hi, src + (i * 2uz), 2uz);
+                           const std::uint32_t bits = static_cast<std::uint32_t>(hi) << 16;
+                           std::memcpy(&dst[i], &bits, sizeof(float));
+                         }
+                       else
+                         std::memcpy(dst, src, byte_len);
 
-  bool ok = foreach_tensor(json,
-                           [&](std::string_view name, std::uint64_t byte_off,
-                               std::uint64_t byte_len, const std::array<std::uint64_t, 4>& shape,
-                               std::uint8_t ndim) noexcept -> bool {
-                             if (tensors_loaded >= out.size()) [[unlikely]]
-                               return false;
-                             if (byte_len > data_size || byte_off > data_size - byte_len)
-                                 [[unlikely]]                                  // in-bounds
-                               return false;
-                             if (byte_len % sizeof(float) != 0uz) [[unlikely]] // whole F32 elems
-                               return false;
-
-                             auto* dst =
-                                 arena.alloc_array<float>(byte_len / sizeof(float), kSimdAlign);
-                             if (!dst) [[unlikely]]
-                               return false;
-                             std::memcpy(dst, weights_base + byte_off, byte_len);
-
-                             TensorView& tv = out[tensors_loaded++];
-                             tv.data = dst;
-                             tv.ndim = ndim;
-                             for (std::size_t i{0uz}; i < 4uz; ++i)
-                               tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
-                             const std::size_t nlen = std::min(name.size(), tv.name.size() - 1uz);
-                             std::memcpy(tv.name.data(), name.data(), nlen);
-                             tv.name[nlen] = '\0';
-                             return true;
-                           });
+                       TensorView& tv = out[tensors_loaded++];
+                       tv.data = dst;
+                       tv.ndim = ndim;
+                       for (std::size_t i{0uz}; i < 4uz; ++i)
+                         tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
+                       const std::size_t nlen = std::min(name.size(), tv.name.size() - 1uz);
+                       std::memcpy(tv.name.data(), name.data(), nlen);
+                       tv.name[nlen] = '\0';
+                       return true;
+                     });
 
   mf.close();
   return ok;
+}
+
+std::size_t safetensors_f32_bytes(std::string_view path) noexcept
+{
+  MappedFile mf{};
+  const std::string_view json = header_json(mf, path);
+  std::size_t total{0uz};
+  static_cast<void>(
+      foreach_tensor(json, [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
+                               const std::array<std::uint64_t, 4>&, std::uint8_t,
+                               bool bf16) noexcept {
+        total += bf16 ? (2uz * byte_len) : byte_len; // F32 arena size (BF16 exp 2×)
+        return true;
+      }));
+  mf.close();
+  return total;
 }
 
 } // namespace fe
