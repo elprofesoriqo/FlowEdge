@@ -189,6 +189,30 @@ void gate_silu(std::span<const float> a, std::span<const float> g, std::span<flo
   }
 }
 
+namespace {
+
+// 1 recurrence step, state-major [n][c]: advance h in place, emit y (skip term + Σ_n h·c)
+inline void scan_advance(const float* __restrict__ da_t, const float* __restrict__ dbu_t,
+                         const float* __restrict__ c_t, const float* __restrict__ u_t,
+                         const float* __restrict__ d, float* __restrict__ hs,
+                         float* __restrict__ y_t, std::size_t d_inner, std::size_t d_state) noexcept
+{
+  for (std::size_t c{0uz}; c < d_inner; ++c)
+    y_t[c] = d[c] * u_t[c]; // skip term, scan accumulates onto it
+  for (std::size_t n{0uz}; n < d_state; ++n) {
+    float* __restrict__ hn = hs + (n * d_inner);
+    const float* __restrict__ da_n = da_t + (n * d_inner);
+    const float* __restrict__ dbu_n = dbu_t + (n * d_inner);
+    const float cn = c_t[n];
+    for (std::size_t c{0uz}; c < d_inner; ++c) {
+      hn[c] = (da_n[c] * hn[c]) + dbu_n[c];
+      y_t[c] += hn[c] * cn;
+    }
+  }
+}
+
+} // namespace
+
 void selective_scan(std::span<const float> delta_a, std::span<const float> delta_bu,
                     std::span<const float> c_proj, std::span<const float> d_skip,
                     std::span<const float> u, std::span<float> h, std::span<float> y,
@@ -199,28 +223,32 @@ void selective_scan(std::span<const float> delta_a, std::span<const float> delta
     hs[i] = 0.0F; // h_0 = 0
 
   const std::size_t plane = d_state * d_inner;
-  const float* __restrict__ d = d_skip.data();
-  for (std::size_t t{0uz}; t < length; ++t) {
-    const float* __restrict__ da_t = delta_a.data() + (t * plane);
-    const float* __restrict__ dbu_t = delta_bu.data() + (t * plane);
-    const float* __restrict__ c_t = c_proj.data() + (t * d_state);
-    const float* __restrict__ u_t = u.data() + (t * d_inner);
-    float* __restrict__ y_t = y.data() + (t * d_inner);
+  for (std::size_t t{0uz}; t < length; ++t)
+    scan_advance(delta_a.data() + (t * plane), delta_bu.data() + (t * plane),
+                 c_proj.data() + (t * d_state), u.data() + (t * d_inner), d_skip.data(), hs,
+                 y.data() + (t * d_inner), d_inner, d_state);
+}
 
-    for (std::size_t c{0uz}; c < d_inner; ++c)
-      y_t[c] = d[c] * u_t[c]; // skip term, scan accumulates onto it
+void scan_step(std::span<const float> delta_a, std::span<const float> delta_bu,
+               std::span<const float> c_proj, std::span<const float> d_skip,
+               std::span<const float> u, std::span<float> h, std::span<float> y,
+               std::size_t d_inner, std::size_t d_state) noexcept
+{
+  scan_advance(delta_a.data(), delta_bu.data(), c_proj.data(), u.data(), d_skip.data(), h.data(),
+               y.data(), d_inner, d_state); // h persists across calls
+}
 
-    // state-major [n][c]
-    for (std::size_t n{0uz}; n < d_state; ++n) {
-      float* __restrict__ hn = hs + (n * d_inner);
-      const float* __restrict__ da_n = da_t + (n * d_inner);
-      const float* __restrict__ dbu_n = dbu_t + (n * d_inner);
-      const float cn = c_t[n];
-      for (std::size_t c{0uz}; c < d_inner; ++c) {
-        hn[c] = (da_n[c] * hn[c]) + dbu_n[c];
-        y_t[c] += hn[c] * cn;
-      }
-    }
+void conv1d_step(std::span<const float> window, std::span<const float> weight,
+                 std::span<const float> bias, std::span<float> y, std::size_t channels,
+                 std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ wc = window.data() + (c * kernel);
+    const float* __restrict__ kw = weight.data() + (c * kernel);
+    float acc = bias[c];
+    for (std::size_t k{0uz}; k < kernel; ++k)
+      acc += kw[k] * wc[k];
+    y[c] = acc;
   }
 }
 

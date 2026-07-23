@@ -38,6 +38,18 @@ void selective_scan(std::span<const float> delta_a, std::span<const float> delta
                     std::span<const float> u, std::span<float> h, std::span<float> y,
                     std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept;
 
+// 1 scan step for streaming decode: advances persistent h in place, emits y
+void scan_step(std::span<const float> delta_a, std::span<const float> delta_bu,
+               std::span<const float> c_proj, std::span<const float> d_skip,
+               std::span<const float> u, std::span<float> h, std::span<float> y,
+               std::size_t d_inner, std::size_t d_state) noexcept;
+
+// 1 causal-conv step: window is [channels][kernel] with the newest sample at index kernel-1.
+// y[c] = bias[c] + sum_k weight[c,k]·window[c,k]
+void conv1d_step(std::span<const float> window, std::span<const float> weight,
+                 std::span<const float> bias, std::span<float> y, std::size_t channels,
+                 std::size_t kernel) noexcept;
+
 // Discretize into scan inputs, output layout [t][n][c]
 // delta_a[t,n,c]=exp(delta[t,c]·A[n,c]), A=-exp(a_log)
 // delta_bu[t,n,c]=delta[t,c]·b[t,n]·u[t,c]
