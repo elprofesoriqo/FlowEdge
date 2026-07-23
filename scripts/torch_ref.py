@@ -12,7 +12,40 @@ MODEL = sys.argv[2] if len(sys.argv) > 2 else "models/mamba.safetensors"
 TOKENS = [1, 2, 3, 4]
 EPS = 1e-5
 
+if MODE == "flowbench":  # flow head + Euler ODE latency
+    torch.set_num_threads(1)
+    A, C, H, T, L, N = 32, 768, 256, 128, 4, 10
+    torch.manual_seed(0)
+    Wf = {"in": torch.randn(H, A) * 0.02, "time": torch.randn(H, T) * 0.02,
+          "cond": torch.randn(H, C) * 0.02, "out": torch.randn(A, H) * 0.02}
+    lyr = [torch.randn(H, H) * 0.02 for _ in range(L)]
+    cond, x0 = torch.full((C,), 0.1), torch.full((A,), 0.1)
+    freqs = torch.tensor([10000.0 ** (-i / (T // 2)) for i in range(T // 2)])
+
+    def vel(x, t):
+        h = Wf["in"] @ x + Wf["cond"] @ cond \
+            + Wf["time"] @ torch.cat([torch.sin(t * freqs), torch.cos(t * freqs)])
+        h = F.silu(h)
+        for w in lyr:
+            h = F.silu(w @ h)
+        return Wf["out"] @ h
+
+    with torch.no_grad():
+        for warm in range(5):
+            x = x0.clone()
+            for k in range(N):
+                x = x + (1.0 / N) * vel(x, k / N)
+        t0 = time.perf_counter()
+        for it in range(200):
+            x = x0.clone()
+            for k in range(N):
+                x = x + (1.0 / N) * vel(x, k / N)
+        us = (time.perf_counter() - t0) / 200 * 1e6
+    print(f"PyTorch flow (euler, N={N}): {us:.1f} us/call | A={A} C={C} H={H} L={L} threads=1")
+    sys.exit(0)
+
 W = load_file(MODEL)
+W = {k: v.float() for k, v in W.items()}
 d_model = W["backbone.embeddings.weight"].shape[1]
 d_inner = W["backbone.layers.0.mixer.A_log"].shape[0]
 d_state = W["backbone.layers.0.mixer.A_log"].shape[1]
@@ -67,7 +100,30 @@ with torch.no_grad():
               f"seq={len(TOKENS)} threads={torch.get_num_threads()}")
     else:
         out = sys.argv[3] if len(sys.argv) > 3 else "models/baseline"
-        h = forward().numpy().astype(np.float32)
+        ht = forward()  # [seq, d_model], post norm_f
+        h = ht.numpy().astype(np.float32)
         np.save(out + ".npy", h)
         h.tofile(out + ".bin")
         print(f"baseline ||h||={np.linalg.norm(h):.6f} -> {out}.{{npy,bin}} ({h.size} floats)")
+
+        if "flow.in_proj.weight" in W:
+            Af = W["flow.in_proj.weight"].shape[1]
+            Tf = W["flow.time_proj.weight"].shape[1]
+            Lf = sum(1 for k in W if k.startswith("flow.layers."))
+            cond = ht[-1]  # last-token hidden = conditioning vector
+            freqs = torch.tensor([10000.0 ** (-i / (Tf // 2)) for i in range(Tf // 2)])
+
+            def fvel(x, t):
+                hh = W["flow.in_proj.weight"] @ x + W["flow.cond_proj.weight"] @ cond \
+                    + W["flow.time_proj.weight"] @ torch.cat([torch.sin(t * freqs), torch.cos(t * freqs)])
+                hh = F.silu(hh)
+                for lf in range(Lf):
+                    hh = F.silu(W[f"flow.layers.{lf}.weight"] @ hh)
+                return W["flow.out_proj.weight"] @ hh
+
+            x = torch.cos(torch.arange(Af, dtype=torch.float32) * 0.3) * 0.5  # deterministic noise
+            for k in range(10):
+                x = x + 0.1 * fvel(x, k / 10.0)  # Euler, N=10
+            action = x.numpy().astype(np.float32)
+            action.tofile(out + "_action.bin")
+            print(f"baseline action[:4] = {[round(v, 6) for v in action[:4].tolist()]}")

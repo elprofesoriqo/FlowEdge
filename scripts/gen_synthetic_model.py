@@ -31,6 +31,14 @@ for i in range(NL):
     W[p + "mixer.D"] = r(DI)
     W[p + "mixer.out_proj.weight"] = r(DM, DI)
 
+A, H, T, L = 8, 64, 32, 2  # flow head: action, hidden, time, mlp layers (cond_dim = d_model)
+W["flow.in_proj.weight"] = r(H, A)
+W["flow.time_proj.weight"] = r(H, T)
+W["flow.cond_proj.weight"] = r(H, DM)
+W["flow.out_proj.weight"] = r(A, H)
+for l in range(L):
+    W[f"flow.layers.{l}.weight"] = r(H, H)
+
 os.makedirs(os.path.dirname(OUT) or ".", exist_ok=True)
 save_file(W, OUT)
 print(f"wrote {OUT}: vocab={V} d_model={DM} d_inner={DI} d_state={DS} "

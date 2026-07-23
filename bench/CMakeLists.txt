@@ -24,3 +24,8 @@ target_include_directories(flowedge_kernels_bench PRIVATE ${CMAKE_SOURCE_DIR})
 
 add_executable(flowedge_engine_bench engine_bench.cc)
 target_link_libraries(flowedge_engine_bench PRIVATE api benchmark::benchmark)
+
+# flow-matching head + ODE latency
+add_executable(flowedge_flow_bench flow_bench.cc)
+target_link_libraries(flowedge_flow_bench PRIVATE flow benchmark::benchmark)
+target_include_directories(flowedge_flow_bench PRIVATE ${CMAKE_SOURCE_DIR})

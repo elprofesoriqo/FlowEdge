@@ -13,6 +13,11 @@ case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin
 echo "== kernel microbenchmarks =="
 "$BENCH/flowedge_kernels_bench" --benchmark_out="$ROOT/build/kernels.json" --benchmark_out_format=json
 
+echo "== flow head + ODE: FlowEdge vs PyTorch =="
+PY="$(command -v py || command -v python3 || command -v python)"
+"$BENCH/flowedge_flow_bench"
+"$PY" "$ROOT/scripts/torch_ref.py" flowbench
+
 [[ -f "$MODEL" ]] || { echo "note: $MODEL absent — skipping end-to-end vs-PyTorch"; exit 0; }
 
 echo "== FlowEdge (C-ABI) =="
