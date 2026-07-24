@@ -34,6 +34,24 @@ int fe_engine_sample(fe_engine* engine, const int32_t* tokens, size_t seq_len, c
 
 void fe_engine_free(fe_engine* engine);
 
+// Diffusion Policy action head; obs_cond (perception output) is supplied by the caller.
+typedef struct FeDenoiser fe_denoiser;
+
+fe_denoiser* fe_denoiser_load(const char* path);
+
+// Action dimension, or 0 if the checkpoint has no denoiser.
+size_t fe_denoiser_action_dim(const fe_denoiser* denoiser);
+
+// Length of the observation-conditioning vector expected by fe_denoiser_sample.
+size_t fe_denoiser_obs_cond_dim(const fe_denoiser* denoiser);
+
+// Sample an action trajectory: DDIM(noise, obs_cond) over `steps` denoising steps.
+// obs_cond is obs_cond_dim floats; noise and action are horizon*action_dim floats.
+int fe_denoiser_sample(fe_denoiser* denoiser, const float* obs_cond, const float* noise,
+                       size_t horizon, size_t steps, float* action);
+
+void fe_denoiser_free(fe_denoiser* denoiser);
+
 #ifdef __cplusplus
 }
 #endif

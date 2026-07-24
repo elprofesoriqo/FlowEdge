@@ -1,4 +1,4 @@
-#include "kernels.h"
+#include "kernels/kernels.h"
 
 #include <cmath>
 #include <cstddef>
@@ -249,6 +249,67 @@ void conv1d_step(std::span<const float> window, std::span<const float> weight,
     for (std::size_t k{0uz}; k < kernel; ++k)
       acc += kw[k] * wc[k];
     y[c] = acc;
+  }
+}
+
+void group_norm(std::span<const float> x, std::span<const float> weight,
+                std::span<const float> bias, std::span<float> out, std::size_t channels,
+                std::size_t length, std::size_t groups, float eps) noexcept
+{
+  const std::size_t cpg = channels / groups; // channels per group
+  const auto n = static_cast<float>(cpg * length);
+  for (std::size_t g{0uz}; g < groups; ++g) {
+    const std::size_t c0 = g * cpg;
+    float sum{0.0F};
+    for (std::size_t c{c0}; c < c0 + cpg; ++c)
+      for (std::size_t t{0uz}; t < length; ++t)
+        sum += x[(c * length) + t];
+    const float mean = sum / n;
+    float var{0.0F};
+    for (std::size_t c{c0}; c < c0 + cpg; ++c)
+      for (std::size_t t{0uz}; t < length; ++t) {
+        const float d = x[(c * length) + t] - mean;
+        var += d * d;
+      }
+    const float inv = 1.0F / std::sqrt((var / n) + eps);
+    for (std::size_t c{c0}; c < c0 + cpg; ++c)
+      for (std::size_t t{0uz}; t < length; ++t)
+        out[(c * length) + t] = (((x[(c * length) + t] - mean) * inv) * weight[c]) + bias[c];
+  }
+}
+
+void mish(std::span<float> x) noexcept
+{
+  // x·tanh(softplus x); tanh(s) = 1 − 2/(e^{2s}+1), softplus = max(v,0)+log(1+e^-|v|)
+  std::size_t i{0uz};
+#if defined(__AVX2__)
+  const __m256 one = _mm256_set1_ps(1.0F);
+  const __m256 two = _mm256_set1_ps(2.0F);
+  const __m256 zero = _mm256_setzero_ps();
+  const __m256 sign = _mm256_castsi256_ps(_mm256_set1_epi32(static_cast<int>(0x80000000U)));
+  for (; i + 8uz <= x.size(); i += 8uz) {
+    const __m256 v = _mm256_loadu_ps(x.data() + i);
+    const __m256 sp = _mm256_add_ps(_mm256_max_ps(v, zero),
+                                    log8(_mm256_add_ps(one, exp8(_mm256_or_ps(v, sign)))));
+    const __m256 th =
+        _mm256_sub_ps(one, _mm256_div_ps(two, _mm256_add_ps(exp8(_mm256_add_ps(sp, sp)), one)));
+    _mm256_storeu_ps(x.data() + i, _mm256_mul_ps(v, th));
+  }
+#elif defined(__ARM_NEON)
+  const float32x4_t one = vdupq_n_f32(1.0F);
+  const float32x4_t two = vdupq_n_f32(2.0F);
+  const float32x4_t zero = vdupq_n_f32(0.0F);
+  for (; i + 4uz <= x.size(); i += 4uz) {
+    const float32x4_t v = vld1q_f32(x.data() + i);
+    const float32x4_t sp =
+        vaddq_f32(vmaxq_f32(v, zero), log4(vaddq_f32(one, exp4(vnegq_f32(vabsq_f32(v))))));
+    const float32x4_t th = vsubq_f32(one, vdivq_f32(two, vaddq_f32(exp4(vaddq_f32(sp, sp)), one)));
+    vst1q_f32(x.data() + i, vmulq_f32(v, th));
+  }
+#endif
+  for (; i < x.size(); ++i) {
+    const float sp = std::fmax(x[i], 0.0F) + std::log1p(std::exp(-std::fabs(x[i])));
+    x[i] *= std::tanh(sp);
   }
 }
 

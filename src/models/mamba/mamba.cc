@@ -1,6 +1,6 @@
 #include "mamba.h"
 
-#include "cpu/kernels.h"
+#include "kernels/kernels.h"
 
 #include <array>
 #include <cstddef>
@@ -9,14 +9,6 @@
 
 namespace fe {
 namespace {
-
-const TensorView* find(std::span<const TensorView> ts, std::string_view name) noexcept
-{
-  for (const auto& t : ts)
-    if (t.name_view() == name)
-      return &t;
-  return nullptr;
-}
 
 std::string_view layer_key(std::span<char> buf, std::size_t i, std::string_view sub) noexcept
 {
@@ -45,7 +37,7 @@ const float* layer_weight(std::span<const TensorView> ts, std::size_t i, std::st
                           bool& ok) noexcept
 {
   std::array<char, 96> buf{};
-  const TensorView* t = find(ts, layer_key(buf, i, sub));
+  const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
   ok = ok && (t != nullptr);
   return (t != nullptr) ? t->data : nullptr;
 }
@@ -54,11 +46,11 @@ const float* layer_weight(std::span<const TensorView> ts, std::size_t i, std::st
 
 Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scratch_{&scratch}
 {
-  const TensorView* emb = find(weights, "backbone.embeddings.weight");
-  const TensorView* a0 = find(weights, "backbone.layers.0.mixer.A_log");
-  const TensorView* cv0 = find(weights, "backbone.layers.0.mixer.conv1d.weight");
-  const TensorView* xp0 = find(weights, "backbone.layers.0.mixer.x_proj.weight");
-  const TensorView* nf = find(weights, "backbone.norm_f.weight");
+  const TensorView* emb = find_tensor(weights, "backbone.embeddings.weight");
+  const TensorView* a0 = find_tensor(weights, "backbone.layers.0.mixer.A_log");
+  const TensorView* cv0 = find_tensor(weights, "backbone.layers.0.mixer.conv1d.weight");
+  const TensorView* xp0 = find_tensor(weights, "backbone.layers.0.mixer.x_proj.weight");
+  const TensorView* nf = find_tensor(weights, "backbone.norm_f.weight");
   if ((emb == nullptr) || (a0 == nullptr) || (cv0 == nullptr) || (xp0 == nullptr) ||
       (nf == nullptr))
     return;

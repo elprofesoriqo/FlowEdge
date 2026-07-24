@@ -1,9 +1,10 @@
 #include "engine.h"
 
-#include "../arena/arena.h"
-#include "../loader/safetensors.h"
-#include "../model/flow/flow.h"
-#include "../model/mamba.h"
+#include "arena/arena.h"
+#include "loader/safetensors.h"
+#include "models/diffusion/denoiser.h"
+#include "models/mamba/flow.h"
+#include "models/mamba/mamba.h"
 
 #include <algorithm>
 #include <array>
@@ -34,6 +35,18 @@ std::size_t slab_bytes(const char* path)
   return weights + (k_max_decode_seq * per_token * sizeof(float));
 }
 
+std::size_t denoiser_slab_bytes(const char* path)
+{
+  const std::size_t weights = fe::safetensors_f32_bytes(path);
+  return (weights == 0uz) ? 0uz : weights + (std::size_t{96} << 20); // transposed weights + scratch
+}
+
+std::size_t load_views(const char* path, fe::Arena& arena, std::span<fe::TensorView> views) noexcept
+{
+  std::size_t count{0uz};
+  return fe::load_safetensors(path, arena, views, count) ? count : 0uz;
+}
+
 } // namespace
 
 struct FeEngine
@@ -47,21 +60,14 @@ struct FeEngine
   std::span<float> dstate; // persistent streaming state (zero-initialized with the slab)
 
   explicit FeEngine(const char* path)
-      : slab(slab_bytes(path)), arena{std::span<std::byte>{slab}}, n{load(path)},
+      : slab(slab_bytes(path)), arena{std::span<std::byte>{slab}},
+        n{load_views(path, arena, views)},
         model{std::span<const fe::TensorView>{views.data(), n}, arena},
         flow{std::span<const fe::TensorView>{views.data(), n}, arena}
   {
     if (model.valid())
       if (auto* const p = arena.alloc_array<float>(model.state_size(), fe::kSimdAlign))
         dstate = {p, model.state_size()};
-  }
-
-  std::size_t load(const char* path) noexcept
-  {
-    std::size_t count{0uz};
-    if (!fe::load_safetensors(path, arena, std::span{views}, count))
-      return 0uz;
-    return count;
   }
 
   // Embed tokens and run the backbone into `hidden` [seq_len*d_model]
@@ -185,5 +191,60 @@ int fe_engine_sample(fe_engine* engine, const std::int32_t* tokens, std::size_t 
   const auto m = (method == 1) ? fe::FlowHead::kHeun : fe::FlowHead::kEuler;
   engine->flow.sample(cond, {noise, a}, steps, m, {action, a});
   arena.reset_to(mark);
+  return 0;
+}
+
+struct FeDenoiser
+{
+  std::vector<std::byte> slab;
+  fe::Arena arena;
+  std::array<fe::TensorView, max_tensors> views{};
+  std::size_t n;
+  fe::Denoiser model;
+
+  explicit FeDenoiser(const char* path)
+      : slab(denoiser_slab_bytes(path)), arena{std::span<std::byte>{slab}},
+        n{load_views(path, arena, views)},
+        model{std::span<const fe::TensorView>{views.data(), n}, arena}
+  {
+  }
+};
+
+fe_denoiser* fe_denoiser_load(const char* path)
+{
+  try {
+    auto denoiser = std::make_unique<FeDenoiser>(path);
+    return denoiser->model.valid() ? denoiser.release() : nullptr;
+  } catch (const std::exception&) {
+    return nullptr;
+  }
+}
+
+void fe_denoiser_free(fe_denoiser* denoiser)
+{
+  const std::unique_ptr<FeDenoiser> owner{denoiser};
+}
+
+std::size_t fe_denoiser_action_dim(const fe_denoiser* denoiser)
+{
+  return (denoiser != nullptr && denoiser->model.valid()) ? denoiser->model.action_dim() : 0uz;
+}
+
+std::size_t fe_denoiser_obs_cond_dim(const fe_denoiser* denoiser)
+{
+  return (denoiser != nullptr && denoiser->model.valid()) ? denoiser->model.obs_cond_dim() : 0uz;
+}
+
+int fe_denoiser_sample(fe_denoiser* denoiser, const float* obs_cond, const float* noise,
+                       std::size_t horizon, std::size_t steps, float* action)
+{
+  if (denoiser == nullptr || obs_cond == nullptr || noise == nullptr || action == nullptr ||
+      horizon == 0uz || steps == 0uz)
+    return 1;
+  if (!denoiser->model.valid())
+    return 4;
+  const std::size_t a = denoiser->model.action_dim();
+  denoiser->model.sample({obs_cond, denoiser->model.obs_cond_dim()}, {noise, horizon * a}, steps,
+                         {action, horizon * a});
   return 0;
 }

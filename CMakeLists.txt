@@ -15,11 +15,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES 
   add_compile_options(-mavx2 -mfma -fno-math-errno)
 endif()
 
-add_subdirectory(arena)
-add_subdirectory(loader)
 add_subdirectory(src)
-add_subdirectory(api)
-add_subdirectory(model)
 add_subdirectory(examples)
 
 if(FLOWEDGE_TESTS)

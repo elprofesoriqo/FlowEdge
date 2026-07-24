@@ -20,6 +20,16 @@ struct TensorView
   [[nodiscard]] std::string_view name_view() const noexcept { return {name.data()}; }
 };
 
+// First tensor whose name matches, or nullptr.
+[[nodiscard]] inline const TensorView* find_tensor(std::span<const TensorView> ts,
+                                                   std::string_view name) noexcept
+{
+  for (const auto& t : ts)
+    if (t.name_view() == name)
+      return &t;
+  return nullptr;
+}
+
 // Parse an F32/BF16 .safetensors file, copying each tensor into the arena as F32
 [[nodiscard]] bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView> out,
                                     std::size_t& tensors_loaded) noexcept;

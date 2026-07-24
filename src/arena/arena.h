@@ -39,6 +39,13 @@ public:
     return static_cast<T*>(alloc(count * sizeof(T), align));
   }
 
+  template<typename T>
+    requires std::is_trivially_copyable_v<T>
+  [[nodiscard]] std::span<T> alloc_span(std::size_t count, std::size_t align = alignof(T)) noexcept
+  {
+    return {alloc_array<T>(count, align), count};
+  }
+
   [[nodiscard]] std::byte* mark() const noexcept { return cursor_; }
   void reset_to(std::byte* mark) noexcept { cursor_ = mark; }
 

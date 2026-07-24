@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../arena/arena.h"
-#include "../../loader/safetensors.h"
+#include "arena/arena.h"
+#include "loader/safetensors.h"
 
 #include <array>
 #include <cstddef>
@@ -42,6 +42,10 @@ private:
   // c_emb = cond_proj·cond
   void velocity(std::span<const float> x, float t, std::span<const float> c_emb,
                 std::span<float> v) noexcept;
+  [[nodiscard]] std::span<float> arena_span(std::size_t n) noexcept
+  {
+    return scratch_->alloc_span<float>(n, kSimdAlign);
+  }
 
   FlowConfig cfg_{};
   const float* in_proj_{};                     // [hidden][action_dim]

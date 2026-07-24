@@ -1,1 +1,0 @@
-add_library(cpu_model STATIC kernels.cc kernels.h)
