@@ -1,11 +1,17 @@
-# Compute kernels. The interface (kernels.h) is backend-agnostic; each backend supplies the
-# implementation. Select with -DFLOWEDGE_BACKEND=cpu (default). Drop in gpu/ (CUDA) or npu/ later.
-set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu (gpu/npu to come)")
+# compute kernels, select with -DFLOWEDGE_BACKEND=cpu (default)
+set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
 
 if(FLOWEDGE_BACKEND STREQUAL "cpu")
-  add_library(kernels STATIC cpu/kernels.cc kernels.h)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
+    set(KERNEL_SRC cpu/kernels_avx2.cc)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64|ARM64")
+    set(KERNEL_SRC cpu/kernels_neon.cc)
+  else()
+    set(KERNEL_SRC cpu/kernels_scalar.cc)
+  endif()
+  add_library(kernels STATIC ${KERNEL_SRC} kernels.h)
 else()
-  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' has no implementation yet")
+  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' has no implementation")
 endif()
 
-target_include_directories(kernels PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(kernels PUBLIC $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src> $<INSTALL_INTERFACE:include>)

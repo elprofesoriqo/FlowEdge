@@ -1,18 +1,14 @@
 #include "kernels/kernels.h"
 
+#include <arm_neon.h>
 #include <cmath>
 #include <cstddef>
 #include <numbers>
-#if defined(__AVX2__)
-#include <immintrin.h>
-#elif defined(__ARM_NEON)
-#include <arm_neon.h>
-#endif
 
 namespace fe {
 namespace {
 
-#if defined(__AVX2__) || defined(__ARM_NEON)
+// Cephes polynomial constants shared by exp4 and log4.
 constexpr float exp_clamp = 88.3762F;
 constexpr float log2e = std::numbers::log2e_v<float>;
 constexpr float ln2_hi = 0.693359375F;
@@ -33,57 +29,7 @@ constexpr float log_p5 = -1.6668057665e-1F;
 constexpr float log_p6 = 2.0000714765e-1F;
 constexpr float log_p7 = -2.4999993993e-1F;
 constexpr float log_p8 = 3.3333331174e-1F;
-#endif
 
-#if defined(__AVX2__)
-// Cephes 8-wide expf (~1 ULP)
-__m256 exp8(__m256 x) noexcept
-{
-  x = _mm256_min_ps(_mm256_max_ps(x, _mm256_set1_ps(-exp_clamp)), _mm256_set1_ps(exp_clamp));
-  const __m256 fx = _mm256_round_ps(_mm256_mul_ps(x, _mm256_set1_ps(log2e)),
-                                    _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
-  x = _mm256_fnmadd_ps(fx, _mm256_set1_ps(ln2_hi), x);
-  x = _mm256_fnmadd_ps(fx, _mm256_set1_ps(ln2_lo), x);
-  __m256 y = _mm256_set1_ps(exp_p0);
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(exp_p1));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(exp_p2));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(exp_p3));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(exp_p4));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(exp_p5));
-  y = _mm256_fmadd_ps(y, _mm256_mul_ps(x, x), x);
-  y = _mm256_add_ps(y, _mm256_set1_ps(1.0F));
-  const __m256i pow2 =
-      _mm256_slli_epi32(_mm256_add_epi32(_mm256_cvttps_epi32(fx), _mm256_set1_epi32(127)), 23);
-  return _mm256_mul_ps(y, _mm256_castsi256_ps(pow2));
-}
-// Cephes 8-wide logf (~1 ULP)
-__m256 log8(__m256 x) noexcept
-{
-  __m256 e = _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_srli_epi32(_mm256_castps_si256(x), 23),
-                                                 _mm256_set1_epi32(0x7E))); // unbiased exp
-  x = _mm256_or_ps(_mm256_and_ps(x, _mm256_castsi256_ps(
-                                        _mm256_set1_epi32(static_cast<int>(0x807FFFFFU)))),
-                   _mm256_set1_ps(0.5F)); // mantissa in [0.5,1)
-  const __m256 lo = _mm256_cmp_ps(x, _mm256_set1_ps(sqrt_half), _CMP_LT_OS);
-  e = _mm256_sub_ps(e, _mm256_and_ps(_mm256_set1_ps(1.0F), lo));
-  x = _mm256_sub_ps(_mm256_add_ps(x, _mm256_and_ps(x, lo)), _mm256_set1_ps(1.0F));
-  const __m256 z = _mm256_mul_ps(x, x);
-  __m256 y = _mm256_set1_ps(log_p0);
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p1));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p2));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p3));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p4));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p5));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p6));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p7));
-  y = _mm256_fmadd_ps(y, x, _mm256_set1_ps(log_p8));
-  y = _mm256_mul_ps(_mm256_mul_ps(y, x), z);
-  y = _mm256_fmadd_ps(e, _mm256_set1_ps(ln2_lo), y);
-  y = _mm256_fnmadd_ps(z, _mm256_set1_ps(0.5F), y);
-  x = _mm256_add_ps(x, y);
-  return _mm256_fmadd_ps(e, _mm256_set1_ps(ln2_hi), x);
-}
-#elif defined(__ARM_NEON)
 // same Cephes expf, 4-wide NEON
 float32x4_t exp4(float32x4_t x) noexcept
 {
@@ -102,6 +48,7 @@ float32x4_t exp4(float32x4_t x) noexcept
   const int32x4_t pow2 = vshlq_n_s32(vaddq_s32(vcvtq_s32_f32(fx), vdupq_n_s32(127)), 23);
   return vmulq_f32(y, vreinterpretq_f32_s32(pow2));
 }
+
 // same Cephes logf, 4-wide NEON
 float32x4_t log4(float32x4_t x) noexcept
 {
@@ -129,16 +76,38 @@ float32x4_t log4(float32x4_t x) noexcept
   x = vaddq_f32(x, y);
   return vfmaq_f32(x, e, vdupq_n_f32(ln2_hi));
 }
-#endif
 
-#if defined(__AVX2__)
-float hsum8(__m256 v) noexcept
+// 1 recurrence step, state-major [n][c]: advance h in place, emit y (skip term + Σ_n h·c)
+inline void scan_advance(const float* __restrict__ da_t, const float* __restrict__ dbu_t,
+                         const float* __restrict__ c_t, const float* __restrict__ u_t,
+                         const float* __restrict__ d, float* __restrict__ hs,
+                         float* __restrict__ y_t, std::size_t d_inner, std::size_t d_state) noexcept
 {
-  const __m128 lo = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
-  const __m128 s2 = _mm_hadd_ps(lo, lo);
-  return _mm_cvtss_f32(_mm_hadd_ps(s2, s2));
+  std::size_t c0{0uz};
+  for (; c0 + 4uz <= d_inner; c0 += 4uz)
+    vst1q_f32(y_t + c0, vmulq_f32(vld1q_f32(d + c0), vld1q_f32(u_t + c0)));
+  for (; c0 < d_inner; ++c0)
+    y_t[c0] = d[c0] * u_t[c0]; // skip term, scan accumulates onto it
+
+  for (std::size_t n{0uz}; n < d_state; ++n) {
+    float* __restrict__ hn = hs + (n * d_inner);
+    const float* __restrict__ da_n = da_t + (n * d_inner);
+    const float* __restrict__ dbu_n = dbu_t + (n * d_inner);
+    const float cn = c_t[n];
+    const float32x4_t vcn = vdupq_n_f32(cn);
+    std::size_t c{0uz};
+    for (; c + 4uz <= d_inner; c += 4uz) {
+      float32x4_t vh = vld1q_f32(hn + c);
+      vh = vfmaq_f32(vld1q_f32(dbu_n + c), vld1q_f32(da_n + c), vh); // dbu + da*h
+      vst1q_f32(hn + c, vh);
+      vst1q_f32(y_t + c, vfmaq_f32(vld1q_f32(y_t + c), vh, vcn)); // yt + h*cn
+    }
+    for (; c < d_inner; ++c) {
+      hn[c] = (da_n[c] * hn[c]) + dbu_n[c];
+      y_t[c] += hn[c] * cn;
+    }
+  }
 }
-#endif
 
 } // namespace
 
@@ -150,11 +119,9 @@ void conv1d_causal(std::span<const float> x, std::span<const float> weight,
     const float* __restrict__ xc = x.data() + (c * length);
     const float* __restrict__ wc = weight.data() + (c * kernel);
     float* __restrict__ yc = y.data() + (c * length);
-
     const float bc = bias[c];
     for (std::size_t t{0uz}; t < length; ++t)
       yc[t] = bc;
-
     for (std::size_t k{0uz}; k < kernel; ++k) {
       const float wk = wc[k];
       const std::size_t start = (kernel - 1uz) - k;
@@ -167,51 +134,17 @@ void conv1d_causal(std::span<const float> x, std::span<const float> weight,
 void gate_silu(std::span<const float> a, std::span<const float> g, std::span<float> out) noexcept
 {
   std::size_t i{0uz};
-#if defined(__AVX2__)
-  const __m256 one = _mm256_set1_ps(1.0F);
-  const __m256 zero = _mm256_setzero_ps();
-  for (; i + 8uz <= out.size(); i += 8uz) {
-    const __m256 vg = _mm256_loadu_ps(g.data() + i);
-    const __m256 sig = _mm256_div_ps(vg, _mm256_add_ps(one, exp8(_mm256_sub_ps(zero, vg))));
-    _mm256_storeu_ps(out.data() + i, _mm256_mul_ps(_mm256_loadu_ps(a.data() + i), sig));
-  }
-#elif defined(__ARM_NEON)
   const float32x4_t one = vdupq_n_f32(1.0F);
   for (; i + 4uz <= out.size(); i += 4uz) {
     const float32x4_t vg = vld1q_f32(g.data() + i);
     const float32x4_t sig = vdivq_f32(vg, vaddq_f32(one, exp4(vnegq_f32(vg))));
     vst1q_f32(out.data() + i, vmulq_f32(vld1q_f32(a.data() + i), sig));
   }
-#endif
   for (; i < out.size(); ++i) {
     const float v = g[i];
     out[i] = a[i] * (v / (1.0F + std::exp(-v)));
   }
 }
-
-namespace {
-
-// 1 recurrence step, state-major [n][c]: advance h in place, emit y (skip term + Σ_n h·c)
-inline void scan_advance(const float* __restrict__ da_t, const float* __restrict__ dbu_t,
-                         const float* __restrict__ c_t, const float* __restrict__ u_t,
-                         const float* __restrict__ d, float* __restrict__ hs,
-                         float* __restrict__ y_t, std::size_t d_inner, std::size_t d_state) noexcept
-{
-  for (std::size_t c{0uz}; c < d_inner; ++c)
-    y_t[c] = d[c] * u_t[c]; // skip term, scan accumulates onto it
-  for (std::size_t n{0uz}; n < d_state; ++n) {
-    float* __restrict__ hn = hs + (n * d_inner);
-    const float* __restrict__ da_n = da_t + (n * d_inner);
-    const float* __restrict__ dbu_n = dbu_t + (n * d_inner);
-    const float cn = c_t[n];
-    for (std::size_t c{0uz}; c < d_inner; ++c) {
-      hn[c] = (da_n[c] * hn[c]) + dbu_n[c];
-      y_t[c] += hn[c] * cn;
-    }
-  }
-}
-
-} // namespace
 
 void selective_scan(std::span<const float> delta_a, std::span<const float> delta_bu,
                     std::span<const float> c_proj, std::span<const float> d_skip,
@@ -221,7 +154,6 @@ void selective_scan(std::span<const float> delta_a, std::span<const float> delta
   float* __restrict__ hs = h.data();
   for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
     hs[i] = 0.0F; // h_0 = 0
-
   const std::size_t plane = d_state * d_inner;
   for (std::size_t t{0uz}; t < length; ++t)
     scan_advance(delta_a.data() + (t * plane), delta_bu.data() + (t * plane),
@@ -252,85 +184,14 @@ void conv1d_step(std::span<const float> window, std::span<const float> weight,
   }
 }
 
-void group_norm(std::span<const float> x, std::span<const float> weight,
-                std::span<const float> bias, std::span<float> out, std::size_t channels,
-                std::size_t length, std::size_t groups, float eps) noexcept
-{
-  const std::size_t cpg = channels / groups; // channels per group
-  const auto n = static_cast<float>(cpg * length);
-  for (std::size_t g{0uz}; g < groups; ++g) {
-    const std::size_t c0 = g * cpg;
-    float sum{0.0F};
-    for (std::size_t c{c0}; c < c0 + cpg; ++c)
-      for (std::size_t t{0uz}; t < length; ++t)
-        sum += x[(c * length) + t];
-    const float mean = sum / n;
-    float var{0.0F};
-    for (std::size_t c{c0}; c < c0 + cpg; ++c)
-      for (std::size_t t{0uz}; t < length; ++t) {
-        const float d = x[(c * length) + t] - mean;
-        var += d * d;
-      }
-    const float inv = 1.0F / std::sqrt((var / n) + eps);
-    for (std::size_t c{c0}; c < c0 + cpg; ++c)
-      for (std::size_t t{0uz}; t < length; ++t)
-        out[(c * length) + t] = (((x[(c * length) + t] - mean) * inv) * weight[c]) + bias[c];
-  }
-}
-
-void mish(std::span<float> x) noexcept
-{
-  // x·tanh(softplus x); tanh(s) = 1 − 2/(e^{2s}+1), softplus = max(v,0)+log(1+e^-|v|)
-  std::size_t i{0uz};
-#if defined(__AVX2__)
-  const __m256 one = _mm256_set1_ps(1.0F);
-  const __m256 two = _mm256_set1_ps(2.0F);
-  const __m256 zero = _mm256_setzero_ps();
-  const __m256 sign = _mm256_castsi256_ps(_mm256_set1_epi32(static_cast<int>(0x80000000U)));
-  for (; i + 8uz <= x.size(); i += 8uz) {
-    const __m256 v = _mm256_loadu_ps(x.data() + i);
-    const __m256 sp = _mm256_add_ps(_mm256_max_ps(v, zero),
-                                    log8(_mm256_add_ps(one, exp8(_mm256_or_ps(v, sign)))));
-    const __m256 th =
-        _mm256_sub_ps(one, _mm256_div_ps(two, _mm256_add_ps(exp8(_mm256_add_ps(sp, sp)), one)));
-    _mm256_storeu_ps(x.data() + i, _mm256_mul_ps(v, th));
-  }
-#elif defined(__ARM_NEON)
-  const float32x4_t one = vdupq_n_f32(1.0F);
-  const float32x4_t two = vdupq_n_f32(2.0F);
-  const float32x4_t zero = vdupq_n_f32(0.0F);
-  for (; i + 4uz <= x.size(); i += 4uz) {
-    const float32x4_t v = vld1q_f32(x.data() + i);
-    const float32x4_t sp =
-        vaddq_f32(vmaxq_f32(v, zero), log4(vaddq_f32(one, exp4(vnegq_f32(vabsq_f32(v))))));
-    const float32x4_t th = vsubq_f32(one, vdivq_f32(two, vaddq_f32(exp4(vaddq_f32(sp, sp)), one)));
-    vst1q_f32(x.data() + i, vmulq_f32(v, th));
-  }
-#endif
-  for (; i < x.size(); ++i) {
-    const float sp = std::fmax(x[i], 0.0F) + std::log1p(std::exp(-std::fabs(x[i])));
-    x[i] *= std::tanh(sp);
-  }
-}
-
 void silu(std::span<float> x) noexcept
 {
   std::size_t i{0uz};
-#if defined(__AVX2__)
-  const __m256 one = _mm256_set1_ps(1.0F);
-  const __m256 zero = _mm256_setzero_ps();
-  for (; i + 8uz <= x.size(); i += 8uz) {
-    const __m256 v = _mm256_loadu_ps(x.data() + i);
-    _mm256_storeu_ps(x.data() + i,
-                     _mm256_div_ps(v, _mm256_add_ps(one, exp8(_mm256_sub_ps(zero, v)))));
-  }
-#elif defined(__ARM_NEON)
   const float32x4_t one = vdupq_n_f32(1.0F);
   for (; i + 4uz <= x.size(); i += 4uz) {
     const float32x4_t v = vld1q_f32(x.data() + i);
     vst1q_f32(x.data() + i, vdivq_f32(v, vaddq_f32(one, exp4(vnegq_f32(v)))));
   }
-#endif
   for (; i < x.size(); ++i)
     x[i] = x[i] / (1.0F + std::exp(-x[i]));
 }
@@ -340,17 +201,6 @@ void softplus(std::span<float> x) noexcept
   // max(v,0) + log(1 + e^-|v|)
   // e^-|v| in (0,1]
   std::size_t i{0uz};
-#if defined(__AVX2__)
-  const __m256 one = _mm256_set1_ps(1.0F);
-  const __m256 zero = _mm256_setzero_ps();
-  const __m256 sign = _mm256_castsi256_ps(_mm256_set1_epi32(static_cast<int>(0x80000000U)));
-  for (; i + 8uz <= x.size(); i += 8uz) {
-    const __m256 v = _mm256_loadu_ps(x.data() + i);
-    const __m256 nabs = _mm256_or_ps(v, sign); // -|v|
-    _mm256_storeu_ps(x.data() + i,
-                     _mm256_add_ps(_mm256_max_ps(v, zero), log8(_mm256_add_ps(one, exp8(nabs)))));
-  }
-#elif defined(__ARM_NEON)
   const float32x4_t one = vdupq_n_f32(1.0F);
   const float32x4_t zero = vdupq_n_f32(0.0F);
   for (; i + 4uz <= x.size(); i += 4uz) {
@@ -358,7 +208,6 @@ void softplus(std::span<float> x) noexcept
     const float32x4_t nabs = vnegq_f32(vabsq_f32(v));
     vst1q_f32(x.data() + i, vaddq_f32(vmaxq_f32(v, zero), log4(vaddq_f32(one, exp4(nabs)))));
   }
-#endif
   for (; i < x.size(); ++i)
     x[i] = std::log1p(std::exp(x[i]));
 }
@@ -388,22 +237,6 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
       const float* __restrict__ wr = w.data() + (o * in_dim);
       float acc{0.0F};
       std::size_t i{0uz};
-#if defined(__AVX2__)
-      __m256 a0 = _mm256_setzero_ps();
-      __m256 a1 = a0;
-      __m256 a2 = a0;
-      __m256 a3 = a0;
-      for (; i + 32uz <= in_dim; i += 32uz) {
-        a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), a0);
-        a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), _mm256_loadu_ps(wr + i + 8uz), a1);
-        a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), _mm256_loadu_ps(wr + i + 16uz), a2);
-        a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), _mm256_loadu_ps(wr + i + 24uz), a3);
-      }
-      __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
-      for (; i + 8uz <= in_dim; i += 8uz)
-        av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), av);
-      acc = hsum8(av);
-#elif defined(__ARM_NEON)
       float32x4_t a0 = vdupq_n_f32(0.0F);
       float32x4_t a1 = a0;
       float32x4_t a2 = a0;
@@ -418,7 +251,6 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
       for (; i + 4uz <= in_dim; i += 4uz)
         av = vfmaq_f32(av, vld1q_f32(ir + i), vld1q_f32(wr + i));
       acc = vaddvq_f32(av);
-#endif
       for (; i < in_dim; ++i)
         acc += ir[i] * wr[i];
       out.data()[o] = acc;
@@ -439,23 +271,6 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
       float acc2{0.0F};
       float acc3{0.0F};
       std::size_t i{0uz};
-#if defined(__AVX2__)
-      __m256 v0 = _mm256_setzero_ps();
-      __m256 v1 = v0;
-      __m256 v2 = v0;
-      __m256 v3 = v0;
-      for (; i + 8uz <= in_dim; i += 8uz) {
-        const __m256 wv = _mm256_loadu_ps(wr + i);
-        v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
-        v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
-        v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
-        v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
-      }
-      acc0 = hsum8(v0);
-      acc1 = hsum8(v1);
-      acc2 = hsum8(v2);
-      acc3 = hsum8(v3);
-#elif defined(__ARM_NEON)
       float32x4_t v0 = vdupq_n_f32(0.0F);
       float32x4_t v1 = v0;
       float32x4_t v2 = v0;
@@ -471,7 +286,6 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
       acc1 = vaddvq_f32(v1);
       acc2 = vaddvq_f32(v2);
       acc3 = vaddvq_f32(v3);
-#endif
       for (; i < in_dim; ++i) {
         const float wv = wr[i];
         acc0 += i0[i] * wv;
@@ -501,13 +315,8 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
   // transpose + negate into a_work[n][c].
   float* __restrict__ tmp = delta_a.data();
   std::size_t i{0uz};
-#if defined(__AVX2__)
-  for (; i + 8uz <= plane; i += 8uz)
-    _mm256_storeu_ps(tmp + i, exp8(_mm256_loadu_ps(a_log.data() + i)));
-#elif defined(__ARM_NEON)
   for (; i + 4uz <= plane; i += 4uz)
     vst1q_f32(tmp + i, exp4(vld1q_f32(a_log.data() + i)));
-#endif
   for (; i < plane; ++i)
     tmp[i] = std::exp(a_log[i]);
 
@@ -527,23 +336,13 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
       float* __restrict__ da_n = delta_a.data() + (((t * d_state) + n) * d_inner);
       float* __restrict__ dbu_n = delta_bu.data() + (((t * d_state) + n) * d_inner);
       const float bn = bt[n];
-      std::size_t c{0uz};
-#if defined(__AVX2__)
-      const __m256 vbn = _mm256_set1_ps(bn);
-      for (; c + 8uz <= d_inner; c += 8uz) {
-        const __m256 vdt = _mm256_loadu_ps(dt + c);
-        _mm256_storeu_ps(da_n + c, exp8(_mm256_mul_ps(vdt, _mm256_loadu_ps(an + c))));
-        _mm256_storeu_ps(dbu_n + c,
-                         _mm256_mul_ps(_mm256_mul_ps(vdt, vbn), _mm256_loadu_ps(ut + c)));
-      }
-#elif defined(__ARM_NEON)
       const float32x4_t vbn = vdupq_n_f32(bn);
+      std::size_t c{0uz};
       for (; c + 4uz <= d_inner; c += 4uz) {
         const float32x4_t vdt = vld1q_f32(dt + c);
         vst1q_f32(da_n + c, exp4(vmulq_f32(vdt, vld1q_f32(an + c))));
         vst1q_f32(dbu_n + c, vmulq_f32(vmulq_f32(vdt, vbn), vld1q_f32(ut + c)));
       }
-#endif
       for (; c < d_inner; ++c) {
         da_n[c] = std::exp(dt[c] * an[c]);
         dbu_n[c] = dt[c] * bn * ut[c];

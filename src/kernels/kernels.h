@@ -50,18 +50,6 @@ void conv1d_step(std::span<const float> window, std::span<const float> weight,
                  std::span<const float> bias, std::span<float> y, std::size_t channels,
                  std::size_t kernel) noexcept;
 
-// --- diffusion-denoiser kernels (1D conv U-Net) ---
-// The conv / transposed-conv both run as (im2col|col2im) + the SIMD matmul inside the denoiser.
-
-// GroupNorm over x[channels][length]: per group of channels/groups, then affine per channel.
-// out[c,t] = (x[c,t] − mean_g)/sqrt(var_g + eps)·weight[c] + bias[c].
-void group_norm(std::span<const float> x, std::span<const float> weight,
-                std::span<const float> bias, std::span<float> out, std::size_t channels,
-                std::size_t length, std::size_t groups, float eps = 1e-5F) noexcept;
-
-// In-place Mish: x[i] = x[i]·tanh(softplus(x[i]))
-void mish(std::span<float> x) noexcept;
-
 // Discretize into scan inputs, output layout [t][n][c]
 // delta_a[t,n,c]=exp(delta[t,c]·A[n,c]), A=-exp(a_log)
 // delta_bu[t,n,c]=delta[t,c]·b[t,n]·u[t,c]
