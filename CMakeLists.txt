@@ -13,6 +13,9 @@ option(FLOWEDGE_BENCH "Build the Google Benchmark microbenchmarks (dev-only)" OF
 # Enable AVX2+FMA on x86
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
   add_compile_options(-mavx2 -mfma -fno-math-errno)
+  if(WIN32)
+    add_compile_options(-mstackrealign)
+  endif()
 endif()
 
 add_subdirectory(src)
@@ -25,3 +28,15 @@ endif()
 if(FLOWEDGE_BENCH)
   add_subdirectory(bench)
 endif()
+option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF)
+if(FLOWEDGE_PYTHON)
+  add_subdirectory(python)
+endif()
+
+# Create Config file for find_package(FlowEdge)
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"
+  VERSION 0.1.0
+  COMPATIBILITY AnyNewerVersion
+)

@@ -10,47 +10,82 @@ extern "C" {
 
 typedef struct FeEngine fe_engine;
 
+/**
+ * @brief Returns the last error message encountered by the engine on the current thread.
+ * @return A null-terminated string describing the error, or an empty string if no error occurred.
+ */
+const char* fe_engine_last_error(void);
+
+/**
+ * @brief Load a FlowEdge model from a .safetensors file.
+ * @param path Path to the .safetensors file.
+ * @return Pointer to the initialized engine, or NULL on failure. Check fe_engine_last_error() on failure.
+ */
 fe_engine* fe_engine_load(const char* path);
 
-// Model dimensions
+/**
+ * @brief Get the underlying backbone model dimensions.
+ * @param engine The engine instance.
+ * @param d_model Output pointer for the model dimension (can be NULL).
+ * @param n_layers Output pointer for the number of layers (can be NULL).
+ */
 void fe_engine_dims(const fe_engine* engine, size_t* d_model, size_t* n_layers);
 
+/**
+ * @brief Process a sequence of tokens in batch mode (prefill).
+ * @param engine The engine instance.
+ * @param tokens Array of input token IDs.
+ * @param seq_len Length of the token array.
+ * @param out Output buffer of size [seq_len * d_model] for the hidden states.
+ * @return 0 on success, non-zero on error.
+ */
 int fe_engine_run(fe_engine* engine, const int32_t* tokens, size_t seq_len, float* out);
 
-// streaming decode: advance one token against the engine's persistent SSM state, out is d_model
+/**
+ * @brief Advance the streaming decode state by a single token.
+ * @param engine The engine instance.
+ * @param token The input token ID.
+ * @param out Output buffer of size [d_model] for the current hidden state.
+ * @return 0 on success, non-zero on error.
+ */
 int fe_engine_step(fe_engine* engine, int32_t token, float* out);
 
-// begin a fresh sequence
+/**
+ * @brief Reset the internal streaming state for a new sequence.
+ * @param engine The engine instance.
+ */
 void fe_engine_reset(fe_engine* engine);
 
-// Flow-head action dimension, or 0 if the checkpoint has no flow head.
+/**
+ * @brief Get the action dimension of the flow-matching head.
+ * @param engine The engine instance.
+ * @return The action dimension, or 0 if the checkpoint lacks a flow head.
+ */
 size_t fe_engine_action_dim(const fe_engine* engine);
 
-// Sample an action: Mamba(tokens) -> last hidden = cond -> ODE(noise) -> action.
-// noise and action are action_dim floats
-// method 0=Euler, 1=Heun
+/**
+ * @brief Sample an action trajectory from the flow-matching head.
+ *
+ * This function processes the input tokens to generate a conditioning context,
+ * then solves the ODE from the provided noise to the final action.
+ *
+ * @param engine The engine instance.
+ * @param tokens Array of conditioning token IDs (prefix).
+ * @param seq_len Length of the token array.
+ * @param noise Initial Gaussian noise array of size [action_dim].
+ * @param steps Number of ODE solver steps.
+ * @param method The ODE solver to use (0 = Euler, 1 = Heun).
+ * @param action Output buffer of size [action_dim] for the final action.
+ * @return 0 on success, non-zero on error.
+ */
 int fe_engine_sample(fe_engine* engine, const int32_t* tokens, size_t seq_len, const float* noise,
                      size_t steps, int method, float* action);
 
+/**
+ * @brief Free the engine resources.
+ * @param engine The engine instance to destroy.
+ */
 void fe_engine_free(fe_engine* engine);
-
-// Diffusion Policy action head; obs_cond (perception output) is supplied by the caller.
-typedef struct FeDenoiser fe_denoiser;
-
-fe_denoiser* fe_denoiser_load(const char* path);
-
-// Action dimension, or 0 if the checkpoint has no denoiser.
-size_t fe_denoiser_action_dim(const fe_denoiser* denoiser);
-
-// Length of the observation-conditioning vector expected by fe_denoiser_sample.
-size_t fe_denoiser_obs_cond_dim(const fe_denoiser* denoiser);
-
-// Sample an action trajectory: DDIM(noise, obs_cond) over `steps` denoising steps.
-// obs_cond is obs_cond_dim floats; noise and action are horizon*action_dim floats.
-int fe_denoiser_sample(fe_denoiser* denoiser, const float* obs_cond, const float* noise,
-                       size_t horizon, size_t steps, float* action);
-
-void fe_denoiser_free(fe_denoiser* denoiser);
 
 #ifdef __cplusplus
 }

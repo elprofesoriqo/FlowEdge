@@ -35,7 +35,15 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
     std::size_t p{0uz};
     for (const char ch : std::string_view{"flow.layers."})
       buf[p++] = ch;
-    buf[p++] = static_cast<char>('0' + n); // mlp_layers < 10
+    // multi-digit: safe when kMaxMlp is raised past 9
+    std::array<char, 4> digs{};
+    std::size_t nd{0uz};
+    for (std::size_t v = n; v != 0uz; v /= 10uz)
+      digs[nd++] = static_cast<char>('0' + (v % 10uz));
+    if (nd == 0uz)
+      digs[nd++] = '0';
+    while (nd > 0uz)
+      buf[p++] = digs[--nd];
     for (const char ch : std::string_view{".weight"})
       buf[p++] = ch;
     const TensorView* lw = find_tensor(weights, {buf.data(), p});
