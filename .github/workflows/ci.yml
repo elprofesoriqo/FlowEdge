@@ -22,6 +22,21 @@ jobs:
       - name: Test suite (ctest)
         run: ctest --test-dir build --output-on-failure
 
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
+      - run: ./scripts/build.sh Release -DFLOWEDGE_PYTHON=ON
+      - name: ULP vs PyTorch gate (flow-matching Mamba trajectory)
+        run: |
+          python scripts/gen_synthetic_model.py models/mamba_flow.safetensors
+          PYTHONPATH=build/python python scripts/verify_ulp.py models/mamba_flow.safetensors
+
   bench:
     runs-on: ubuntu-latest
     steps:
@@ -33,23 +48,23 @@ jobs:
           path: build/_deps
           key: gbench-v1.9.1-${{ runner.os }}
       - run: ./scripts/build.sh Release -DFLOWEDGE_BENCH=ON
+      - name: Action-head latency + zero-allocation (report-only)
+        run: ./build/bench/flowedge_latency_bench euler | tee latency.txt
       - name: Kernel microbenchmarks (report-only)
         run: |
           ./build/bench/flowedge_kernels_bench \
             --benchmark_out=kernels.json --benchmark_out_format=json | tee kernels.txt
-      - name: Flow head + ODE benchmark (report-only)
-        run: ./build/bench/flowedge_flow_bench | tee flow.txt
       - name: Job summary
         if: always()
         run: |
           {
+            echo '### Action-head real-time latency (flow-matching ODE)'
+            echo '```'
+            cat latency.txt
+            echo '```'
             echo '### Kernel microbenchmarks — Mamba-130M sizes, seq=4'
             echo '```'
             cat kernels.txt
-            echo '```'
-            echo '### Flow head + ODE (Euler/Heun)'
-            echo '```'
-            cat flow.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload results

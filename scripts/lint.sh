@@ -11,5 +11,5 @@ find "$ROOT" \( -name "*.h" -o -name "*.cc" -o -name "*.cpp" \) \
   | xargs -0 clang-format --style=file --Werror "$FORMAT_FLAG"
 
 find "$ROOT" \( -name "*.cc" -o -name "*.cpp" \) \
-  ! -path "*/build/*" ! -path "*/bench/*" ! -path "*/test/*" -print0 \
+  ! -path "*/build/*" ! -path "*/bench/*" ! -path "*/test/*" ! -path "*/python/*" -print0 \
   | xargs -0 clang-tidy -p "$ROOT/build" ${FIX:+--fix}

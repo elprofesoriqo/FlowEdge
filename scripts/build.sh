@@ -25,5 +25,5 @@ esac
 
 ARGS+=("${@:2}") # forward extra -D flags (e.g. -DFLOWEDGE_BENCH=ON)
 
-cmake "${ARGS[@]}"
-cmake --build "$ROOT/build"
+cmake --log-level=WARNING "${ARGS[@]}"
+cmake --build "$ROOT/build" -j 1

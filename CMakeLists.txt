@@ -9,6 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(FLOWEDGE_TESTS "Build the GoogleTest suite (dev/CI-only)" OFF)
 option(FLOWEDGE_BENCH "Build the Google Benchmark microbenchmarks (dev-only)" OFF)
+option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF)
 
 # Enable AVX2+FMA on x86
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
@@ -18,22 +19,123 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES 
   endif()
 endif()
 
-add_subdirectory(src)
-add_subdirectory(examples)
+# compute kernels, select with -DFLOWEDGE_BACKEND=cpu (default)
+set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
 
+if(FLOWEDGE_BACKEND STREQUAL "cpu")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
+    set(KERNEL_SRC src/kernels/cpu/kernels_avx2.cc)
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64|ARM64")
+    set(KERNEL_SRC src/kernels/cpu/kernels_neon.cc)
+  else()
+    set(KERNEL_SRC src/kernels/cpu/kernels_scalar.cc)
+  endif()
+else()
+  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' has no implementation")
+endif()
+
+# ENGINE
+add_library(flowedge_engine STATIC
+  ${KERNEL_SRC}
+  src/loader/safetensors.cc
+  src/models/mamba/mamba.cc
+  src/models/mamba/flow.cc
+  src/api/engine.cc
+)
+
+target_include_directories(flowedge_engine PUBLIC 
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> 
+  $<INSTALL_INTERFACE:include>
+)
+
+# EXAMPLES
+foreach(ex flow_sample mamba_forward)
+  add_executable(${ex} examples/${ex}.cc)
+  target_link_libraries(${ex} PRIVATE flowedge_engine)
+endforeach()
+
+# BENCHMARKS
+if(FLOWEDGE_BENCH)
+  include(FetchContent)
+  set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    googlebenchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG v1.9.1
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(googlebenchmark)
+
+  foreach(t benchmark benchmark_main)
+    if(TARGET ${t})
+      target_compile_options(${t} PRIVATE -Wno-c2y-extensions)
+    endif()
+  endforeach()
+
+  add_executable(flowedge_kernels_bench bench/kernels_bench.cc)
+  target_link_libraries(flowedge_kernels_bench PRIVATE flowedge_engine benchmark::benchmark)
+
+  add_executable(flowedge_engine_bench bench/engine_bench.cc)
+  target_link_libraries(flowedge_engine_bench PRIVATE flowedge_engine benchmark::benchmark)
+
+  add_executable(flowedge_latency_bench bench/latency_bench.cc)
+  target_link_libraries(flowedge_latency_bench PRIVATE flowedge_engine)
+endif()
+
+# TESTS
 if(FLOWEDGE_TESTS)
   enable_testing()
-  add_subdirectory(test)
-endif()
-if(FLOWEDGE_BENCH)
-  add_subdirectory(bench)
-endif()
-option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF)
-if(FLOWEDGE_PYTHON)
-  add_subdirectory(python)
+  include(FetchContent)
+  set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+  set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG v1.15.2
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(googletest)
+
+  find_package(Threads REQUIRED)
+  add_executable(flowedge_tests test/tests.cc)
+  target_link_libraries(flowedge_tests PRIVATE flowedge_engine GTest::gtest_main Threads::Threads)
+  
+  include(GoogleTest)
+  gtest_discover_tests(flowedge_tests)
 endif()
 
-# Create Config file for find_package(FlowEdge)
+# PYTHON (Pybind11)
+if(FLOWEDGE_PYTHON)
+  include(FetchContent)
+  FetchContent_Declare(
+    pybind11
+    GIT_REPOSITORY https://github.com/pybind/pybind11.git
+    GIT_TAG v2.13.6
+    GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(pybind11)
+
+  pybind11_add_module(flowedge python/flowedge_ext.cc)
+  target_compile_options(flowedge PRIVATE -pthread)
+  if(WIN32)
+    target_compile_options(flowedge PRIVATE -mstackrealign)
+  endif()
+  target_link_options(flowedge PRIVATE -pthread -static -static-libgcc -static-libstdc++)
+  target_link_libraries(flowedge PRIVATE flowedge_engine)
+endif()
+
+# INSTALLATION
+install(TARGETS flowedge_engine
+        EXPORT FlowEdgeTargets
+        ARCHIVE DESTINATION lib
+        LIBRARY DESTINATION lib
+        RUNTIME DESTINATION bin)
+
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/
+        DESTINATION include
+        FILES_MATCHING PATTERN "*.h")
+
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"

@@ -1,7 +1,7 @@
 #include "arena/arena.h"
+#include "kernels/kernels.h"
 #include "loader/safetensors.h"
-#include "model/cpu/kernels.h"
-#include "model/flow/flow.h"
+#include "models/mamba/flow.h"
 
 #include <array>
 #include <cmath>

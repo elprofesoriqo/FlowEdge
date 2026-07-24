@@ -1,4 +1,4 @@
-#include "model/cpu/kernels.h"
+#include "kernels/kernels.h"
 
 #include <benchmark/benchmark.h>
 #include <cstddef>
