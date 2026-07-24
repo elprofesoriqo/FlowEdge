@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core>=0.8.0", "pybind11>=2.11.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "flowedge"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+requires-python = ">=3.10"
+authors = []
+dependencies = [
+    "numpy>=1.20"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+]
+
+[tool.scikit-build]
+cmake.args = ["-DFLOWEDGE_PYTHON=ON"]
+cmake.build-type = "Release"
+ninja.make-fallback = false
