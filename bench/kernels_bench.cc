@@ -170,5 +170,3 @@ BENCHMARK(BM_rmsnorm)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_conv1d_causal)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_discretize)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_selective_scan)->Unit(benchmark::kMicrosecond);
-
-BENCHMARK_MAIN();
