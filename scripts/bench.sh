@@ -2,8 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MODEL="${1:-$ROOT/models/mamba.safetensors}"
+MODEL="${1:-$ROOT/models/mamba_flow.safetensors}"
 BENCH="$ROOT/build/bench"
+
+if [[ ! -f "$MODEL" ]]; then
+    echo "Downloading mamba_flow.safetensors from Hugging Face..."
+    mkdir -p "$ROOT/models"
+    wget -qO "$MODEL" "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
+fi
+
 
 # MinGW runtime DLLs live in Strawberry
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin:$PATH" ;; esac

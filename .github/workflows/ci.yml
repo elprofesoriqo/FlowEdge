@@ -2,42 +2,95 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 jobs:
-  lint:
+  format:
+    name: Clang Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-llvm
-      - run: ./scripts/build.sh
-      - run: ./scripts/lint.sh
+      - run: |
+          find . \( -name "*.h" -o -name "*.cc" -o -name "*.cpp" -o -name "*.cu" -o -name "*.mm" \) \
+            ! -path "*/build/*" -print0 \
+            | xargs -0 clang-format --style=file --Werror --dry-run
+
+  tidy:
+    name: Clang Tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm
+      - run: cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: |
+          find . \( -name "*.cc" -o -name "*.cpp" \) \
+            ! -path "*/build/*" ! -path "*/bench/*" ! -path "*/test/*" ! -path "*/python/*" -print0 \
+            | xargs -0 clang-tidy -p build
+
+  submodules:
+    name: Submodule Integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Verify submodules & FetchContent
+        run: |
+          cmake -B build -S . -DFLOWEDGE_BENCH=ON -DFLOWEDGE_TESTS=ON -DFLOWEDGE_PYTHON=ON
 
   test:
-    runs-on: ubuntu-latest
+    name: Test & Verify (${{ matrix.os }}, ${{ matrix.backend }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        backend: [cpu]
+        include:
+          # Test other backends on Linux
+          - os: ubuntu-latest
+            backend: cuda
+          - os: ubuntu-latest
+            backend: vulkan
+          - os: macos-latest
+            backend: metal
     steps:
       - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-llvm
-      - run: ./scripts/build.sh Release -DFLOWEDGE_TESTS=ON
-      - name: Test suite (ctest)
-        run: ctest --test-dir build --output-on-failure
-
-  verify:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-llvm
-      - uses: actions/setup-python@v5
+      - name: Setup Environment
+        if: runner.os != 'Windows'
+        uses: ./.github/actions/setup-llvm
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install --index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
-      - run: ./scripts/build.sh Release -DFLOWEDGE_PYTHON=ON
-      - name: ULP vs PyTorch gate (flow-matching Mamba trajectory)
+      
+      # for CUDA backend on GitHub Actions (Ubuntu), we just test the CMake configuration phase
+      - name: Configure CMake
+        run: cmake -B build -S . -DFLOWEDGE_TESTS=ON -DFLOWEDGE_PYTHON=ON -DFLOWEDGE_BACKEND=${{ matrix.backend }}
+
+      # Only build and run tests for CPU backend (others are just stubs currently)
+      - name: Build
+        if: matrix.backend == 'cpu'
+        run: cmake --build build --config Release -j 4
+        
+      - name: CTest Suite
+        if: matrix.backend == 'cpu'
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Verify ULP vs PyTorch
+        if: matrix.backend == 'cpu'
         run: |
-          python scripts/gen_synthetic_model.py models/mamba_flow.safetensors
-          PYTHONPATH=build/python python scripts/verify_ulp.py models/mamba_flow.safetensors
+          pip install --index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
+          mkdir -p models
+          wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
+          python scripts/verify_ulp.py models/mamba_flow.safetensors
+        env:
+          PYTHONPATH: build/python
 
   bench:
+    name: Microbenchmarks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,12 +100,13 @@ jobs:
         with:
           path: build/_deps
           key: gbench-v1.9.1-${{ runner.os }}
-      - run: ./scripts/build.sh Release -DFLOWEDGE_BENCH=ON
+      - run: cmake -B build -S . -DFLOWEDGE_BENCH=ON
+      - run: cmake --build build --config Release -j 4
       - name: Action-head latency + zero-allocation (report-only)
-        run: ./build/bench/flowedge_latency_bench euler | tee latency.txt
+        run: ./build/flowedge_latency_bench euler | tee latency.txt
       - name: Kernel microbenchmarks (report-only)
         run: |
-          ./build/bench/flowedge_kernels_bench \
+          ./build/flowedge_kernels_bench \
             --benchmark_out=kernels.json --benchmark_out_format=json | tee kernels.txt
       - name: Job summary
         if: always()
@@ -73,3 +127,36 @@ jobs:
         with:
           name: kernel-benchmarks
           path: kernels.json
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Image
+        run: docker build -t flowedge:latest .
+
+  release:
+    name: Release Artifacts
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [format, tidy, submodules, test, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm
+      - name: Build Standalone Executables
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release -j 4
+      - name: Package Artifacts
+        run: |
+          mkdir -p release_pack
+          cp build/flow_sample release_pack/
+          cp build/mamba_forward release_pack/
+          cp build/libflowedge_engine.a release_pack/
+          tar -czvf flowedge-linux-x86_64.tar.gz -C release_pack .
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowedge-linux-x86_64
+          path: flowedge-linux-x86_64.tar.gz
