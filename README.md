@@ -1,24 +1,61 @@
 # FlowEdge
 
-Inference of flow-matching action heads in pure C++. Designed for zero-dependency, ultra-low-latency deployment on edge robotics hardware.
+FlowEdge is a custom C++ inference engine designed to execute flow-matching action heads for robotics:
+- zero external dependencies
+- decoupled compute backends
+- native `.safetensors` model loading
+- C API and Python bindings
+- verification against PyTorch
 
-## Features
+It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused on edge robotics with hard real-time latency constraints and zero dynamic allocations.
 
-- Plain C++23 with custom AVX2 / NEON kernels — no ggml, no BLAS, no external dependencies
-- No allocation on the inference path (single memory arena; `mmap` + pre-faulted weights)
-- Mamba selective-SSM backbone — batch forward and O(1) streaming
-- Flow-matching action head with Euler / Heun ODE solvers
-- `.safetensors` loading (FP32 / BF16)
-- Verified against PyTorch (~1e-6)
-- C API and Python (pybind11) bindings
+## How FlowEdge compares
 
-### TODO
+- **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge is significantly faster for small control models due to zero interpreter overhead and static memory graphs (see the Performance section).
+- **ONNX Runtime:** ONNX is a massive framework with heavy dependencies. FlowEdge compiles to a tiny static binary and executes with zero heap allocations on the hot path.
+- **ggml / llama.cpp:** While `ggml` is optimized for LLM text generation, FlowEdge is built for robotics: prioritizing low-latency continuous control (flow-matching ODE solvers) over auto-regressive token generation.
 
-- [ ] SIMD selective scan
-- [ ] RK4 and higher-order solvers
-- [ ] INT8 / FP16 quantization
-- [ ] CUDA / NPU / tt-metal backends
-- [ ] More action-head architectures (Diffusion Policy / U-Net, DiT, transformer)
+## Accelerators
+
+FlowEdge supports the following hardware accelerators:
+- ☑ CPU (AVX2 / NEON)
+- ☐ CUDA
+- ☐ Metal
+- ☐ Vulkan
+
+## Architectures & Heads
+
+**Backbones:**
+- ☑ Mamba selective-SSM
+- ☐ Transformer
+
+**Heads (Action Policies):**
+- ☑ Flow-Matching CNF
+- ☐ Diffusion Policy
+- ☐ DiT
+
+**ODE Solvers:**
+- ☑ Euler
+- ☑ Heun
+- ☐ RK4
+
+**Precision:**
+- ☑ FP32
+- ☑ BF16
+- ☐ INT8
+
+## Performance
+
+**Mamba (Forward Pass)**
+
+| Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PT) |
+|-----------|---------|---------|----------|-----------------|
+| BM_engine_forward | CPU | 3.0060 ms | 0.0780 ms | ~38.5x |
+| BM_engine_forward | CUDA | TBD | TBD | TBD |
+| BM_engine_forward | Metal | TBD | TBD | TBD |
+| BM_engine_forward | Vulkan | TBD | TBD | TBD |
+
+*Note: These benchmarks can be run locally using the `./scripts/ab_bench.sh` tool to evaluate future kernel improvements.*
 
 ## Python Installation
 
@@ -40,6 +77,8 @@ action = e.sample(prefix=[1, 2, 3, 4],
                   steps=10, method="euler")
 ```
 
+A Python script is also provided in [`examples/flow_sample.py`](examples/flow_sample.py).
+
 ## C++ Quick Start
 
 **1. Get the code and build.**
@@ -53,11 +92,11 @@ cmake --build build
 ```
 
 **2. Bring a model.** FlowEdge runs a Mamba flow-matching policy in `.safetensors` format
-(tensors named `backbone.*` for the SSM and `flow.*` for the action head). Export your trained
-policy to that layout, or generate a small synthetic model just to try the engine:
+(tensors named `backbone.*` for the SSM and `flow.*` for the action head). You can download a pre-trained model to try the engine:
 
 ```bash
-python scripts/gen_synthetic_model.py models/mamba_flow.safetensors
+mkdir -p models
+wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
 ```
 
 **3. Sample an action chunk** (`euler|heun`, last argument = number of solver steps):
@@ -100,8 +139,3 @@ if (rc != 0) {
 
 fe_engine_free(e);
 ```
-
-## References
-
-- Lipman et al., *Flow Matching for Generative Modeling* — arXiv:2210.02747
-- Gu & Dao, *Mamba: Linear-Time Sequence Modeling with Selective State Spaces* — arXiv:2312.00752
