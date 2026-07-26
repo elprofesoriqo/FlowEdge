@@ -9,9 +9,9 @@
 
 #if defined(__MINGW32__) && defined(__clang__)
 namespace std {
-  __thread void* __once_callable = nullptr;
-  __thread void (*__once_call)() = nullptr;
-}
+__thread void* __once_callable = nullptr;
+__thread void (*__once_call)() = nullptr;
+} // namespace std
 #endif
 
 namespace py = pybind11;
@@ -41,7 +41,8 @@ public:
   }
 
   // tokens -> hidden states [seq_len, d_model]
-  py::array_t<float> run(py::array_t<std::int32_t, py::array::c_style | py::array::forcecast> tokens)
+  py::array_t<float> run(
+      py::array_t<std::int32_t, py::array::c_style | py::array::forcecast> tokens)
   {
     const std::size_t dm = d_model();
     py::array_t<float> out({static_cast<std::size_t>(tokens.size()), dm});
@@ -52,9 +53,10 @@ public:
 
   // prefix conditions the SSM
   // ODE noise -> action [action_dim]
-  py::array_t<float> sample(py::array_t<std::int32_t, py::array::c_style | py::array::forcecast> prefix, 
-                            py::array_t<float, py::array::c_style | py::array::forcecast> noise,
-                            std::size_t steps, std::string_view method)
+  py::array_t<float> sample(
+      py::array_t<std::int32_t, py::array::c_style | py::array::forcecast> prefix,
+      py::array_t<float, py::array::c_style | py::array::forcecast> noise, std::size_t steps,
+      std::string_view method)
   {
     const std::size_t a = action_dim();
     if (a == 0uz)
@@ -85,5 +87,5 @@ PYBIND11_MODULE(flowedge, m)
       .def_property_readonly("d_model", &Engine::d_model)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("sample", &Engine::sample, "sample action trajectory", py::arg("prefix"),
-         py::arg("noise"), py::arg("steps") = 10uz, py::arg("method") = "euler");
+           py::arg("noise"), py::arg("steps") = 10uz, py::arg("method") = "euler");
 }

@@ -19,7 +19,8 @@ const char* fe_engine_last_error(void);
 /**
  * @brief Load a FlowEdge model from a .safetensors file.
  * @param path Path to the .safetensors file.
- * @return Pointer to the initialized engine, or NULL on failure. Check fe_engine_last_error() on failure.
+ * @return Pointer to the initialized engine, or NULL on failure. Check
+ * fe_engine_last_error() on failure.
  */
 fe_engine* fe_engine_load(const char* path);
 

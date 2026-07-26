@@ -98,9 +98,9 @@ inline void scan_advance(const float* __restrict__ da_t, const float* __restrict
     std::size_t c{0uz};
     for (; c + 4uz <= d_inner; c += 4uz) {
       float32x4_t vh = vld1q_f32(hn + c);
-      vh = vfmaq_f32(vld1q_f32(dbu_n + c), vld1q_f32(da_n + c), vh); // dbu + da*h
+      vh = vfmaq_f32(vld1q_f32(dbu_n + c), vld1q_f32(da_n + c), vh);
       vst1q_f32(hn + c, vh);
-      vst1q_f32(y_t + c, vfmaq_f32(vld1q_f32(y_t + c), vh, vcn)); // yt + h*cn
+      vst1q_f32(y_t + c, vfmaq_f32(vld1q_f32(y_t + c), vh, vcn));
     }
     for (; c < d_inner; ++c) {
       hn[c] = (da_n[c] * hn[c]) + dbu_n[c];

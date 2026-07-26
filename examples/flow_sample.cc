@@ -35,8 +35,8 @@ int main(int argc, char** argv)
   const int rc = fe_engine_sample(engine, prefix.data(), prefix.size(), noise.get(), steps, method,
                                   action.get());
   if (rc == 0) {
-    std::printf("action_dim=%zu  solver=%s  NFE=%zu  action[0..2]=%f, %f, %f\n",
-                a, method ? "heun" : "euler", steps, action[0], action[1 % a], action[2 % a]);
+    std::printf("action_dim=%zu  solver=%s  NFE=%zu  action[0..2]=%f, %f, %f\n", a,
+                method ? "heun" : "euler", steps, action[0], action[1 % a], action[2 % a]);
   } else {
     std::fprintf(stderr, "sample failed rc=%d\n", rc);
   }
