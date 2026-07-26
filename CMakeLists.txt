@@ -18,6 +18,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES 
   endif()
 endif()
 
+if(MSVC)
+  add_compile_options(/D__restrict__=__restrict)
+endif()
+
 # compute kernels, select with -DFLOWEDGE_BACKEND=cpu (default)
 set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
 
@@ -48,6 +52,7 @@ add_library(flowedge_engine STATIC
   src/models/mamba/flow.cc
   src/api/engine.cc
 )
+set_target_properties(flowedge_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(flowedge_engine PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> 
@@ -123,10 +128,12 @@ if(FLOWEDGE_PYTHON)
   FetchContent_MakeAvailable(pybind11)
 
   pybind11_add_module(flowedge python/flowedge_ext.cc)
-  target_compile_options(flowedge PRIVATE -pthread)
-  if(WIN32)
-    target_compile_options(flowedge PRIVATE -mincoming-stack-boundary=4)
-    target_link_options(flowedge PRIVATE -static -static-libgcc -static-libstdc++)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(flowedge PRIVATE -pthread)
+    if(WIN32)
+      target_compile_options(flowedge PRIVATE -mincoming-stack-boundary=4)
+      target_link_options(flowedge PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
   endif()
   target_link_libraries(flowedge PRIVATE flowedge_engine)
 endif()

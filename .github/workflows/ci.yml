@@ -6,28 +6,14 @@ on:
   pull_request:
 
 jobs:
-  format:
-    name: Clang Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/setup-llvm
-      - run: |
-          find . \( -name "*.h" -o -name "*.cc" -o -name "*.cpp" -o -name "*.cu" -o -name "*.mm" \) \
-            ! -path "*/build/*" -print0 \
-            | xargs -0 clang-format --style=file --Werror --dry-run
-
-  tidy:
-    name: Clang Tidy
+  lint:
+    name: Clang Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-llvm
       - run: cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-      - run: |
-          find . \( -name "*.cc" -o -name "*.cpp" \) \
-            ! -path "*/build/*" ! -path "*/bench/*" ! -path "*/test/*" ! -path "*/python/*" -print0 \
-            | xargs -0 clang-tidy -p build
+      - run: bash ./scripts/lint.sh
 
   test:
     name: Test & Verify (${{ matrix.os }}, ${{ matrix.backend }})
@@ -60,13 +46,14 @@ jobs:
 
       - name: Verify ULP vs PyTorch
         if: matrix.backend == 'cpu'
+        shell: bash
         run: |
           pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
           mkdir -p models
-          wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
+          curl -sL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" -o models/mamba_flow.safetensors
           python scripts/verify_ulp.py models/mamba_flow.safetensors
         env:
-          PYTHONPATH: build/python
+          PYTHONPATH: build
 
   docker:
     name: Docker Build

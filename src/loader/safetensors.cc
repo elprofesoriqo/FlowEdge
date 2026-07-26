@@ -72,9 +72,7 @@ struct MappedFile
     if (!fp)
       return false;
     const int fd = fileno(fp.get());
-    struct stat st
-    {
-    };
+    struct stat st = {};
     if (fstat(fd, &st) < 0)
       return false;
     size = static_cast<std::size_t>(st.st_size);
