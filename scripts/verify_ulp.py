@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 
 import sys
-import numpy as np
+import os
 
+if os.path.exists("build") and "build" not in sys.path:
+    sys.path.append("build")
+if os.path.exists("build/Release") and "build/Release" not in sys.path:
+    sys.path.append("build/Release")
+
+import numpy as np
 import flowedge  # built with -DFLOWEDGE_PYTHON=ON
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "models/mamba_flow.safetensors"
