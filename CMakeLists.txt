@@ -13,8 +13,8 @@ option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
   add_compile_options(-mavx2 -mfma -fno-math-errno)
-  if(WIN32)
-    add_compile_options(-mincoming-stack-boundary=4)
+  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+    add_compile_options(-mincoming-stack-boundary=4) # gcc-only; clang aligns the stack itself
   endif()
 endif()
 
@@ -131,27 +131,45 @@ if(FLOWEDGE_PYTHON)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(flowedge PRIVATE -pthread)
     if(WIN32)
-      target_compile_options(flowedge PRIVATE -mincoming-stack-boundary=4)
-      target_link_options(flowedge PRIVATE -static -static-libgcc -static-libstdc++)
+      if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+        target_compile_options(flowedge PRIVATE -mincoming-stack-boundary=4)
+      endif()
+      # static libstdc++ (resolves std::call_once) but keep winpthread dynamic
+      target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++)
+      target_link_libraries(flowedge PRIVATE winpthread)
     endif()
   endif()
   target_link_libraries(flowedge PRIVATE flowedge_engine)
 endif()
 
-# INSTALLATION
+# INSTALLATION provide the FlowEdge::flowedge_engine target
+include(GNUInstallDirs)
 install(TARGETS flowedge_engine
         EXPORT FlowEdgeTargets
-        ARCHIVE DESTINATION lib
-        LIBRARY DESTINATION lib
-        RUNTIME DESTINATION bin)
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/
-        DESTINATION include
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "*.h")
 
+set(FLOWEDGE_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/FlowEdge)
+install(EXPORT FlowEdgeTargets
+        FILE FlowEdgeTargets.cmake
+        NAMESPACE FlowEdge::
+        DESTINATION ${FLOWEDGE_CMAKEDIR})
+
 include(CMakePackageConfigHelpers)
+configure_package_config_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/FlowEdgeConfig.cmake.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfig.cmake"
+  INSTALL_DESTINATION ${FLOWEDGE_CMAKEDIR})
 write_basic_package_version_file(
   "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"
   VERSION 0.1.0
-  COMPATIBILITY AnyNewerVersion
-)
+  COMPATIBILITY AnyNewerVersion)
+install(FILES
+        "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfig.cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"
+        DESTINATION ${FLOWEDGE_CMAKEDIR})

@@ -15,6 +15,15 @@ ARGS=(
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
 )
 
+if command -v clang++ >/dev/null; then
+  ARGS+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*)
+      ARGS+=(-DCMAKE_C_COMPILER_TARGET=x86_64-w64-mingw32
+             -DCMAKE_CXX_COMPILER_TARGET=x86_64-w64-mingw32) ;;
+  esac
+fi
+
 ARGS+=("${@:2}") # forward extra -D flags (e.g. -DFLOWEDGE_BENCH=ON)
 
 cmake --log-level=WARNING "${ARGS[@]}"

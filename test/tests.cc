@@ -141,7 +141,7 @@ struct FlowFixture
   std::vector<float> tp_ = seq(kH * kT, 0.13F, 1.0F);
   std::vector<float> cp_ = seq(kH * kC, 0.09F, 0.5F);
   std::vector<float> op_ = seq(kA * kH, 0.07F, 0.2F);
-  std::array<std::vector<float>, kL> layers_{seq(kH * kH, 0.05F, 0.1F), seq(kH* kH, 0.06F, 0.3F)};
+  std::array<std::vector<float>, kL> layers_{seq(kH * kH, 0.05F, 0.1F), seq(kH * kH, 0.06F, 0.3F)};
   std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
   fe::Arena arena{std::span<std::byte>{slab}};
 
