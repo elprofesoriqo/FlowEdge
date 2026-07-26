@@ -1,34 +1,12 @@
+#include "kernels/cpu/cephes.h"
 #include "kernels/kernels.h"
 
 #include <cmath>
 #include <cstddef>
 #include <immintrin.h>
-#include <numbers>
 
 namespace fe {
 namespace {
-
-// Cephes polynomial constants shared by exp8 and log8.
-constexpr float exp_clamp = 88.3762F;
-constexpr float log2e = std::numbers::log2e_v<float>;
-constexpr float ln2_hi = 0.693359375F;
-constexpr float ln2_lo = -2.12194440e-4F;
-constexpr float exp_p0 = 1.9875691500e-4F;
-constexpr float exp_p1 = 1.3981999507e-3F;
-constexpr float exp_p2 = 8.3334519073e-3F;
-constexpr float exp_p3 = 4.1665795894e-2F;
-constexpr float exp_p4 = 1.6666665459e-1F;
-constexpr float exp_p5 = 5.0000001201e-1F;
-constexpr float sqrt_half = 0.707106781F; // Cephes logf mantissa split point
-constexpr float log_p0 = 7.0376836292e-2F;
-constexpr float log_p1 = -1.1514610310e-1F;
-constexpr float log_p2 = 1.1676998740e-1F;
-constexpr float log_p3 = -1.2420140846e-1F;
-constexpr float log_p4 = 1.4249322787e-1F;
-constexpr float log_p5 = -1.6668057665e-1F;
-constexpr float log_p6 = 2.0000714765e-1F;
-constexpr float log_p7 = -2.4999993993e-1F;
-constexpr float log_p8 = 3.3333331174e-1F;
 
 // Cephes 8-wide expf (~1 ULP)
 __m256 exp8(__m256 x) noexcept
