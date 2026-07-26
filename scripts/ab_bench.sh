@@ -30,18 +30,28 @@ run_benchmark() {
     local out_csv=$2
     
     rm -rf build/CMakeCache.txt build/CMakeFiles/ build/_deps/googlebenchmark-subbuild/CMakeCache.txt build/_deps/googlebenchmark-subbuild/CMakeFiles/
-    
-    if ! cmake -B build -S . -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND="${BACKEND}" > build/cmake_log.txt 2>&1; then
+    if ! cmake -B build -S . -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND="${BACKEND}" -DCMAKE_BUILD_TYPE=Release > build/cmake_log.txt 2>&1; then
         exit 1
     fi
     
     if ! cmake --build build --config Release -j 4 > build/build_log.txt 2>&1; then
         exit 1
     fi
-    
-    local cmd_k="./build/bench/flowedge_kernels_bench --benchmark_out=${out_csv}_k --benchmark_out_format=csv"
+    local exe_k="./build/bench/flowedge_kernels_bench"
+    local exe_e="./build/bench/flowedge_engine_bench"
+    if [[ -f "./build/bench/flowedge_kernels_bench.exe" ]]; then
+        exe_k="./build/bench/flowedge_kernels_bench.exe"
+        exe_e="./build/bench/flowedge_engine_bench.exe"
+    elif [[ -f "./build/flowedge_kernels_bench.exe" ]]; then
+        exe_k="./build/flowedge_kernels_bench.exe"
+        exe_e="./build/flowedge_engine_bench.exe"
+    elif [[ -f "./build/flowedge_kernels_bench" ]]; then
+        exe_k="./build/flowedge_kernels_bench"
+        exe_e="./build/flowedge_engine_bench"
+    fi
+    local cmd_k="$exe_k --benchmark_out=${out_csv}_k --benchmark_out_format=csv"
     export FLOWEDGE_MODEL="$ROOT/models/mamba_flow.safetensors"
-    local cmd_e="./build/bench/flowedge_engine_bench --benchmark_out=${out_csv}_e --benchmark_out_format=csv"
+    local cmd_e="$exe_e --benchmark_out=${out_csv}_e --benchmark_out_format=csv"
     if [[ -n "$FILTER" ]]; then
         cmd_k="$cmd_k --benchmark_filter=$FILTER"
         cmd_e="$cmd_e --benchmark_filter=$FILTER"

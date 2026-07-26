@@ -13,10 +13,15 @@
 #include <memory>
 #include <span>
 #include <utility>
+#include <vector>
 
 namespace {
 
-thread_local const char* g_last_error = "";
+const char*& get_last_error()
+{
+  thread_local const char* err = "";
+  return err;
+}
 
 constexpr std::size_t max_tensors = 1024uz;
 constexpr std::size_t k_max_decode_seq = 512uz; // scratch is sized for prefills up to this length
@@ -46,7 +51,7 @@ std::size_t load_views(const char* path, fe::Arena& arena, std::span<fe::TensorV
 struct FeEngine
 {
   std::size_t slab_size; // stored so the span can be built before arena init
-  std::unique_ptr<std::byte[]> slab;
+  std::vector<std::byte> slab;
   fe::Arena arena;
   std::array<fe::TensorView, max_tensors> views{};
   std::size_t n;
@@ -55,8 +60,8 @@ struct FeEngine
   std::span<float> dstate; // persistent streaming state (zero-initialized with the slab)
 
   explicit FeEngine(const char* path)
-      : slab_size{slab_bytes(path)}, slab{std::make_unique<std::byte[]>(slab_size)},
-        arena{std::span<std::byte>{slab.get(), slab_size}}, n{load_views(path, arena, views)},
+      : slab_size{slab_bytes(path)}, slab(slab_size),
+        arena{std::span<std::byte>{slab.data(), slab_size}}, n{load_views(path, arena, views)},
         model{std::span<const fe::TensorView>{views.data(), n}, arena},
         flow{std::span<const fe::TensorView>{views.data(), n}, arena}
   {
@@ -73,14 +78,14 @@ struct FeEngine
     const std::size_t hz = seq_len * c.d_model;
     auto* const in = arena.alloc_array<float>(hz, fe::kSimdAlign);
     if (in == nullptr) {
-      g_last_error = "Arena exhausted during backbone forward pass";
+      get_last_error() = "Arena exhausted during backbone forward pass";
       return 2;
     }
     const float* const emb = model.embedding();
     for (std::size_t t{0uz}; t < seq_len; ++t) {
       const std::int32_t tok = tokens[t];
       if (std::cmp_less(tok, 0) || std::cmp_greater_equal(tok, c.vocab)) {
-        g_last_error = "Token ID out of vocabulary range";
+        get_last_error() = "Token ID out of vocabulary range";
         return 3;
       }
       const auto utok = static_cast<std::size_t>(tok);
@@ -94,25 +99,25 @@ struct FeEngine
 
 const char* fe_engine_last_error(void)
 {
-  return g_last_error;
+  return get_last_error();
 }
 
 fe_engine* fe_engine_load(const char* path)
 {
-  g_last_error = "";
+  get_last_error() = "";
   try {
     if (slab_bytes(path) == 0uz) {
-      g_last_error = "Failed to load safetensors file or find required tensors";
+      get_last_error() = "Failed to load safetensors file or find required tensors";
       return nullptr;
     }
     auto engine = std::make_unique<FeEngine>(path);
     if (!engine->model.valid()) {
-      g_last_error = "Model architecture initialization failed";
+      get_last_error() = "Model architecture initialization failed";
       return nullptr;
     }
     return engine.release();
   } catch (const std::exception& e) {
-    g_last_error = "Exception during engine load (likely OOM)";
+    get_last_error() = "Exception during engine load (likely OOM)";
     return nullptr;
   }
 }
@@ -138,9 +143,9 @@ __attribute__((force_align_arg_pointer))
 #endif
 int fe_engine_run(fe_engine* engine, const std::int32_t* tokens, std::size_t seq_len, float* out)
 {
-  g_last_error = "";
+  get_last_error() = "";
   if (engine == nullptr || tokens == nullptr || out == nullptr) {
-    g_last_error = "Invalid null arguments to fe_engine_run";
+    get_last_error() = "Invalid null arguments to fe_engine_run";
     return 1;
   }
   std::byte* const mark = engine->arena.mark();
@@ -154,18 +159,18 @@ __attribute__((force_align_arg_pointer))
 #endif
 int fe_engine_step(fe_engine* engine, std::int32_t token, float* out)
 {
-  g_last_error = "";
+  get_last_error() = "";
   if (engine == nullptr || out == nullptr) {
-    g_last_error = "Invalid null arguments to fe_engine_step";
+    get_last_error() = "Invalid null arguments to fe_engine_step";
     return 1;
   }
   if (engine->dstate.empty()) [[unlikely]] { // model invalid / no state
-    g_last_error = "Model has no streaming state initialized";
+    get_last_error() = "Model has no streaming state initialized";
     return 2;
   }
   const fe::MambaConfig& c = engine->model.config();
   if (std::cmp_less(token, 0) || std::cmp_greater_equal(token, c.vocab)) {
-    g_last_error = "Token ID out of vocabulary range";
+    get_last_error() = "Token ID out of vocabulary range";
     return 3;
   }
   fe::Arena& arena = engine->arena;
@@ -173,7 +178,7 @@ int fe_engine_step(fe_engine* engine, std::int32_t token, float* out)
   auto* const x = arena.alloc_array<float>(c.d_model, fe::kSimdAlign);
   if (x == nullptr) {
     arena.reset_to(mark);
-    g_last_error = "Arena exhausted during streaming step";
+    get_last_error() = "Arena exhausted during streaming step";
     return 2;
   }
   const float* const emb = engine->model.embedding();
@@ -202,14 +207,14 @@ __attribute__((force_align_arg_pointer))
 int fe_engine_sample(fe_engine* engine, const std::int32_t* tokens, std::size_t seq_len,
                      const float* noise, std::size_t steps, int method, float* action)
 {
-  g_last_error = "";
+  get_last_error() = "";
   if (engine == nullptr || tokens == nullptr || noise == nullptr || action == nullptr ||
       seq_len == 0uz || steps == 0uz) {
-    g_last_error = "Invalid arguments to fe_engine_sample";
+    get_last_error() = "Invalid arguments to fe_engine_sample";
     return 1;
   }
   if (!engine->flow.valid()) {
-    g_last_error = "Model has no flow head to sample from";
+    get_last_error() = "Model has no flow head to sample from";
     return 4;
   }
   fe::Arena& arena = engine->arena;
@@ -218,7 +223,7 @@ int fe_engine_sample(fe_engine* engine, const std::int32_t* tokens, std::size_t 
   auto* const hidden = arena.alloc_array<float>(seq_len * c.d_model, fe::kSimdAlign);
   if (hidden == nullptr) {
     arena.reset_to(mark);
-    g_last_error = "Arena exhausted allocating hidden states";
+    get_last_error() = "Arena exhausted allocating hidden states";
     return 2;
   }
   const int rc = engine->run_backbone(tokens, seq_len, hidden);

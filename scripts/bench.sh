@@ -19,15 +19,22 @@ case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin
 
 PY="$(command -v py || command -v python3 || command -v python)"
 
+exe_l="$BENCH/flowedge_latency_bench"
+exe_k="$BENCH/flowedge_kernels_bench"
+if [[ -f "$BENCH/flowedge_latency_bench.exe" ]]; then
+    exe_l="$BENCH/flowedge_latency_bench.exe"
+    exe_k="$BENCH/flowedge_kernels_bench.exe"
+fi
+
 echo "== Action-head Real-time Latency (us) [Euler, N=10] =="
 echo "Engine     | Mean (us) | p50 (us)  | p99 (us)  | p999 (us) | Min (us)  | Max (us)  | Allocs"
 echo "----------------------------------------------------------------------------------------"
-"$BENCH/flowedge_latency_bench" euler
-"$PY" "$ROOT/scripts/torch_ref.py" latency
+"$exe_l" euler
+"$PY" "$ROOT/scripts/torch_ref.py" latency || echo "PyTorch          | (requires torch/numpy)"
 
 echo ""
 echo "== kernel microbenchmarks =="
-"$BENCH/flowedge_kernels_bench" --benchmark_counters_tabular=true --benchmark_color=true --benchmark_out="$ROOT/build/kernels.json" --benchmark_out_format=json
+"$exe_k" --benchmark_counters_tabular=true --benchmark_color=true --benchmark_out="$ROOT/build/kernels.json" --benchmark_out_format=json
 
 [[ -f "$MODEL" ]] || { echo "note: $MODEL absent — skipping end-to-end vs-PyTorch"; exit 0; }
 

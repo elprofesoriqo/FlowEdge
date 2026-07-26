@@ -61,7 +61,7 @@ jobs:
       - name: Verify ULP vs PyTorch
         if: matrix.backend == 'cpu'
         run: |
-          pip install --index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
           mkdir -p models
           wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
           python scripts/verify_ulp.py models/mamba_flow.safetensors

@@ -2,11 +2,15 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstring>
+#include <memory>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <fcntl.h>
@@ -60,33 +64,32 @@ struct MappedFile
       CloseHandle(file);
   }
 #else
-  int fd{-1};
+  void* mapped_data{};
 
   [[nodiscard]] bool open(const char* p) noexcept
   {
-    fd = ::open(p, O_RDONLY);
-    if (fd < 0)
+    std::unique_ptr<FILE, decltype(&std::fclose)> fp{std::fopen(p, "rb"), &std::fclose};
+    if (!fp)
       return false;
-    struct stat st{};
-    if (fstat(fd, &st) < 0) {
-      close();
+    const int fd = fileno(fp.get());
+    struct stat st
+    {
+    };
+    if (fstat(fd, &st) < 0)
       return false;
-    }
     size = static_cast<std::size_t>(st.st_size);
-    void* m = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (m == MAP_FAILED) {
-      close();
+    mapped_data = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (mapped_data == MAP_FAILED) {
+      mapped_data = nullptr;
       return false;
     }
-    data = static_cast<const std::byte*>(m);
+    data = static_cast<const std::byte*>(mapped_data);
     return true;
   }
   void close() noexcept
   {
-    if (data)
-      munmap(const_cast<std::byte*>(data), size);
-    if (fd >= 0)
-      ::close(fd);
+    if (mapped_data)
+      munmap(mapped_data, size);
   }
 #endif
 };
@@ -120,7 +123,8 @@ struct MappedFile
 
 template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, Cb cb) noexcept
 {
-  auto p = json.begin(), end = json.end();
+  const char* p = json.data();
+  const char* end = p + json.size();
   while (p < end && *p != '{')
     ++p;
   if (p >= end)
