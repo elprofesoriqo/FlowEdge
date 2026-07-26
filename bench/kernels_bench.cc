@@ -159,6 +159,8 @@ void BM_selective_scan(benchmark::State& state)
 
 } // namespace
 
+BENCHMARK_MAIN();
+
 BENCHMARK(BM_matmul_in_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_out_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_x_proj)->Unit(benchmark::kMicrosecond);

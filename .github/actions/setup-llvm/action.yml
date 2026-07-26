@@ -9,6 +9,7 @@ runs:
   steps:
     - shell: bash
       run: |
+        sudo mkdir -p /etc/apt/trusted.gpg.d
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
           | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
         sudo add-apt-repository -y \
