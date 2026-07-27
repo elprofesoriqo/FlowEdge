@@ -37,7 +37,7 @@ FlowEdge supports the following hardware accelerators:
 **ODE Solvers:**
 - ☑ Euler
 - ☑ Heun
-- ☐ RK4
+- ☑ RK4
 
 **Precision:**
 - ☑ FP32
@@ -50,12 +50,12 @@ FlowEdge supports the following hardware accelerators:
 
 | Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PT) |
 |-----------|---------|---------|----------|-----------------|
-| BM_engine_forward | CPU | 3.0060 ms | 0.0780 ms | ~38.5x |
+| BM_engine_forward | CPU | 73.0 ms | 28.0 ms | ~2.6x |
 | BM_engine_forward | CUDA | TBD | TBD | TBD |
 | BM_engine_forward | Metal | TBD | TBD | TBD |
 | BM_engine_forward | Vulkan | TBD | TBD | TBD |
 
-*Note: These benchmarks can be run locally using the `./scripts/ab_bench.sh` tool to evaluate future kernel improvements.*
+*Mamba-130M (24 layers, d_model=768), seq_len=4, FP32, single-threaded CPU. Regenerate with `./scripts/bench.sh`; numbers depend on model and host.*
 
 ## Python Installation
 
@@ -86,7 +86,7 @@ A Python script is also provided in [`examples/flow_sample.py`](examples/flow_sa
 Requires CMake 3.21+ and a C++23 compiler (GCC 13+ or Clang 16+).
 
 ```bash
-git clone --recursive <repo> && cd FlowEdge
+git clone <repo> && cd FlowEdge
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
@@ -99,11 +99,11 @@ mkdir -p models
 wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
 ```
 
-**3. Sample an action chunk** (`euler|heun`, last argument = number of solver steps):
+**3. Sample an action chunk** (`euler|heun|rk4`, last argument = number of solver steps):
 
 ```bash
-./build/examples/flow_sample models/mamba_flow.safetensors euler 10
-# action_dim=8  solver=euler  NFE=10  action[0..2]=0.0351, 0.3799, 0.5576
+./build/flow_sample models/mamba_flow.safetensors euler 10
+# action_dim=8  solver=euler  NFE=10  action[0..2]=0.021476, 0.176867, 0.692564
 ```
 
 Also in `examples/`: `mamba_forward` (backbone hidden states / streaming).
@@ -116,11 +116,11 @@ If you install FlowEdge system-wide or use it via `FetchContent`, you can easily
 
 ```cmake
 find_package(FlowEdge REQUIRED)
-target_link_libraries(my_robot_node PRIVATE FlowEdge::api)
+target_link_libraries(my_robot_node PRIVATE FlowEdge::flowedge_engine)
 ```
 
 ```c
-#include <flowedge/api/engine.h>
+#include <api/engine.h>
 #include <stdio.h>
 
 fe_engine* e = fe_engine_load("your_model.safetensors");

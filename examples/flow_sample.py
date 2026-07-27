@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Usage: python flow_sample.py <mamba_flow.safetensors> [euler|heun] [steps]
+Usage: python flow_sample.py <mamba_flow.safetensors> [euler|heun|rk4] [steps]
 """
 import sys
 import numpy as np
@@ -14,7 +14,7 @@ except ImportError:
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python flow_sample.py <model.safetensors> [euler|heun] [steps]")
+        print("Usage: python flow_sample.py <model.safetensors> [euler|heun|rk4] [steps]")
         sys.exit(1)
         
     model_path = sys.argv[1]
