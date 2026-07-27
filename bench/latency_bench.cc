@@ -83,9 +83,13 @@ void operator delete[](void* p, std::size_t) noexcept
 
 int main(int argc, char** argv)
 {
-  const auto method = (argc > 1 && std::string_view{argv[1]} == "heun") ? fe::FlowHead::kHeun
-                                                                        : fe::FlowHead::kEuler;
-  const char* method_name = (method == fe::FlowHead::kHeun) ? "heun" : "euler";
+  const std::string_view m_arg = (argc > 1) ? argv[1] : "";
+  const auto method = (m_arg == "rk4")    ? fe::FlowHead::kRK4
+                      : (m_arg == "heun") ? fe::FlowHead::kHeun
+                                          : fe::FlowHead::kEuler;
+  const char* method_name = (method == fe::FlowHead::kRK4)    ? "rk4"
+                            : (method == fe::FlowHead::kHeun) ? "heun"
+                                                              : "euler";
 
   std::vector<float> in(kHidden * kAction), tp(kHidden * kTime), cp(kHidden * kCond),
       op(kAction * kHidden);

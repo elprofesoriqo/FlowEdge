@@ -63,7 +63,7 @@ public:
       throw std::runtime_error("checkpoint has no flow head");
     if (static_cast<std::size_t>(noise.size()) != a)
       throw std::runtime_error("noise length must equal action_dim");
-    const int m = (method == "heun") ? 1 : 0;
+    const int m = (method == "rk4") ? 2 : (method == "heun") ? 1 : 0;
     py::array_t<float> action(a);
     if (fe_engine_sample(engine_, prefix.data(), prefix.size(), noise.data(), steps, m,
                          action.mutable_data()) != 0)

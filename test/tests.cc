@@ -207,6 +207,34 @@ TEST(FlowHead, EulerDiffersFromHeun)
   EXPECT_GT(diff, 0.0F); // 2nd-order integrator takes a different path
 }
 
+TEST(FlowHead, RK4DiffersFromEulerAndFinite)
+{
+  FlowFixture fx;
+  auto damp = [](std::vector<float>& w) {
+    for (float& e : w)
+      e *= 0.1F;
+  };
+  damp(fx.in_);
+  damp(fx.tp_);
+  damp(fx.cp_);
+  damp(fx.op_);
+  damp(fx.layers_[0]);
+  damp(fx.layers_[1]);
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> cond = seq(FlowFixture::kC, 0.1F, 0.0F);
+  const std::vector<float> x0 = seq(FlowFixture::kA, 0.3F, 0.2F);
+  std::vector<float> e(FlowFixture::kA), r(FlowFixture::kA);
+  head.sample(cond, x0, 10uz, fe::FlowHead::kEuler, e);
+  head.sample(cond, x0, 10uz, fe::FlowHead::kRK4, r);
+  float diff{0.0F};
+  for (std::size_t i{0uz}; i < r.size(); ++i) {
+    EXPECT_TRUE(std::isfinite(r[i]));
+    diff += std::fabs(e[i] - r[i]);
+  }
+  EXPECT_GT(diff, 0.0F); // 4th-order path differs from 1st-order Euler
+}
+
 TEST(FlowHead, RejectsOddTimeDim)
 {
   FlowFixture fx;
