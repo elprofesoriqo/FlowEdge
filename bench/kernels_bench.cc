@@ -159,8 +159,6 @@ void BM_selective_scan(benchmark::State& state)
 
 } // namespace
 
-BENCHMARK_MAIN();
-
 BENCHMARK(BM_matmul_in_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_out_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_x_proj)->Unit(benchmark::kMicrosecond);
@@ -172,3 +170,5 @@ BENCHMARK(BM_rmsnorm)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_conv1d_causal)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_discretize)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_selective_scan)->Unit(benchmark::kMicrosecond);
+
+BENCHMARK_MAIN();

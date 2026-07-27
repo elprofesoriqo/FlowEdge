@@ -18,10 +18,7 @@ EPS_REL = 2e-3  # per-dim relative-error gate
 EPS_ULP = 4096  # per-dim float32 ULP gate
 
 import torch_ref
-torch_ref.MODE = "dump"
-torch_ref.MODEL = MODEL
-torch_ref.TOKENS = PREFIX
-sys.argv = ["torch_ref.py", "dump", MODEL, "build/ulp_ref"]
+sys.argv = ["torch_ref.py", "dump", MODEL, "build/ulp_ref"]  # main() reads all config from argv
 torch_ref.main()
 torch_action = np.fromfile("build/ulp_ref_action.bin", dtype=np.float32)
 

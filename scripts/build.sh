@@ -27,4 +27,4 @@ fi
 ARGS+=("${@:2}") # forward extra -D flags (e.g. -DFLOWEDGE_BENCH=ON)
 
 cmake --log-level=WARNING "${ARGS[@]}"
-cmake --build "$ROOT/build" -j 1
+cmake --build "$ROOT/build" -j "$(nproc 2>/dev/null || echo 4)"
