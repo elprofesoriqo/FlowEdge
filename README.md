@@ -3,7 +3,7 @@
 FlowEdge is a custom C++ inference engine designed to execute flow-matching action heads for robotics:
 - zero external dependencies
 - decoupled compute backends
-- native `.safetensors` model loading
+- native `.safetensors` loading, plus a torch/HF checkpoint converter
 - C API and Python bindings
 - verification against PyTorch
 
@@ -98,6 +98,14 @@ cmake --build build
 mkdir -p models
 wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
 ```
+
+Or bring your own - convert a torch / HuggingFace checkpoint into the FlowEdge layout:
+
+```bash
+python convert/convert.py path/to/checkpoint.safetensors models/mamba_flow.safetensors
+```
+
+See [`convert/`](convert/README.md) for supported architectures and how to add one.
 
 **3. Sample an action chunk** (`euler|heun|rk4`, last argument = number of solver steps):
 
