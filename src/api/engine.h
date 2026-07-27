@@ -75,7 +75,7 @@ size_t fe_engine_action_dim(const fe_engine* engine);
  * @param seq_len Length of the token array.
  * @param noise Initial Gaussian noise array of size [action_dim].
  * @param steps Number of ODE solver steps.
- * @param method The ODE solver to use (0 = Euler, 1 = Heun).
+ * @param method The ODE solver to use (0 = Euler, 1 = Heun, 2 = RK4).
  * @param action Output buffer of size [action_dim] for the final action.
  * @return 0 on success, non-zero on error.
  */

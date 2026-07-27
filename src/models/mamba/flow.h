@@ -23,7 +23,8 @@ public:
   enum Method : int
   {
     kEuler = 0,
-    kHeun = 1
+    kHeun = 1,
+    kRK4 = 2
   };
 
   FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept;

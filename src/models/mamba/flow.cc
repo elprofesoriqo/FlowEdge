@@ -111,8 +111,10 @@ void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, st
   matmul(cond, {cond_proj_, hd * cfg_.cond_dim}, c_emb, 1uz, cfg_.cond_dim, hd);
 
   const std::span<float> x = arena_span(a);
-  const std::span<float> v1 = arena_span(a);
-  const std::span<float> v2 = arena_span(a);
+  const std::span<float> k1 = arena_span(a);
+  const std::span<float> k2 = arena_span(a);
+  const std::span<float> k3 = arena_span(a);
+  const std::span<float> k4 = arena_span(a);
   const std::span<float> xp = arena_span(a);
   for (std::size_t i{0uz}; i < a; ++i)
     x[i] = x0[i];
@@ -120,16 +122,29 @@ void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, st
   const float dt = 1.0F / static_cast<float>(steps);
   for (std::size_t k{0uz}; k < steps; ++k) {
     const float t = static_cast<float>(k) * dt;
-    velocity(x, t, c_emb, v1);
+    velocity(x, t, c_emb, k1);
     if (method == kEuler) {
       for (std::size_t i{0uz}; i < a; ++i)
-        x[i] += dt * v1[i];
-    } else {
+        x[i] += dt * k1[i];
+    } else if (method == kHeun) {
       for (std::size_t i{0uz}; i < a; ++i)
-        xp[i] = x[i] + (dt * v1[i]);
-      velocity(xp, t + dt, c_emb, v2);
+        xp[i] = x[i] + (dt * k1[i]);
+      velocity(xp, t + dt, c_emb, k2);
       for (std::size_t i{0uz}; i < a; ++i)
-        x[i] += 0.5F * dt * (v1[i] + v2[i]);
+        x[i] += 0.5F * dt * (k1[i] + k2[i]);
+    } else { // kRK4: classic 4-stage
+      const float h = 0.5F * dt;
+      for (std::size_t i{0uz}; i < a; ++i)
+        xp[i] = x[i] + (h * k1[i]);
+      velocity(xp, t + h, c_emb, k2);
+      for (std::size_t i{0uz}; i < a; ++i)
+        xp[i] = x[i] + (h * k2[i]);
+      velocity(xp, t + h, c_emb, k3);
+      for (std::size_t i{0uz}; i < a; ++i)
+        xp[i] = x[i] + (dt * k3[i]);
+      velocity(xp, t + dt, c_emb, k4);
+      for (std::size_t i{0uz}; i < a; ++i)
+        x[i] += (dt / 6.0F) * (k1[i] + (2.0F * k2[i]) + (2.0F * k3[i]) + k4[i]);
     }
   }
   for (std::size_t i{0uz}; i < a; ++i)
