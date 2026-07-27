@@ -141,6 +141,7 @@ if(FLOWEDGE_PYTHON)
     endif()
   endif()
   target_link_libraries(flowedge PRIVATE flowedge_engine)
+  install(TARGETS flowedge LIBRARY DESTINATION . RUNTIME DESTINATION .) # wheel root: pip install .
 endif()
 
 # INSTALLATION provide the FlowEdge::flowedge_engine target
