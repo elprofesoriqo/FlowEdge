@@ -1,0 +1,22 @@
+name: Setup LLVM
+description: Install clang, clang-format, clang-tidy and ninja, symlinked to unversioned names.
+inputs:
+  version:
+    description: LLVM
+    default: "19"
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo mkdir -p /etc/apt/trusted.gpg.d
+        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+          | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
+        sudo add-apt-repository -y \
+          "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${{ inputs.version }} main"
+        sudo apt-get update
+        sudo apt-get install -y "clang-${{ inputs.version }}" \
+          "clang-format-${{ inputs.version }}" "clang-tidy-${{ inputs.version }}" ninja-build
+        for t in clang clang++ clang-format clang-tidy; do
+          sudo ln -sf "/usr/bin/${t}-${{ inputs.version }}" "/usr/local/bin/${t}"
+        done

@@ -29,3 +29,4 @@ CheckOptions:
   - { key: readability-identifier-naming.TemplateParameterCase, value: CamelCase   }
   - { key: performance-unnecessary-value-param.AllowedTypes,    value: ""          }
   - { key: modernize-use-default-member-init.UseAssignment,     value: "0"         }
+  - { key: modernize-use-std-numbers.DiffThreshold,             value: "0.0001"    }

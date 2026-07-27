@@ -1,0 +1,89 @@
+name: CI
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  lint:
+    name: Clang Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm
+      - run: cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: bash ./scripts/lint.sh
+
+  test:
+    name: Test & Verify (${{ matrix.os }}, ${{ matrix.backend }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        backend: [cpu]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Environment
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-llvm
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      
+      - name: Configure CMake
+        run: cmake -B build -S . -DFLOWEDGE_TESTS=ON -DFLOWEDGE_PYTHON=ON -DFLOWEDGE_BACKEND=${{ matrix.backend }}
+
+      - name: Build
+        if: matrix.backend == 'cpu'
+        run: cmake --build build --config Release -j 4
+        
+      - name: CTest Suite
+        if: matrix.backend == 'cpu'
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Verify pip install ships an importable module
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          pip install .
+          python -c "import flowedge; print('import OK:', flowedge.Engine)"
+
+      - name: Verify ULP vs PyTorch
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
+          mkdir -p models
+          curl -sL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" -o models/mamba_flow.safetensors
+          python scripts/verify_ulp.py models/mamba_flow.safetensors
+        env:
+          PYTHONPATH: build
+
+      - name: Verify convert round-trip
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          python convert/convert.py models/mamba_flow.safetensors models/converted.safetensors
+          python - <<'PY'
+          import numpy as np, flowedge
+          a = flowedge.Engine("models/mamba_flow.safetensors")
+          b = flowedge.Engine("models/converted.safetensors")
+          noise = np.zeros(a.action_dim, dtype="float32")
+          xa = a.sample([1, 2, 3, 4], noise, 10, "euler")
+          xb = b.sample([1, 2, 3, 4], noise, 10, "euler")
+          assert np.allclose(xa, xb, atol=1e-6), (xa, xb)
+          print("convert round-trip OK", xa[:3])
+          PY
+        env:
+          PYTHONPATH: build
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Image
+        run: docker build -t flowedge:latest .
