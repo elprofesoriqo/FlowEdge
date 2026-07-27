@@ -1,8 +1,8 @@
 #include "engine.h"
 
 #include "arena/arena.h"
+#include "heads/flow/flow.h"
 #include "loader/safetensors.h"
-#include "models/mamba/flow.h"
 #include "models/mamba/mamba.h"
 
 #include <algorithm>

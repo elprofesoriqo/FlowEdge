@@ -50,7 +50,7 @@ add_library(flowedge_engine STATIC
   ${KERNEL_SRC}
   src/loader/safetensors.cc
   src/models/mamba/mamba.cc
-  src/models/mamba/flow.cc
+  src/heads/flow/flow.cc
   src/api/engine.cc
 )
 set_target_properties(flowedge_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
