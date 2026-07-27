@@ -144,7 +144,7 @@ if(FLOWEDGE_PYTHON)
   install(TARGETS flowedge LIBRARY DESTINATION . RUNTIME DESTINATION .) # wheel root: pip install .
 endif()
 
-# INSTALLATION provide the FlowEdge::flowedge_engine target
+if(NOT SKBUILD)
 include(GNUInstallDirs)
 install(TARGETS flowedge_engine
         EXPORT FlowEdgeTargets
@@ -175,3 +175,4 @@ install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfig.cmake"
         "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"
         DESTINATION ${FLOWEDGE_CMAKEDIR})
+endif()

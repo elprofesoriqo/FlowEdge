@@ -44,6 +44,13 @@ jobs:
         if: matrix.backend == 'cpu'
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Verify pip install ships an importable module
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          pip install .
+          python -c "import flowedge; print('import OK:', flowedge.Engine)"
+
       - name: Verify ULP vs PyTorch
         if: matrix.backend == 'cpu'
         shell: bash
