@@ -1,4 +1,17 @@
-# FlowEdge
+<div align="center">
+<img src="assets/surfingtux.png" alt="FlowEdge" width="820">
+<h1>FlowEdge</h1>
+<p><b>Real-time flow-matching action-head inference for robotics</b></p>
+<p>
+  ⚙️&nbsp;<b>CPU</b>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <img alt="CUDA" height="22" src="assets/nvidia.svg">&nbsp;<b>CUDA</b>
+  &nbsp;&nbsp;·&nbsp;&nbsp;
+  <img alt="Tenstorrent" height="22" src="assets/tenstorrent.jpg">&nbsp;<b>Tenstorrent</b>
+</p>
+</div>
+
+***
 
 FlowEdge is a custom C++ inference engine designed to execute flow-matching action heads for robotics:
 - zero external dependencies
