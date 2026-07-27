@@ -62,6 +62,24 @@ jobs:
         env:
           PYTHONPATH: build
 
+      - name: Verify convert round-trip
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          python convert/convert.py models/mamba_flow.safetensors models/converted.safetensors
+          python - <<'PY'
+          import numpy as np, flowedge
+          a = flowedge.Engine("models/mamba_flow.safetensors")
+          b = flowedge.Engine("models/converted.safetensors")
+          noise = np.zeros(a.action_dim, dtype="float32")
+          xa = a.sample([1, 2, 3, 4], noise, 10, "euler")
+          xb = b.sample([1, 2, 3, 4], noise, 10, "euler")
+          assert np.allclose(xa, xb, atol=1e-6), (xa, xb)
+          print("convert round-trip OK", xa[:3])
+          PY
+        env:
+          PYTHONPATH: build
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
