@@ -2,6 +2,7 @@
 
 #include "kernels/kernels.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <span>
@@ -166,8 +167,7 @@ void Mamba::forward(std::span<const float> input, std::span<float> output,
                     std::size_t seq_len) noexcept
 {
   const std::size_t hz = seq_len * cfg_.d_model;
-  for (std::size_t i{0uz}; i < hz; ++i)
-    output[i] = input[i];
+  std::copy_n(input.data(), hz, output.data());
   for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
     layer_forward(layers_[layer], output.first(hz), seq_len);
   rmsnorm(output.first(hz), {norm_f_, cfg_.d_model}, output.first(hz), seq_len, cfg_.d_model);
@@ -239,8 +239,7 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
 void Mamba::decode(std::span<const float> x, std::span<float> state, std::span<float> out) noexcept
 {
   const std::size_t dm = cfg_.d_model;
-  for (std::size_t i{0uz}; i < dm; ++i)
-    out[i] = x[i];
+  std::copy_n(x.data(), dm, out.data());
   const std::size_t per = cfg_.d_inner * (cfg_.d_conv + cfg_.d_state);
   for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
     decode_layer(layers_[layer], out.first(dm), state.subspan(layer * per, per));

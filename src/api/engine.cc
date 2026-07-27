@@ -57,11 +57,11 @@ struct FeEngine
   std::size_t n;
   fe::Mamba model;
   fe::FlowHead flow;
-  std::span<float> dstate; // persistent streaming state (zero-initialized with the slab)
+  std::span<float> dstate; // persistent streaming state
 
-  explicit FeEngine(const char* path)
-      : slab_size{slab_bytes(path)}, slab(slab_size),
-        arena{std::span<std::byte>{slab.data(), slab_size}}, n{load_views(path, arena, views)},
+  FeEngine(const char* path, std::size_t slab_sz)
+      : slab_size{slab_sz}, slab(slab_size), arena{std::span<std::byte>{slab.data(), slab_size}},
+        n{load_views(path, arena, views)},
         model{std::span<const fe::TensorView>{views.data(), n}, arena},
         flow{std::span<const fe::TensorView>{views.data(), n}, arena}
   {
@@ -89,8 +89,7 @@ struct FeEngine
         return 3;
       }
       const auto utok = static_cast<std::size_t>(tok);
-      for (std::size_t i{0uz}; i < c.d_model; ++i)
-        in[(t * c.d_model) + i] = emb[(utok * c.d_model) + i];
+      std::copy_n(emb + (utok * c.d_model), c.d_model, in + (t * c.d_model));
     }
     model.forward({in, hz}, {hidden, hz}, seq_len);
     return 0;
@@ -106,11 +105,12 @@ fe_engine* fe_engine_load(const char* path)
 {
   get_last_error() = "";
   try {
-    if (slab_bytes(path) == 0uz) {
+    const std::size_t slab_sz = slab_bytes(path); // one header pass; reused as the arena size
+    if (slab_sz == 0uz) {
       get_last_error() = "Failed to load safetensors file or find required tensors";
       return nullptr;
     }
-    auto engine = std::make_unique<FeEngine>(path);
+    auto engine = std::make_unique<FeEngine>(path, slab_sz);
     if (!engine->model.valid()) {
       get_last_error() = "Model architecture initialization failed";
       return nullptr;
@@ -183,8 +183,7 @@ int fe_engine_step(fe_engine* engine, std::int32_t token, float* out)
   }
   const float* const emb = engine->model.embedding();
   const auto utok = static_cast<std::size_t>(token);
-  for (std::size_t i{0uz}; i < c.d_model; ++i)
-    x[i] = emb[(utok * c.d_model) + i];
+  std::copy_n(emb + (utok * c.d_model), c.d_model, x);
   engine->model.decode({x, c.d_model}, engine->dstate, {out, c.d_model});
   arena.reset_to(mark);
   return 0;
@@ -233,7 +232,9 @@ int fe_engine_sample(fe_engine* engine, const std::int32_t* tokens, std::size_t 
   }
   const std::size_t a = engine->flow.config().action_dim;
   const std::span<const float> cond{hidden + ((seq_len - 1uz) * c.d_model), c.d_model};
-  const auto m = (method == 1) ? fe::FlowHead::kHeun : fe::FlowHead::kEuler;
+  const auto m = (method == 2)   ? fe::FlowHead::kRK4
+                 : (method == 1) ? fe::FlowHead::kHeun
+                                 : fe::FlowHead::kEuler;
   engine->flow.sample(cond, {noise, a}, steps, m, {action, a});
   arena.reset_to(mark);
   return 0;
