@@ -1,0 +1,40 @@
+# Memory Arena
+
+One fixed buffer and a bump pointer. That is the whole allocator.
+
+```{mermaid}
+%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
+graph LR
+  S["slab"] --> C[cursor]
+  C -->|alloc| W[weights]
+  C -->|alloc| SC[scratch]
+  SC -->|reset_to mark| C
+```
+
+At load the engine sizes the slab from the checkpoint, then carves the weights once, aligned to 64 bytes, and the streaming state once, a conv window and SSM state per layer.
+
+## How it works
+
+The arena owns one `std::byte` slab and a cursor. `alloc(n, a)` rounds the cursor up to alignment `a`, hands it back, and advances by `n`. Every allocation is O(1) and contiguous, with no free list and no per-object header.
+
+Scratch is stack-like: `mark()` records the cursor and `reset_to()` winds it back. A layer carves its intermediates, and the caller rewinds to the mark afterward, so the next layer reuses the same bytes.
+
+The slab size is fixed at load:
+
+$$
+\text{slab} = W + 4 K \cdot \left(3\, d_{state} d_{inner} + 16\, d_{inner} + 8\, d_{model}\right)
+$$
+
+$W$ is the weight bytes, the bracket bounds the scratch floats one token needs, and the factor 4 turns those into bytes. $K$ is a fixed cap on prefix length, `k_max_decode_seq`, currently 512, not the length of any particular input. A longer prefix does not corrupt anything: `alloc` returns `nullptr` when the slab is full, and the call fails with an arena-exhausted error instead of throwing.
+
+## Why this way
+
+A general allocator is a source of jitter. `malloc` may walk a free list, take a lock, or fault in a fresh page on first touch, and any of those adds a tail to the step. A bump allocator does none of that: an allocation is a pointer bump, and reuse is a reset back to a mark. The slab itself is faulted in once at load, so every address the hot path touches is already resident.
+
+The 64-byte alignment pays off twice. It matches the cache line, so a buffer never straddles two lines, and it is a multiple of the SIMD width, so the kernels can use aligned loads. Unaligned buffers would cost split loads and cross-line traffic in every kernel.
+
+Rewinding to a mark is a cache decision as much as a bookkeeping one. A layer's intermediates are dead once the layer finishes, so reusing that region keeps the working set small and hot. A 24-layer forward touches one scratch region rather than 24.
+
+The footprint is $O(1)$ in the action horizon, where a growing KV cache would be $O(N)$. An embedded target cannot bound an $O(N)$ cache, but here the peak is known at load and checked, so the engine cannot quietly run past its budget.
+
+Source: `src/arena/arena.h`.
