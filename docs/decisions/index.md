@@ -1,0 +1,16 @@
+# Decisions
+
+Architecture Decision Records. One record per choice. Context, decision, consequences.
+
+A pull request that makes an architectural choice adds an ADR.
+
+```{toctree}
+:maxdepth: 1
+0001-cpu-kernels
+0002-mamba-block
+0003-api-boundary
+0004-decouple-head
+0005-no-graph-runtime
+0006-obs-encoder-out-of-scope
+0007-roofline
+```
