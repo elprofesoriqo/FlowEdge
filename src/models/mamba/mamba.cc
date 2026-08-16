@@ -34,13 +34,22 @@ std::string_view layer_key(std::span<char> buf, std::size_t i, std::string_view 
   return {buf.data(), p};
 }
 
-const float* layer_weight(std::span<const TensorView> ts, std::size_t i, std::string_view sub,
-                          bool& ok) noexcept
+const float* layer_weight_f32(std::span<const TensorView> ts, std::size_t i, std::string_view sub,
+                              bool& ok) noexcept
 {
   std::array<char, 96> buf{};
   const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
   ok = ok && (t != nullptr);
-  return (t != nullptr) ? t->data : nullptr;
+  return (t != nullptr) ? t->as_f32() : nullptr;
+}
+
+const uint16_t* layer_weight_bf16(std::span<const TensorView> ts, std::size_t i,
+                                  std::string_view sub, bool& ok) noexcept
+{
+  std::array<char, 96> buf{};
+  const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
+  ok = ok && (t != nullptr);
+  return (t != nullptr) ? t->as_bf16() : nullptr;
 }
 
 } // namespace
@@ -62,27 +71,27 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
   cfg_.d_state = a0->shape[1];
   cfg_.d_conv = cv0->shape[2];
   cfg_.dt_rank = xp0->shape[0] - (2uz * cfg_.d_state);
-  emb_ = emb->data;
-  norm_f_ = nf->data;
+  emb_ = emb->as_f32();
+  norm_f_ = nf->as_f32();
 
   std::size_t n{0uz};
   for (; n < kMaxLayers; ++n) {
     bool present{true};
-    const float* norm = layer_weight(weights, n, "norm.weight", present);
+    layer_weight_f32(weights, n, "norm.weight", present);
     if (!present)
       break;
     Layer& lw = layers_[n];
-    lw.norm = norm;
     bool lok{true};
-    lw.in_proj = layer_weight(weights, n, "mixer.in_proj.weight", lok);
-    lw.conv_w = layer_weight(weights, n, "mixer.conv1d.weight", lok);
-    lw.conv_b = layer_weight(weights, n, "mixer.conv1d.bias", lok);
-    lw.x_proj = layer_weight(weights, n, "mixer.x_proj.weight", lok);
-    lw.dt_w = layer_weight(weights, n, "mixer.dt_proj.weight", lok);
-    lw.dt_b = layer_weight(weights, n, "mixer.dt_proj.bias", lok);
-    lw.a_log = layer_weight(weights, n, "mixer.A_log", lok);
-    lw.d = layer_weight(weights, n, "mixer.D", lok);
-    lw.out_proj = layer_weight(weights, n, "mixer.out_proj.weight", lok);
+    lw.norm = layer_weight_f32(weights, n, "norm.weight", lok);
+    lw.in_proj = layer_weight_bf16(weights, n, "mixer.in_proj.weight", lok);
+    lw.conv_w = layer_weight_f32(weights, n, "mixer.conv1d.weight", lok);
+    lw.conv_b = layer_weight_f32(weights, n, "mixer.conv1d.bias", lok);
+    lw.x_proj = layer_weight_bf16(weights, n, "mixer.x_proj.weight", lok);
+    lw.dt_w = layer_weight_bf16(weights, n, "mixer.dt_proj.weight", lok);
+    lw.dt_b = layer_weight_f32(weights, n, "mixer.dt_proj.bias", lok);
+    lw.a_log = layer_weight_f32(weights, n, "mixer.A_log", lok);
+    lw.d = layer_weight_f32(weights, n, "mixer.D", lok);
+    lw.out_proj = layer_weight_bf16(weights, n, "mixer.out_proj.weight", lok);
     if (!lok)
       return; // malformed layer
   }

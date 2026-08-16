@@ -3,6 +3,8 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <immintrin.h>
 
 namespace fe {
@@ -94,6 +96,23 @@ inline void scan_advance(const float* __restrict__ da_t, const float* __restrict
       y_t[c] += hn[c] * cn;
     }
   }
+}
+
+// widen 8 BF16 → 8 F32
+__m256 load_bf16_8(const uint16_t* p) noexcept
+{
+  return _mm256_castsi256_ps(
+      _mm256_slli_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p))),
+                        16));
+}
+
+// scalar BF16 → F32
+float bf16_to_f32(uint16_t v) noexcept
+{
+  uint32_t bits = static_cast<uint32_t>(v) << 16;
+  float f;
+  std::memcpy(&f, &bits, sizeof(float));
+  return f;
 }
 
 } // namespace
@@ -290,6 +309,79 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
         da_n[c] = std::exp(dt[c] * an[c]);
         dbu_n[c] = dt[c] * bn * ut[c];
       }
+    }
+  }
+}
+
+void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
+{
+  if (rows == 1uz) { // single vector
+    const float* __restrict__ ir = in.data();
+    for (std::size_t o{0uz}; o < out_dim; ++o) {
+      const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+      float acc{0.0F};
+      std::size_t i{0uz};
+      __m256 a0 = _mm256_setzero_ps();
+      __m256 a1 = a0;
+      __m256 a2 = a0;
+      __m256 a3 = a0;
+      for (; i + 32uz <= in_dim; i += 32uz) {
+        a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), load_bf16_8(wr + i), a0);
+        a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), load_bf16_8(wr + i + 8uz), a1);
+        a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), load_bf16_8(wr + i + 16uz), a2);
+        a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), load_bf16_8(wr + i + 24uz), a3);
+      }
+      __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
+      for (; i + 8uz <= in_dim; i += 8uz)
+        av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), load_bf16_8(wr + i), av);
+      acc = hsum8(av);
+      for (; i < in_dim; ++i)
+        acc += ir[i] * bf16_to_f32(wr[i]);
+      out.data()[o] = acc;
+    }
+    return;
+  }
+
+  // multi-row
+  for (std::size_t o{0uz}; o < out_dim; ++o) {
+    const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
+      const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
+      const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
+      const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
+      const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
+      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
+      std::size_t i{0uz};
+      __m256 v0 = _mm256_setzero_ps();
+      __m256 v1 = v0, v2 = v0, v3 = v0;
+      for (; i + 8uz <= in_dim; i += 8uz) {
+        const __m256 wv = load_bf16_8(wr + i); // widen once
+        v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
+        v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
+        v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
+        v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
+      }
+      acc0 = hsum8(v0);
+      acc1 = hsum8(v1);
+      acc2 = hsum8(v2);
+      acc3 = hsum8(v3);
+      for (; i < in_dim; ++i) {
+        const float wf = bf16_to_f32(wr[i]);
+        acc0 += i0[i] * wf;
+        acc1 += i1[i] * wf;
+        acc2 += i2[i] * wf;
+        acc3 += i3[i] * wf;
+      }
+      float* __restrict__ orow = out.data() + (r0 * out_dim);
+      orow[o] = acc0;
+      if (nr > 1uz)
+        orow[out_dim + o] = acc1;
+      if (nr > 2uz)
+        orow[(2uz * out_dim) + o] = acc2;
+      if (nr > 3uz)
+        orow[(3uz * out_dim) + o] = acc3;
     }
   }
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 // Mamba CPU kernels. Buffers are caller-owned and 64B-aligned (arena).
@@ -27,6 +28,10 @@ void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span
 
 // Row-major linear: out[r,o] = Σ_i in[r,i]·w[o,i]  (w is PyTorch [out_dim][in_dim])
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept;
+
+// BF16-weight variant: w holds raw uint16_t; widened to float inline inside the inner loop
+void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
             std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept;
 
 // layout [t][n][c]

@@ -24,10 +24,10 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
   cfg_.action_dim = in->shape[1];
   cfg_.time_dim = tp->shape[1];
   cfg_.cond_dim = cp->shape[1];
-  in_proj_ = in->data;
-  time_proj_ = tp->data;
-  cond_proj_ = cp->data;
-  out_proj_ = op->data;
+  in_proj_ = in->as_bf16();
+  time_proj_ = tp->as_bf16();
+  cond_proj_ = cp->as_bf16();
+  out_proj_ = op->as_bf16();
 
   std::size_t n{0uz};
   for (; n < kMaxMlp; ++n) {
@@ -49,7 +49,7 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
     const TensorView* lw = find_tensor(weights, {buf.data(), p});
     if (lw == nullptr)
       break;
-    layers_[n] = lw->data;
+    layers_[n] = lw->as_bf16();
   }
   cfg_.mlp_layers = n;
   if (cfg_.time_dim % 2uz != 0uz) // sinusoidal embed needs sin/cos pairs

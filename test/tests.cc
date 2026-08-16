@@ -6,6 +6,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <gtest/gtest.h>
 #include <span>
 #include <vector>
@@ -18,6 +20,18 @@ std::vector<float> seq(std::size_t n, float a, float b)
   for (std::size_t i{0uz}; i < n; ++i)
     v[i] = std::sin(static_cast<float>(i) * a + b); // deterministic, mixed-sign
   return v;
+}
+
+// convert a float vector to BF16
+std::vector<uint16_t> to_bf16(const std::vector<float>& v)
+{
+  std::vector<uint16_t> out(v.size());
+  for (std::size_t i{0uz}; i < v.size(); ++i) {
+    uint32_t bits;
+    std::memcpy(&bits, &v[i], sizeof(bits));
+    out[i] = static_cast<uint16_t>(bits >> 16);
+  }
+  return out;
 }
 
 constexpr float kTol = 2e-3F; // ~1 ULP exp8/log8 + fp32 reduction reorder
@@ -137,20 +151,22 @@ namespace {
 struct FlowFixture
 {
   static constexpr std::size_t kA = 8uz, kC = 32uz, kH = 48uz, kT = 16uz, kL = 2uz;
-  std::vector<float> in_ = seq(kH * kA, 0.11F, 0.0F);
-  std::vector<float> tp_ = seq(kH * kT, 0.13F, 1.0F);
-  std::vector<float> cp_ = seq(kH * kC, 0.09F, 0.5F);
-  std::vector<float> op_ = seq(kA * kH, 0.07F, 0.2F);
-  std::vector<float> l0_ = seq(kH * kH, 0.05F, 0.1F);
-  std::vector<float> l1_ = seq(kH * kH, 0.06F, 0.3F);
-  std::array<std::vector<float>, kL> layers_{l0_, l1_};
+  // weights stored as BF16
+  std::vector<uint16_t> in_ = to_bf16(seq(kH * kA, 0.11F, 0.0F));
+  std::vector<uint16_t> tp_ = to_bf16(seq(kH * kT, 0.13F, 1.0F));
+  std::vector<uint16_t> cp_ = to_bf16(seq(kH * kC, 0.09F, 0.5F));
+  std::vector<uint16_t> op_ = to_bf16(seq(kA * kH, 0.07F, 0.2F));
+  std::vector<uint16_t> l0_ = to_bf16(seq(kH * kH, 0.05F, 0.1F));
+  std::vector<uint16_t> l1_ = to_bf16(seq(kH * kH, 0.06F, 0.3F));
+  std::array<std::vector<uint16_t>, kL> layers_{l0_, l1_};
   std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
   fe::Arena arena{std::span<std::byte>{slab}};
 
-  static fe::TensorView view(const char* name, float* data, std::size_t r, std::size_t c)
+  static fe::TensorView view(const char* name, uint16_t* data, std::size_t r, std::size_t c)
   {
     fe::TensorView v{};
     v.data = data;
+    v.dtype = fe::TensorView::Dtype::BF16;
     v.shape[0] = r;
     v.shape[1] = c;
     v.ndim = 2;
@@ -210,9 +226,16 @@ TEST(FlowHead, EulerDiffersFromHeun)
 TEST(FlowHead, RK4DiffersFromEulerAndFinite)
 {
   FlowFixture fx;
-  auto damp = [](std::vector<float>& w) {
-    for (float& e : w)
-      e *= 0.1F;
+  // damp: scale BF16 weights by 0.1 to keep activations from blowing up under RK4
+  auto damp = [](std::vector<uint16_t>& w) {
+    for (uint16_t& e : w) {
+      uint32_t bits = static_cast<uint32_t>(e) << 16;
+      float f;
+      std::memcpy(&f, &bits, sizeof(f));
+      f *= 0.1F;
+      std::memcpy(&bits, &f, sizeof(f));
+      e = static_cast<uint16_t>(bits >> 16);
+    }
   };
   damp(fx.in_);
   damp(fx.tp_);
@@ -238,7 +261,7 @@ TEST(FlowHead, RK4DiffersFromEulerAndFinite)
 TEST(FlowHead, RejectsOddTimeDim)
 {
   FlowFixture fx;
-  fx.tp_ = seq(FlowFixture::kH * 15uz, 0.13F, 1.0F); // odd time_dim: no sin/cos pairing
+  fx.tp_ = to_bf16(seq(FlowFixture::kH * 15uz, 0.13F, 1.0F)); // odd time_dim
   auto v = fx.views();
   v[1] = FlowFixture::view("flow.time_proj.weight", fx.tp_.data(), FlowFixture::kH, 15uz);
   const fe::FlowHead head{v, fx.arena};

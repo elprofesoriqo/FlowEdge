@@ -218,23 +218,15 @@ bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView>
                        if (byte_len % elem != 0uz) [[unlikely]] // whole elements
                          return false;
 
-                       const std::size_t count = byte_len / elem;
-                       auto* const dst = arena.alloc_array<float>(count, kSimdAlign);
+                       // store bytes; matmul widens inline
+                       auto* const dst = arena.alloc_array<std::byte>(byte_len, kSimdAlign);
                        if (!dst) [[unlikely]]
                          return false;
-                       const std::byte* const src = weights_base + byte_off;
-                       if (bf16) // bf16 is the high 16 bits of an f32
-                         for (std::size_t i{0uz}; i < count; ++i) {
-                           std::uint16_t hi{};
-                           std::memcpy(&hi, src + (i * 2uz), 2uz);
-                           const std::uint32_t bits = static_cast<std::uint32_t>(hi) << 16;
-                           std::memcpy(&dst[i], &bits, sizeof(float));
-                         }
-                       else
-                         std::memcpy(dst, src, byte_len);
+                       std::memcpy(dst, weights_base + byte_off, byte_len);
 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
+                       tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
                          tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
@@ -248,18 +240,17 @@ bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView>
   return ok;
 }
 
-std::size_t safetensors_f32_bytes(std::string_view path) noexcept
+std::size_t safetensors_weight_bytes(std::string_view path) noexcept
 {
   MappedFile mf{};
   const std::string_view json = header_json(mf, path);
   std::size_t total{0uz};
   static_cast<void>(
-      foreach_tensor(json,
-                     [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
-                         const std::array<std::uint64_t, 4>&, std::uint8_t, bool bf16) noexcept {
-                       total += bf16 ? (2uz * byte_len) : byte_len; // F32 arena size (BF16 exp 2×)
-                       return true;
-                     }));
+      foreach_tensor(json, [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
+                               const std::array<std::uint64_t, 4>&, std::uint8_t, bool) noexcept {
+        total += byte_len; // BF16 stays 2 bytes/elem
+        return true;
+      }));
   mf.close();
   return total;
 }

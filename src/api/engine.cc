@@ -28,7 +28,10 @@ constexpr std::size_t k_max_decode_seq = 512uz; // scratch is sized for prefills
 
 std::size_t slab_bytes(const char* path)
 {
-  const std::size_t weights = fe::safetensors_f32_bytes(path); // F32-expanded (handles BF16)
+  // slab = W_bytes_stored + k_max_decode_seq * (3*d_state*d_inner + 16*d_inner + 8*d_model) * 4
+  // W_bytes_stored is 2 B/elem for BF16, 4 B/elem for F32
+  // scratch term is always float
+  const std::size_t weights = fe::safetensors_weight_bytes(path); // BF16 = 2B/elem
   if (weights == 0uz)
     return 0uz;
   const auto emb = fe::safetensors_tensor_shape(path, "backbone.embeddings.weight");
@@ -36,6 +39,8 @@ std::size_t slab_bytes(const char* path)
   const std::size_t d_model = emb[1];
   const std::size_t d_inner = a_log[0];
   const std::size_t d_state = a_log[1];
+  if (d_model == 0uz || d_inner == 0uz || d_state == 0uz) // malformed header
+    return 0uz;
   const std::size_t per_token = (3uz * d_state * d_inner) + (16uz * d_inner) + (8uz * d_model);
   return weights + (k_max_decode_seq * per_token * sizeof(float));
 }

@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace fe {
@@ -40,15 +41,15 @@ private:
   struct Layer
   {
     const float* norm;
-    const float* in_proj;
+    const uint16_t* in_proj;
     const float* conv_w;
     const float* conv_b;
-    const float* x_proj;
-    const float* dt_w;
+    const uint16_t* x_proj;
+    const uint16_t* dt_w;
     const float* dt_b;
     const float* a_log;
     const float* d;
-    const float* out_proj;
+    const uint16_t* out_proj;
   };
 
   void layer_forward(const Layer& lw, std::span<float> hidden, std::size_t seq_len) noexcept;
