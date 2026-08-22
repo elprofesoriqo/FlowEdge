@@ -1,3 +1,4 @@
+#include "arena/thread_pool.h"
 #include "kernels/cpu/cephes.h"
 #include "kernels/kernels.h"
 
@@ -189,72 +190,113 @@ void softplus(std::span<float> x) noexcept
     x[i] = std::log1p(std::exp(x[i]));
 }
 
-void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
+namespace {
+struct MatmulF32Row1Ctx
 {
-  if (rows == 1uz) { // single vector
-    const float* __restrict__ ir = in.data();
-    for (std::size_t o{0uz}; o < out_dim; ++o) {
-      const float* __restrict__ wr = w.data() + (o * in_dim);
-      float acc{0.0F};
-      std::size_t i{0uz};
-      __m256 a0 = _mm256_setzero_ps();
-      __m256 a1 = a0;
-      __m256 a2 = a0;
-      __m256 a3 = a0;
-      for (; i + 32uz <= in_dim; i += 32uz) {
-        a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), a0);
-        a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), _mm256_loadu_ps(wr + i + 8uz), a1);
-        a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), _mm256_loadu_ps(wr + i + 16uz), a2);
-        a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), _mm256_loadu_ps(wr + i + 24uz), a3);
-      }
-      __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
-      for (; i + 8uz <= in_dim; i += 8uz)
-        av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), av);
-      acc = hsum8(av);
-      for (; i < in_dim; ++i)
-        acc += ir[i] * wr[i];
-      out.data()[o] = acc;
+  std::span<const float> in;
+  std::span<const float> w;
+  std::span<float> out;
+  std::size_t in_dim;
+};
+void matmul_f32_row1(std::size_t lo, std::size_t hi, const MatmulF32Row1Ctx* ctx) noexcept
+{
+  const float* __restrict__ ir = ctx->in.data();
+  const float* __restrict__ wd = ctx->w.data();
+  float* __restrict__ od = ctx->out.data();
+  const std::size_t in_dim = ctx->in_dim;
+  for (std::size_t o{lo}; o < hi; ++o) {
+    const float* __restrict__ wr = wd + (o * in_dim);
+    float acc{0.0F};
+    std::size_t i{0uz};
+    __m256 a0 = _mm256_setzero_ps();
+    __m256 a1 = a0;
+    __m256 a2 = a0;
+    __m256 a3 = a0;
+    for (; i + 32uz <= in_dim; i += 32uz) {
+      a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), a0);
+      a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), _mm256_loadu_ps(wr + i + 8uz), a1);
+      a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), _mm256_loadu_ps(wr + i + 16uz), a2);
+      a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), _mm256_loadu_ps(wr + i + 24uz), a3);
     }
-    return;
+    __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
+    for (; i + 8uz <= in_dim; i += 8uz)
+      av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), _mm256_loadu_ps(wr + i), av);
+    acc = hsum8(av);
+    for (; i < in_dim; ++i)
+      acc += ir[i] * wr[i];
+    od[o] = acc;
   }
+}
+struct MatmulF32Row1Op
+{
+  const MatmulF32Row1Ctx* ctx;
+  void operator()(std::size_t lo, std::size_t hi) const noexcept { matmul_f32_row1(lo, hi, ctx); }
+};
 
-  for (std::size_t o{0uz}; o < out_dim; ++o) {
-    const float* __restrict__ wr = w.data() + (o * in_dim);
+struct MatmulF32RowNCtx
+{
+  std::span<const float> in;
+  std::span<const float> w;
+  std::span<float> out;
+  std::size_t rows;
+  std::size_t in_dim;
+  std::size_t out_dim;
+};
+void matmul_f32_rown(std::size_t lo, std::size_t hi, const MatmulF32RowNCtx* ctx) noexcept
+{
+  const float* __restrict__ in_data = ctx->in.data();
+  const float* __restrict__ w_data = ctx->w.data();
+  float* __restrict__ out_data = ctx->out.data();
+  const std::size_t rows = ctx->rows;
+  const std::size_t in_dim = ctx->in_dim;
+  const std::size_t out_dim = ctx->out_dim;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattributes"
+  if (in_dim % 8 != 0)
+    __builtin_unreachable();
+#pragma GCC diagnostic pop
+#endif
+  for (std::size_t o{lo}; o < hi; ++o) {
+    const float* __restrict__ wr = w_data + (o * in_dim);
     for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
-      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz; // tail rows clamp to r0
-      const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
-      const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
-      const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
-      const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
-      float acc0{0.0F};
-      float acc1{0.0F};
-      float acc2{0.0F};
-      float acc3{0.0F};
+      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
+      const float* __restrict__ i0 = in_data + ((r0 + 0uz) * in_dim);
+      const float* __restrict__ i1 = in_data + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
+      const float* __restrict__ i2 = in_data + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
+      const float* __restrict__ i3 = in_data + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
+      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
       std::size_t i{0uz};
       __m256 v0 = _mm256_setzero_ps();
-      __m256 v1 = v0;
-      __m256 v2 = v0;
-      __m256 v3 = v0;
+      __m256 v1 = v0, v2 = v0, v3 = v0;
       for (; i + 8uz <= in_dim; i += 8uz) {
         const __m256 wv = _mm256_loadu_ps(wr + i);
         v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
-        v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
-        v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
-        v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
+        if (nr > 1)
+          v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
+        if (nr > 2)
+          v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
+        if (nr > 3)
+          v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
       }
       acc0 = hsum8(v0);
-      acc1 = hsum8(v1);
-      acc2 = hsum8(v2);
-      acc3 = hsum8(v3);
+      if (nr > 1)
+        acc1 = hsum8(v1);
+      if (nr > 2)
+        acc2 = hsum8(v2);
+      if (nr > 3)
+        acc3 = hsum8(v3);
       for (; i < in_dim; ++i) {
         const float wv = wr[i];
         acc0 += i0[i] * wv;
-        acc1 += i1[i] * wv;
-        acc2 += i2[i] * wv;
-        acc3 += i3[i] * wv;
+        if (nr > 1)
+          acc1 += i1[i] * wv;
+        if (nr > 2)
+          acc2 += i2[i] * wv;
+        if (nr > 3)
+          acc3 += i3[i] * wv;
       }
-      float* __restrict__ orow = out.data() + (r0 * out_dim);
+      float* __restrict__ orow = out_data + (r0 * out_dim);
       orow[o] = acc0;
       if (nr > 1uz)
         orow[out_dim + o] = acc1;
@@ -265,6 +307,178 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
     }
   }
 }
+struct MatmulF32RowNOp
+{
+  const MatmulF32RowNCtx* ctx;
+  void operator()(std::size_t lo, std::size_t hi) const noexcept { matmul_f32_rown(lo, hi, ctx); }
+};
+
+struct MatmulU16Row1Ctx
+{
+  std::span<const float> in;
+  std::span<const uint16_t> w;
+  std::span<float> out;
+  std::size_t in_dim;
+};
+void matmul_u16_row1(std::size_t lo, std::size_t hi, const MatmulU16Row1Ctx* ctx) noexcept
+{
+  const float* __restrict__ ir = ctx->in.data();
+  const uint16_t* __restrict__ wd = ctx->w.data();
+  float* __restrict__ od = ctx->out.data();
+  const std::size_t in_dim = ctx->in_dim;
+  for (std::size_t o{lo}; o < hi; ++o) {
+    const uint16_t* __restrict__ wr = wd + (o * in_dim);
+    float acc{0.0F};
+    std::size_t i{0uz};
+    __m256 a0 = _mm256_setzero_ps();
+    __m256 a1 = a0;
+    __m256 a2 = a0;
+    __m256 a3 = a0;
+    for (; i + 32uz <= in_dim; i += 32uz) {
+      a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), load_bf16_8(wr + i), a0);
+      a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), load_bf16_8(wr + i + 8uz), a1);
+      a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), load_bf16_8(wr + i + 16uz), a2);
+      a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), load_bf16_8(wr + i + 24uz), a3);
+    }
+    __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
+    for (; i + 8uz <= in_dim; i += 8uz)
+      av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), load_bf16_8(wr + i), av);
+    acc = hsum8(av);
+    for (; i < in_dim; ++i)
+      acc += ir[i] * bf16_to_f32(wr[i]);
+    od[o] = acc;
+  }
+}
+struct MatmulU16Row1Op
+{
+  const MatmulU16Row1Ctx* ctx;
+  void operator()(std::size_t lo, std::size_t hi) const noexcept { matmul_u16_row1(lo, hi, ctx); }
+};
+
+struct MatmulU16RowNCtx
+{
+  std::span<const float> in;
+  std::span<const uint16_t> w;
+  std::span<float> out;
+  std::size_t rows;
+  std::size_t in_dim;
+  std::size_t out_dim;
+};
+void matmul_u16_rown(std::size_t lo, std::size_t hi, const MatmulU16RowNCtx* ctx) noexcept
+{
+  const float* __restrict__ in_data = ctx->in.data();
+  const uint16_t* __restrict__ w_data = ctx->w.data();
+  float* __restrict__ out_data = ctx->out.data();
+  const std::size_t rows = ctx->rows;
+  const std::size_t in_dim = ctx->in_dim;
+  const std::size_t out_dim = ctx->out_dim;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattributes"
+  if (in_dim % 8 != 0)
+    __builtin_unreachable();
+#pragma GCC diagnostic pop
+#endif
+  for (std::size_t o{lo}; o < hi; ++o) {
+    const uint16_t* __restrict__ wr = w_data + (o * in_dim);
+    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
+      const float* __restrict__ i0 = in_data + ((r0 + 0uz) * in_dim);
+      const float* __restrict__ i1 = in_data + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
+      const float* __restrict__ i2 = in_data + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
+      const float* __restrict__ i3 = in_data + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
+      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
+      std::size_t i{0uz};
+      __m256 v0 = _mm256_setzero_ps();
+      __m256 v1 = v0, v2 = v0, v3 = v0;
+      for (; i + 8uz <= in_dim; i += 8uz) {
+        const __m256 wv = load_bf16_8(wr + i);
+        v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
+        if (nr > 1)
+          v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
+        if (nr > 2)
+          v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
+        if (nr > 3)
+          v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
+      }
+      acc0 = hsum8(v0);
+      if (nr > 1)
+        acc1 = hsum8(v1);
+      if (nr > 2)
+        acc2 = hsum8(v2);
+      if (nr > 3)
+        acc3 = hsum8(v3);
+      for (; i < in_dim; ++i) {
+        const float wf = bf16_to_f32(wr[i]);
+        acc0 += i0[i] * wf;
+        if (nr > 1)
+          acc1 += i1[i] * wf;
+        if (nr > 2)
+          acc2 += i2[i] * wf;
+        if (nr > 3)
+          acc3 += i3[i] * wf;
+      }
+      float* __restrict__ orow = out_data + (r0 * out_dim);
+      orow[o] = acc0;
+      if (nr > 1uz)
+        orow[out_dim + o] = acc1;
+      if (nr > 2uz)
+        orow[(2uz * out_dim) + o] = acc2;
+      if (nr > 3uz)
+        orow[(3uz * out_dim) + o] = acc3;
+    }
+  }
+}
+struct MatmulU16RowNOp
+{
+  const MatmulU16RowNCtx* ctx;
+  void operator()(std::size_t lo, std::size_t hi) const noexcept { matmul_u16_rown(lo, hi, ctx); }
+};
+} // namespace
+
+void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
+{
+  const unsigned n = (pool != nullptr) ? pool->nthreads() : 0u;
+  if (rows == 1uz) { // single vector
+    MatmulF32Row1Ctx ctx{in, w, out, in_dim};
+    MatmulF32Row1Op op{&ctx};
+    if (pool != nullptr && n > 0u && (out_dim / n) >= 32uz)
+      parallel_for(*pool, out_dim, op);
+    else
+      op(0uz, out_dim);
+    return;
+  }
+
+  MatmulF32RowNCtx ctx{in, w, out, rows, in_dim, out_dim};
+  MatmulF32RowNOp op{&ctx};
+  if (pool != nullptr && rows > 1uz && n > 0u && (out_dim / n) >= 32uz)
+    parallel_for(*pool, out_dim, op);
+  else
+    op(0uz, out_dim);
+}
+
+void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
+{
+  const unsigned n = (pool != nullptr) ? pool->nthreads() : 0u;
+  if (rows == 1uz) { // single vector
+    MatmulU16Row1Ctx ctx{in, w, out, in_dim};
+    MatmulU16Row1Op op{&ctx};
+    if (pool != nullptr && n > 0u && (out_dim / n) >= 32uz)
+      parallel_for(*pool, out_dim, op);
+    else
+      op(0uz, out_dim);
+    return;
+  }
+
+  MatmulU16RowNCtx ctx{in, w, out, rows, in_dim, out_dim};
+  MatmulU16RowNOp op{&ctx};
+  if (pool != nullptr && rows > 1uz && n > 0u && (out_dim / n) >= 32uz)
+    parallel_for(*pool, out_dim, op);
+  else
+    op(0uz, out_dim);
+}
 
 void discretize(std::span<const float> delta, std::span<const float> a_log,
                 std::span<const float> b, std::span<const float> u, std::span<float> delta_a,
@@ -272,8 +486,6 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
                 std::size_t d_inner, std::size_t d_state) noexcept
 {
   const std::size_t plane = d_inner * d_state;
-  // A = -exp(a_log): vectorized exp into delta_a
-  // transpose + negate into a_work[n][c].
   float* __restrict__ tmp = delta_a.data();
   std::size_t i{0uz};
   for (; i + 8uz <= plane; i += 8uz)
@@ -286,8 +498,6 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
     for (std::size_t n{0uz}; n < d_state; ++n)
       a_sm[(n * d_inner) + c] = -tmp[(c * d_state) + n];
 
-  // delta_a[t,n,c] = exp(delta[t,c]·A[n,c])
-  // delta_bu[t,n,c] = delta[t,c]·b[t,n]·u[t,c]
   for (std::size_t t{0uz}; t < length; ++t) {
     const float* __restrict__ dt = delta.data() + (t * d_inner);
     const float* __restrict__ ut = u.data() + (t * d_inner);
@@ -309,79 +519,6 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
         da_n[c] = std::exp(dt[c] * an[c]);
         dbu_n[c] = dt[c] * bn * ut[c];
       }
-    }
-  }
-}
-
-void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
-{
-  if (rows == 1uz) { // single vector
-    const float* __restrict__ ir = in.data();
-    for (std::size_t o{0uz}; o < out_dim; ++o) {
-      const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
-      float acc{0.0F};
-      std::size_t i{0uz};
-      __m256 a0 = _mm256_setzero_ps();
-      __m256 a1 = a0;
-      __m256 a2 = a0;
-      __m256 a3 = a0;
-      for (; i + 32uz <= in_dim; i += 32uz) {
-        a0 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), load_bf16_8(wr + i), a0);
-        a1 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 8uz), load_bf16_8(wr + i + 8uz), a1);
-        a2 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 16uz), load_bf16_8(wr + i + 16uz), a2);
-        a3 = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i + 24uz), load_bf16_8(wr + i + 24uz), a3);
-      }
-      __m256 av = _mm256_add_ps(_mm256_add_ps(a0, a1), _mm256_add_ps(a2, a3));
-      for (; i + 8uz <= in_dim; i += 8uz)
-        av = _mm256_fmadd_ps(_mm256_loadu_ps(ir + i), load_bf16_8(wr + i), av);
-      acc = hsum8(av);
-      for (; i < in_dim; ++i)
-        acc += ir[i] * bf16_to_f32(wr[i]);
-      out.data()[o] = acc;
-    }
-    return;
-  }
-
-  // multi-row
-  for (std::size_t o{0uz}; o < out_dim; ++o) {
-    const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
-    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
-      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
-      const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
-      const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
-      const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
-      const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
-      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
-      std::size_t i{0uz};
-      __m256 v0 = _mm256_setzero_ps();
-      __m256 v1 = v0, v2 = v0, v3 = v0;
-      for (; i + 8uz <= in_dim; i += 8uz) {
-        const __m256 wv = load_bf16_8(wr + i); // widen once
-        v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
-        v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
-        v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
-        v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
-      }
-      acc0 = hsum8(v0);
-      acc1 = hsum8(v1);
-      acc2 = hsum8(v2);
-      acc3 = hsum8(v3);
-      for (; i < in_dim; ++i) {
-        const float wf = bf16_to_f32(wr[i]);
-        acc0 += i0[i] * wf;
-        acc1 += i1[i] * wf;
-        acc2 += i2[i] * wf;
-        acc3 += i3[i] * wf;
-      }
-      float* __restrict__ orow = out.data() + (r0 * out_dim);
-      orow[o] = acc0;
-      if (nr > 1uz)
-        orow[out_dim + o] = acc1;
-      if (nr > 2uz)
-        orow[(2uz * out_dim) + o] = acc2;
-      if (nr > 3uz)
-        orow[(3uz * out_dim) + o] = acc3;
     }
   }
 }

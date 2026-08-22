@@ -26,14 +26,6 @@ void softplus(std::span<float> x) noexcept;
 void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span<float> out,
              std::size_t rows, std::size_t dim) noexcept;
 
-// Row-major linear: out[r,o] = Σ_i in[r,i]·w[o,i]  (w is PyTorch [out_dim][in_dim])
-void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept;
-
-// BF16-weight variant: w holds raw uint16_t; widened to float inline inside the inner loop
-void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept;
-
 // layout [t][n][c]
 // h[n,c] = delta_a·h[n,c] + delta_bu
 // y[t,c] = d_skip·u + Σ_n h[n,c]·c_proj[t,n]
@@ -64,4 +56,10 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
                 std::span<float> delta_bu, std::span<float> a_work, std::size_t length,
                 std::size_t d_inner, std::size_t d_state) noexcept;
 
+void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim,
+            class ThreadPool* pool = nullptr) noexcept;
+void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim,
+            class ThreadPool* pool = nullptr) noexcept;
 } // namespace fe
