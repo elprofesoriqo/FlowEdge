@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(FlowEdge)
 
+find_package(Threads REQUIRED)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -14,7 +16,7 @@ option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
   add_compile_options(-mavx2 -mfma -fno-math-errno)
   if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    add_compile_options(-mincoming-stack-boundary=4) # gcc-only; clang aligns the stack itself
+    add_compile_options(-mstackrealign) # gcc-only; clang aligns the stack itself
   endif()
 endif()
 
@@ -28,7 +30,8 @@ set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
 if(FLOWEDGE_BACKEND STREQUAL "cpu")
   set(KERNEL_SRC src/kernels/cpu/kernels_common.cc) # arch-independent scalar kernels
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
-    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc)
+    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc
+  src/arena/thread_pool.cc)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64|ARM64")
     list(APPEND KERNEL_SRC src/kernels/cpu/kernels_neon.cc)
   else()
@@ -133,7 +136,7 @@ if(FLOWEDGE_PYTHON)
     target_compile_options(flowedge PRIVATE -pthread)
     if(WIN32)
       if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        target_compile_options(flowedge PRIVATE -mincoming-stack-boundary=4)
+        target_compile_options(flowedge PRIVATE -mstackrealign)
       endif()
       # static libstdc++ (resolves std::call_once) but keep winpthread dynamic
       target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++)
@@ -176,3 +179,5 @@ install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"
         DESTINATION ${FLOWEDGE_CMAKEDIR})
 endif()
+add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
+target_link_libraries(flowedge_threaded_matmul_bench PRIVATE flowedge_engine benchmark::benchmark_main Threads::Threads)
