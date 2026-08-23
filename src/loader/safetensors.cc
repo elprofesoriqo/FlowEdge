@@ -12,6 +12,9 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
+#endif
 #include <windows.h>
 #else
 #include <fcntl.h>
@@ -54,6 +57,10 @@ struct MappedFile
       mf.close();
       return std::unexpected("Failed to map view of file");
     }
+#if _WIN32_WINNT >= 0x0602
+    WIN32_MEMORY_RANGE_ENTRY range{const_cast<void*>(static_cast<const void*>(mf.data)), mf.size};
+    PrefetchVirtualMemory(GetCurrentProcess(), 1, &range, 0);
+#endif
     return mf;
   }
   void close() noexcept
@@ -86,6 +93,9 @@ struct MappedFile
     if (mf.mapped_data == MAP_FAILED)
       return std::unexpected("Failed to mmap safetensors file");
     mf.data = static_cast<const std::byte*>(mf.mapped_data);
+#if defined(__linux__)
+    madvise(mf.mapped_data, mf.size, MADV_SEQUENTIAL | MADV_WILLNEED);
+#endif
     return mf;
   }
   void close() noexcept
