@@ -50,6 +50,14 @@ public:
   [[nodiscard]] std::byte* mark() const noexcept { return cursor_; }
   void reset_to(std::byte* mark) noexcept { cursor_ = mark; }
 
+  [[nodiscard]] Arena sub_arena(std::size_t bytes) noexcept
+  {
+    void* p = alloc(bytes, kSimdAlign);
+    if (!p) [[unlikely]]
+      return Arena{std::span<std::byte>{}};
+    return Arena{std::span<std::byte>{static_cast<std::byte*>(p), bytes}};
+  }
+
 private:
   std::byte* cursor_;
   std::byte* const end_;

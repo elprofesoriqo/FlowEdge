@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <span>
 #include <string_view>
 
@@ -129,7 +131,7 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> out = arena_span(l * dm);
 
   rmsnorm(hidden, {lw.norm, dm}, normed, l, dm);
-  matmul(normed, {lw.in_proj, 2uz * di * dm}, xz, l, dm, 2uz * di); // [l][x|z]
+  matmul(normed, {lw.in_proj, 2uz * di * dm}, xz, l, dm, 2uz * di, pool_); // [l][x|z]
 
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t c{0uz}; c < di; ++c) {
@@ -164,7 +166,7 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   discretize(dt, {lw.a_log, di * ds}, b_buf, x_sm, da, dbu, a_neg, l, di, ds);
   selective_scan(da, dbu, c_buf, {lw.d, di}, x_sm, h, yv, l, di, ds);
   gate_silu(yv, z, yv); // y · silu(z)
-  matmul(yv, {lw.out_proj, dm * di}, out, l, di, dm);
+  matmul(yv, {lw.out_proj, dm * di}, out, l, di, dm, pool_);
 
   for (std::size_t i{0uz}; i < l * dm; ++i)
     hidden[i] += out[i]; // residual
@@ -214,9 +216,8 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
 
   for (std::size_t c{0uz}; c < di; ++c) {
     float* const w = conv_win.data() + (c * dc);
-    for (std::size_t k{0uz}; k + 1uz < dc; ++k)
-      w[k] = w[k + 1uz]; // drop oldest, shift window
-    w[dc - 1uz] = xz[c]; // newest conv input
+    std::memmove(w, w + 1uz, (dc - 1uz) * sizeof(float)); // shift window
+    w[dc - 1uz] = xz[c];                                  // newest conv input
     z[c] = xz[di + c];
   }
   conv1d_step(conv_win, {lw.conv_w, di * dc}, {lw.conv_b, di}, x_conv, di, dc);

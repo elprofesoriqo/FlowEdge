@@ -77,25 +77,25 @@ void FlowHead::velocity(std::span<const float> x, float t, std::span<const float
   std::span<float> tmp = arena_span(hd);
   const std::span<float> sinu = arena_span(td);
 
-  matmul(x, {in_proj_, hd * a}, h, 1uz, a, hd); // in_proj·x
+  matmul(x, {in_proj_, hd * a}, h, 1uz, a, hd, pool_); // in_proj·x
 
-  const std::size_t half = td / 2uz;            // sinusoidal time embedding [sin | cos]
+  const std::size_t half = td / 2uz;                   // sinusoidal time embedding [sin | cos]
   for (std::size_t i{0uz}; i < half; ++i) {
     sinu[i] = std::sin(t * freqs_[i]);
     sinu[half + i] = std::cos(t * freqs_[i]);
   }
-  matmul(sinu, {time_proj_, hd * td}, tmp, 1uz, td, hd);
+  matmul(sinu, {time_proj_, hd * td}, tmp, 1uz, td, hd, pool_);
 
   for (std::size_t i{0uz}; i < hd; ++i)
     h[i] += tmp[i] + c_emb[i]; // fuse x, time, cond
   silu(h);
 
   for (std::size_t l{0uz}; l < cfg_.mlp_layers; ++l) {
-    matmul(h, {layers_[l], hd * hd}, tmp, 1uz, hd, hd);
+    matmul(h, {layers_[l], hd * hd}, tmp, 1uz, hd, hd, pool_);
     silu(tmp);
     std::swap(h, tmp);
   }
-  matmul(h, {out_proj_, a * hd}, v, 1uz, hd, a);
+  matmul(h, {out_proj_, a * hd}, v, 1uz, hd, a, pool_);
 
   scratch_->reset_to(mark);
 }

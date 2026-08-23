@@ -10,6 +10,8 @@
 
 namespace fe {
 
+class ThreadPool;
+
 struct FlowConfig
 {
   std::size_t action_dim{}, cond_dim{}, hidden{}, time_dim{}, mlp_layers{};
@@ -32,6 +34,8 @@ public:
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const FlowConfig& config() const noexcept { return cfg_; }
+
+  void set_pool(ThreadPool* p) noexcept { pool_ = p; }
 
   // x0: noise [action_dim]
   // cond: [cond_dim]
@@ -57,6 +61,7 @@ private:
   const uint16_t* out_proj_{};                    // [action_dim][hidden]
   const float* freqs_{};                          // [time_dim/2] computed at init
   Arena* scratch_{};
+  ThreadPool* pool_{nullptr};
   bool ok_{false};
 };
 

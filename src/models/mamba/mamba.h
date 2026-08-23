@@ -10,6 +10,8 @@
 
 namespace fe {
 
+class ThreadPool;
+
 struct MambaConfig
 {
   std::size_t d_model{}, d_inner{}, d_state{}, d_conv{}, dt_rank{}, n_layers{}, vocab{};
@@ -23,6 +25,12 @@ public:
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const MambaConfig& config() const noexcept { return cfg_; }
   [[nodiscard]] const float* embedding() const noexcept { return emb_; }
+
+  void set_pool(ThreadPool* p, std::span<Arena> arenas) noexcept
+  {
+    pool_ = p;
+    worker_arenas_ = arenas;
+  }
 
   // [seq_len][d_model]
   void forward(std::span<const float> input, std::span<float> output, std::size_t seq_len) noexcept;
@@ -67,6 +75,8 @@ private:
   const float* emb_{};
   const float* norm_f_{};
   Arena* scratch_{};
+  ThreadPool* pool_{nullptr};
+  std::span<Arena> worker_arenas_{};
   bool ok_{false};
 };
 
