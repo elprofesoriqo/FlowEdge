@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <span>
 #include <string_view>
 
@@ -47,8 +48,9 @@ struct TensorView
 }
 
 // Parse an F32/BF16 .safetensors file; weights stored as-is
-[[nodiscard]] bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView> out,
-                                    std::size_t& tensors_loaded) noexcept;
+[[nodiscard]] std::expected<void, const char*> load_safetensors(
+    std::string_view path, Arena& arena, std::span<TensorView> out,
+    std::size_t& tensors_loaded) noexcept;
 
 // returns actual stored bytes
 [[nodiscard]] std::size_t safetensors_weight_bytes(std::string_view path) noexcept;
