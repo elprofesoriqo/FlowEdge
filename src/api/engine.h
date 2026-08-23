@@ -58,6 +58,13 @@ int fe_engine_step(fe_engine* engine, int32_t token, float* out);
 void fe_engine_reset(fe_engine* engine);
 
 /**
+ * @brief Get the number of background worker threads in the engine.
+ * @param engine The engine instance.
+ * @return The number of worker threads (0 if single-threaded).
+ */
+unsigned fe_engine_thread_count(const fe_engine* engine);
+
+/**
  * @brief Get the action dimension of the flow-matching head.
  * @param engine The engine instance.
  * @return The action dimension, or 0 if the checkpoint lacks a flow head.

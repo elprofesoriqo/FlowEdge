@@ -1,6 +1,7 @@
 #include "engine.h"
 
 #include "arena/arena.h"
+#include "arena/thread_pool.h"
 #include "heads/flow/flow.h"
 #include "loader/safetensors.h"
 #include "models/mamba/mamba.h"
@@ -12,6 +13,7 @@
 #include <exception>
 #include <memory>
 #include <span>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -48,7 +50,12 @@ std::size_t slab_bytes(const char* path)
 std::size_t load_views(const char* path, fe::Arena& arena, std::span<fe::TensorView> views) noexcept
 {
   std::size_t count{0uz};
-  return fe::load_safetensors(path, arena, views, count) ? count : 0uz;
+  auto res = fe::load_safetensors(path, arena, views, count);
+  if (!res) {
+    get_last_error() = res.error();
+    return 0uz;
+  }
+  return count;
 }
 
 } // namespace
@@ -62,6 +69,8 @@ struct FeEngine
   std::size_t n;
   fe::Mamba model;
   fe::FlowHead flow;
+  fe::ThreadPool* pool;
+  std::span<fe::Arena> worker_arenas;
   std::span<float> dstate; // persistent streaming state
 
   FeEngine(const char* path, std::size_t slab_sz)
@@ -70,9 +79,43 @@ struct FeEngine
         model{std::span<const fe::TensorView>{views.data(), n}, arena},
         flow{std::span<const fe::TensorView>{views.data(), n}, arena}
   {
+    const unsigned kMaxPoolThreads = 8u;
+    const unsigned hw_threads = std::thread::hardware_concurrency();
+    const unsigned nthreads = std::min(hw_threads > 0 ? hw_threads : 1u, kMaxPoolThreads);
+
+    const std::size_t ring_sz = 128uz;
+    auto* ring = arena.alloc_array<fe::Task>(ring_sz, fe::kSimdAlign);
+    auto* seq = arena.alloc_array<std::size_t>(ring_sz, fe::kSimdAlign);
+    auto* workers = static_cast<std::jthread*>(
+        arena.alloc(sizeof(std::jthread) * nthreads, alignof(std::jthread)));
+    for (unsigned i = 0; i < nthreads; ++i) {
+      new (&workers[i]) std::jthread();
+    }
+    pool = new (arena.alloc(sizeof(fe::ThreadPool), alignof(fe::ThreadPool)))
+        fe::ThreadPool(std::span<fe::Task>{ring, ring_sz}, std::span<std::size_t>{seq, ring_sz},
+                       std::span<std::jthread>{workers, nthreads}, nthreads);
+
+    auto* arenas_ptr =
+        static_cast<fe::Arena*>(arena.alloc(sizeof(fe::Arena) * nthreads, alignof(fe::Arena)));
+    worker_arenas = {arenas_ptr, nthreads};
+    const std::size_t kWorkerScratch = 1024uz * 1024uz; // 1MB per worker
+    for (unsigned i = 0; i < nthreads; ++i) {
+      new (&worker_arenas[i]) fe::Arena(arena.sub_arena(kWorkerScratch));
+    }
+
+    model.set_pool(pool, worker_arenas);
+    flow.set_pool(pool);
+
     if (model.valid())
       if (auto* const p = arena.alloc_array<float>(model.state_size(), fe::kSimdAlign))
         dstate = {p, model.state_size()};
+  }
+
+  ~FeEngine()
+  {
+    if (pool) {
+      pool->~ThreadPool();
+    }
   }
 
   // Embed tokens and run the backbone into `hidden` [seq_len*d_model]
@@ -141,6 +184,13 @@ void fe_engine_dims(const fe_engine* engine, std::size_t* d_model, std::size_t* 
     *d_model = c.d_model;
   if (n_layers != nullptr)
     *n_layers = c.n_layers;
+}
+
+unsigned fe_engine_thread_count(const fe_engine* engine)
+{
+  if (engine == nullptr || engine->pool == nullptr)
+    return 0u;
+  return engine->pool->nthreads();
 }
 
 #if defined(__MINGW32__) && defined(__AVX2__)
