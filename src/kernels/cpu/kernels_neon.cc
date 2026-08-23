@@ -366,5 +366,73 @@ void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<fl
     }
   }
 }
+void conv1d_causal(std::span<const float> x, std::span<const float> weight,
+                   std::span<const float> bias, std::span<float> y, std::size_t channels,
+                   std::size_t length, std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ xc = x.data() + (c * length);
+    const float* __restrict__ wc = weight.data() + (c * kernel);
+    float* __restrict__ yc = y.data() + (c * length);
+    const float32x4_t vbc = vdupq_n_f32(bias[c]);
+    std::size_t t{0uz};
+    for (; t + 4uz <= length; t += 4uz)
+      vst1q_f32(yc + t, vbc);
+    for (; t < length; ++t)
+      yc[t] = bias[c];
+
+    for (std::size_t k{0uz}; k < kernel; ++k) {
+      const float32x4_t vwk = vdupq_n_f32(wc[k]);
+      const std::size_t start = (kernel - 1uz) - k;
+      std::size_t ts = start;
+      for (; ts + 4uz <= length; ts += 4uz) {
+        vst1q_f32(yc + ts, vmlaq_f32(vld1q_f32(yc + ts), vwk, vld1q_f32(xc + ts - start)));
+      }
+      for (; ts < length; ++ts)
+        yc[ts] += wc[k] * xc[ts - start];
+    }
+  }
+}
+
+void conv1d_step(std::span<const float> window, std::span<const float> weight,
+                 std::span<const float> bias, std::span<float> y, std::size_t channels,
+                 std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ wc = window.data() + (c * kernel);
+    const float* __restrict__ kw = weight.data() + (c * kernel);
+    float acc = bias[c];
+    for (std::size_t k{0uz}; k < kernel; ++k)
+      acc += kw[k] * wc[k];
+    y[c] = acc;
+  }
+}
+
+void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span<float> out,
+             std::size_t rows, std::size_t dim) noexcept
+{
+  constexpr float eps = 1e-5F;
+  for (std::size_t r{0uz}; r < rows; ++r) {
+    const float* __restrict__ ir = in.data() + (r * dim);
+    float* __restrict__ orow = out.data() + (r * dim);
+    float32x4_t vss = vdupq_n_f32(0.0F);
+    std::size_t i{0uz};
+    for (; i + 4uz <= dim; i += 4uz) {
+      const float32x4_t v = vld1q_f32(ir + i);
+      vss = vmlaq_f32(vss, v, v);
+    }
+    float ss = vaddvq_f32(vss);
+    for (; i < dim; ++i)
+      ss += ir[i] * ir[i];
+    const float scale = 1.0F / std::sqrt((ss / static_cast<float>(dim)) + eps);
+    const float32x4_t vscale = vdupq_n_f32(scale);
+    i = 0uz;
+    for (; i + 4uz <= dim; i += 4uz)
+      vst1q_f32(orow + i,
+                vmulq_f32(vscale, vmulq_f32(vld1q_f32(ir + i), vld1q_f32(weight.data() + i))));
+    for (; i < dim; ++i)
+      orow[i] = ir[i] * scale * weight[i];
+  }
+}
 
 } // namespace fe

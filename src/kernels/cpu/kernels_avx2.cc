@@ -522,5 +522,75 @@ void discretize(std::span<const float> delta, std::span<const float> a_log,
     }
   }
 }
+void conv1d_causal(std::span<const float> x, std::span<const float> weight,
+                   std::span<const float> bias, std::span<float> y, std::size_t channels,
+                   std::size_t length, std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ xc = x.data() + (c * length);
+    const float* __restrict__ wc = weight.data() + (c * kernel);
+    float* __restrict__ yc = y.data() + (c * length);
+    const __m256 vbc = _mm256_set1_ps(bias[c]);
+    std::size_t t{0uz};
+    for (; t + 8uz <= length; t += 8uz)
+      _mm256_storeu_ps(yc + t, vbc);
+    for (; t < length; ++t)
+      yc[t] = bias[c];
+
+    for (std::size_t k{0uz}; k < kernel; ++k) {
+      const __m256 vwk = _mm256_set1_ps(wc[k]);
+      const std::size_t start = (kernel - 1uz) - k;
+      std::size_t ts = start;
+      for (; ts + 8uz <= length; ts += 8uz) {
+        _mm256_storeu_ps(yc + ts, _mm256_fmadd_ps(vwk, _mm256_loadu_ps(xc + ts - start),
+                                                  _mm256_loadu_ps(yc + ts)));
+      }
+      for (; ts < length; ++ts)
+        yc[ts] += wc[k] * xc[ts - start];
+    }
+  }
+}
+
+void conv1d_step(std::span<const float> window, std::span<const float> weight,
+                 std::span<const float> bias, std::span<float> y, std::size_t channels,
+                 std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ wc = window.data() + (c * kernel);
+    const float* __restrict__ kw = weight.data() + (c * kernel);
+    float acc = bias[c];
+    for (std::size_t k{0uz}; k < kernel; ++k)
+      acc += kw[k] * wc[k];
+    y[c] = acc;
+  }
+}
+
+void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span<float> out,
+             std::size_t rows, std::size_t dim) noexcept
+{
+  constexpr float eps = 1e-5F;
+  for (std::size_t r{0uz}; r < rows; ++r) {
+    const float* __restrict__ ir = in.data() + (r * dim);
+    float* __restrict__ orow = out.data() + (r * dim);
+    __m256 vss = _mm256_setzero_ps();
+    std::size_t i{0uz};
+    for (; i + 8uz <= dim; i += 8uz) {
+      const __m256 v = _mm256_loadu_ps(ir + i);
+      vss = _mm256_fmadd_ps(v, v, vss);
+    }
+    float ss = hsum8(vss);
+    for (; i < dim; ++i)
+      ss += ir[i] * ir[i];
+    const float scale = 1.0F / std::sqrt((ss / static_cast<float>(dim)) + eps);
+    const __m256 vscale = _mm256_set1_ps(scale);
+    i = 0uz;
+    for (; i + 8uz <= dim; i += 8uz)
+      _mm256_storeu_ps(orow + i,
+                       _mm256_mul_ps(vscale, _mm256_mul_ps(_mm256_loadu_ps(ir + i),
+                                                           _mm256_loadu_ps(weight.data() + i))));
+    for (; i < dim; ++i)
+      orow[i] = ir[i] * scale * weight[i];
+  }
+}
 
 } // namespace fe

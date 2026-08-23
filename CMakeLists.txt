@@ -28,7 +28,7 @@ endif()
 set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
 
 if(FLOWEDGE_BACKEND STREQUAL "cpu")
-  set(KERNEL_SRC src/kernels/cpu/kernels_common.cc) # arch-independent scalar kernels
+  set(KERNEL_SRC "")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
     list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc
   src/arena/thread_pool.cc)
