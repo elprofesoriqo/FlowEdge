@@ -123,38 +123,23 @@ void BM_conv1d_causal(benchmark::State& state)
   state.SetItemsProcessed(static_cast<std::int64_t>(state.iterations() * y.size()));
 }
 
-void BM_discretize(benchmark::State& state)
+void BM_discretize_and_scan(benchmark::State& state)
 {
   const std::vector<float> dt = filled(kSeq * kDInner, 0.01F);
   const std::vector<float> a_log = filled(kDInner * kDState, 0.05F);
   const std::vector<float> b = filled(kSeq * kDState);
   const std::vector<float> u = filled(kSeq * kDInner);
-  std::vector<float> da(kSeq * kDState * kDInner);
-  std::vector<float> dbu(kSeq * kDState * kDInner);
-  std::vector<float> a_work(kDState * kDInner);
-  for (auto _ : state) {
-    fe::discretize(dt, a_log, b, u, da, dbu, a_work, kSeq, kDInner, kDState);
-    benchmark::DoNotOptimize(da.data());
-    benchmark::ClobberMemory();
-  }
-  state.SetItemsProcessed(static_cast<std::int64_t>(state.iterations() * da.size()));
-}
-
-void BM_selective_scan(benchmark::State& state)
-{
-  const std::vector<float> da = filled(kSeq * kDState * kDInner, 0.5F);
-  const std::vector<float> dbu = filled(kSeq * kDState * kDInner);
   const std::vector<float> c = filled(kSeq * kDState);
   const std::vector<float> d = filled(kDInner);
-  const std::vector<float> u = filled(kSeq * kDInner);
   std::vector<float> h(kDState * kDInner);
   std::vector<float> y(kSeq * kDInner);
+  std::vector<float> a_work(kDState * kDInner);
   for (auto _ : state) {
-    fe::selective_scan(da, dbu, c, d, u, h, y, kSeq, kDInner, kDState);
+    fe::discretize_and_scan(dt, a_log, b, u, c, d, h, y, a_work, kSeq, kDInner, kDState);
     benchmark::DoNotOptimize(y.data());
     benchmark::ClobberMemory();
   }
-  state.SetItemsProcessed(static_cast<std::int64_t>(state.iterations() * da.size()));
+  state.SetItemsProcessed(static_cast<std::int64_t>(state.iterations() * y.size()));
 }
 
 } // namespace
@@ -168,7 +153,6 @@ BENCHMARK(BM_softplus)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_gate_silu)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_rmsnorm)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_conv1d_causal)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_discretize)->Unit(benchmark::kMicrosecond);
-BENCHMARK(BM_selective_scan)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_discretize_and_scan)->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();

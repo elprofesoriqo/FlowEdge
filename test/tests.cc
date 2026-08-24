@@ -115,31 +115,36 @@ TEST(Conv1dCausal, MatchesNaive)
     }
 }
 
-TEST(SelectiveScan, MatchesNaiveRecurrence)
+TEST(DiscretizeAndScan, MatchesNaiveRecurrence)
 {
   const std::size_t l{3uz};
   const std::size_t di{5uz};
   const std::size_t ds{2uz};
-  const std::vector<float> da = seq(l * ds * di, 0.1F, 0.4F);
-  const std::vector<float> dbu = seq(l * ds * di, 0.2F, 0.1F);
-  const std::vector<float> cp = seq(l * ds, 0.3F, 0.7F);
-  const std::vector<float> d = seq(di, 0.15F, 0.2F);
+  const std::vector<float> delta = seq(l * di, 0.1F, 0.4F);
+  const std::vector<float> a_log = seq(di * ds, 0.2F, 0.1F);
+  const std::vector<float> b = seq(l * ds, 0.3F, 0.7F);
   const std::vector<float> u = seq(l * di, 0.25F, 0.9F);
+  const std::vector<float> cp = seq(l * ds, 0.35F, 0.15F);
+  const std::vector<float> d = seq(di, 0.15F, 0.2F);
   std::vector<float> h(ds * di);
   std::vector<float> y(l * di);
-  fe::selective_scan(da, dbu, cp, d, u, h, y, l, di, ds);
+  std::vector<float> a_work(ds * di);
+
+  fe::discretize_and_scan(delta, a_log, b, u, cp, d, h, y, a_work, l, di, ds);
 
   std::vector<float> hr(ds * di, 0.0F);
   std::vector<float> yr(l * di);
   for (std::size_t t{0uz}; t < l; ++t) {
     for (std::size_t c{0uz}; c < di; ++c)
       yr[(t * di) + c] = d[c] * u[(t * di) + c];
-    for (std::size_t nn{0uz}; nn < ds; ++nn)
+    for (std::size_t nn{0uz}; nn < ds; ++nn) {
       for (std::size_t c{0uz}; c < di; ++c) {
-        const std::size_t idx = (((t * ds) + nn) * di) + c;
-        hr[(nn * di) + c] = (da[idx] * hr[(nn * di) + c]) + dbu[idx];
+        const float da = std::exp(delta[(t * di) + c] * -std::exp(a_log[(c * ds) + nn]));
+        const float dbu = delta[(t * di) + c] * b[(t * ds) + nn] * u[(t * di) + c];
+        hr[(nn * di) + c] = (da * hr[(nn * di) + c]) + dbu;
         yr[(t * di) + c] += hr[(nn * di) + c] * cp[(t * ds) + nn];
       }
+    }
   }
   for (std::size_t i{0uz}; i < l * di; ++i)
     EXPECT_NEAR(y[i], yr[i], kTol);

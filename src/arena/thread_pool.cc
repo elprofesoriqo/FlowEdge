@@ -47,7 +47,9 @@ ThreadPool::ThreadPool(std::span<Task> ring, std::span<std::size_t> sequence,
     return;
   }
   for (unsigned i{0u}; i < nthreads_; ++i)
-    workers_[i] = std::jthread{[this, i] { worker_loop(i); }};
+    workers_[i] = std::jthread{[this, i] {
+      worker_loop(i);
+    }};
 }
 
 ThreadPool::~ThreadPool() noexcept
