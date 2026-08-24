@@ -84,20 +84,20 @@ struct FeEngine
     const unsigned nthreads = std::min(hw_threads > 0 ? hw_threads : 1u, kMaxPoolThreads);
 
     const std::size_t ring_sz = 128uz;
-    auto* ring = arena.alloc_array<fe::Task>(ring_sz, fe::kSimdAlign);
-    auto* seq = arena.alloc_array<std::size_t>(ring_sz, fe::kSimdAlign);
+    auto* ring = arena.alloc_array<fe::Task, fe::kSimdAlign>(ring_sz);
+    auto* seq = arena.alloc_array<std::size_t, fe::kSimdAlign>(ring_sz);
     auto* workers = static_cast<std::jthread*>(
-        arena.alloc(sizeof(std::jthread) * nthreads, alignof(std::jthread)));
+        arena.alloc<alignof(std::jthread)>(sizeof(std::jthread) * nthreads));
     for (unsigned i = 0; i < nthreads; ++i) {
       new (&workers[i]) std::jthread();
     }
-    pool = new (arena.alloc(sizeof(fe::ThreadPool), alignof(fe::ThreadPool)))
+    pool = new (arena.alloc<alignof(fe::ThreadPool)>(sizeof(fe::ThreadPool)))
         fe::ThreadPool(std::span<fe::Task>{ring, ring_sz}, std::span<std::size_t>{seq, ring_sz},
                        std::span<std::jthread>{workers, nthreads}, nthreads);
 
-    auto* arenas_ptr =
-        static_cast<fe::Arena*>(arena.alloc(sizeof(fe::Arena) * nthreads, alignof(fe::Arena)));
-    worker_arenas = {arenas_ptr, nthreads};
+    worker_arenas = {static_cast<fe::Arena*>(
+                         arena.alloc<alignof(fe::Arena)>(sizeof(fe::Arena) * nthreads)),
+                     nthreads};
     const std::size_t kWorkerScratch = 1024uz * 1024uz; // 1MB per worker
     for (unsigned i = 0; i < nthreads; ++i) {
       new (&worker_arenas[i]) fe::Arena(arena.sub_arena(kWorkerScratch));
@@ -107,7 +107,7 @@ struct FeEngine
     flow.set_pool(pool);
 
     if (model.valid())
-      if (auto* const p = arena.alloc_array<float>(model.state_size(), fe::kSimdAlign))
+      if (auto* const p = arena.alloc_array<float, fe::kSimdAlign>(model.state_size()))
         dstate = {p, model.state_size()};
   }
 
@@ -124,7 +124,7 @@ struct FeEngine
   {
     const fe::MambaConfig& c = model.config();
     const std::size_t hz = seq_len * c.d_model;
-    auto* const in = arena.alloc_array<float>(hz, fe::kSimdAlign);
+    auto* const in = arena.alloc_array<float, fe::kSimdAlign>(hz);
     if (in == nullptr) {
       get_last_error() = "Arena exhausted during backbone forward pass";
       return 2;
@@ -230,7 +230,7 @@ int fe_engine_step(fe_engine* engine, std::int32_t token, float* out)
   }
   fe::Arena& arena = engine->arena;
   std::byte* const mark = arena.mark();
-  auto* const x = arena.alloc_array<float>(c.d_model, fe::kSimdAlign);
+  auto* const x = arena.alloc_array<float, fe::kSimdAlign>(c.d_model);
   if (x == nullptr) {
     arena.reset_to(mark);
     get_last_error() = "Arena exhausted during streaming step";
@@ -274,7 +274,7 @@ int fe_engine_sample(fe_engine* engine, const std::int32_t* tokens, std::size_t 
   fe::Arena& arena = engine->arena;
   std::byte* const mark = arena.mark();
   const fe::MambaConfig& c = engine->model.config();
-  auto* const hidden = arena.alloc_array<float>(seq_len * c.d_model, fe::kSimdAlign);
+  auto* const hidden = arena.alloc_array<float, fe::kSimdAlign>(seq_len * c.d_model);
   if (hidden == nullptr) {
     arena.reset_to(mark);
     get_last_error() = "Arena exhausted allocating hidden states";

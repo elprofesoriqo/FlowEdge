@@ -254,7 +254,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                          return false;
 
                        // store bytes; matmul widens inline
-                       auto* const dst = arena.alloc_array<std::byte>(byte_len, kSimdAlign);
+                       auto* const dst = arena.alloc_array<std::byte, kSimdAlign>(byte_len);
                        if (!dst) [[unlikely]]
                          return false;
                        std::memcpy(dst, weights_base + byte_off, byte_len);

@@ -56,7 +56,7 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
     return;
 
   const std::size_t half = cfg_.time_dim / 2uz; // sinusoidal freqs are constant
-  auto* const f = scratch.alloc_array<float>(half, kSimdAlign);
+  auto* const f = scratch.alloc_array<float, kSimdAlign>(half);
   if (f == nullptr)
     return;
   for (std::size_t j{0uz}; j < half; ++j)

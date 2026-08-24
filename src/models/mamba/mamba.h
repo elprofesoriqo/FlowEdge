@@ -66,7 +66,7 @@ private:
   // 64B-aligned scratch span carved from the arena
   [[nodiscard]] std::span<float> arena_span(std::size_t n) noexcept
   {
-    return scratch_->alloc_span<float>(n, kSimdAlign);
+    return scratch_->alloc_span<float, kSimdAlign>(n);
   }
 
   static constexpr std::size_t kMaxLayers = 64uz;

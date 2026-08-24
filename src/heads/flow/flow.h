@@ -50,7 +50,7 @@ private:
                 std::span<float> v) noexcept;
   [[nodiscard]] std::span<float> arena_span(std::size_t n) noexcept
   {
-    return scratch_->alloc_span<float>(n, kSimdAlign);
+    return scratch_->alloc_span<float, kSimdAlign>(n);
   }
 
   FlowConfig cfg_{};

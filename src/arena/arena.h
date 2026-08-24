@@ -22,9 +22,10 @@ public:
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;
 
-  [[nodiscard]] void* alloc(std::size_t n, std::size_t align = alignof(std::max_align_t)) noexcept
+  template<std::size_t align = alignof(std::max_align_t)>
+  [[nodiscard]] void* alloc(std::size_t n) noexcept
   {
-    assert(std::has_single_bit(align));
+    static_assert(std::has_single_bit(align));
     auto* p = reinterpret_cast<std::byte*>((reinterpret_cast<uintptr_t>(cursor_) + align - 1u) &
                                            ~(align - 1u));
     if (p > end_ || static_cast<std::size_t>(end_ - p) < n) [[unlikely]] // overflow-safe bound
@@ -33,18 +34,18 @@ public:
     return p;
   }
 
-  template<typename T>
+  template<typename T, std::size_t align = alignof(T)>
     requires std::is_trivially_copyable_v<T>
-  [[nodiscard]] T* alloc_array(std::size_t count, std::size_t align = alignof(T)) noexcept
+  [[nodiscard]] T* alloc_array(std::size_t count) noexcept
   {
-    return static_cast<T*>(alloc(count * sizeof(T), align));
+    return static_cast<T*>(alloc<align>(count * sizeof(T)));
   }
 
-  template<typename T>
+  template<typename T, std::size_t align = alignof(T)>
     requires std::is_trivially_copyable_v<T>
-  [[nodiscard]] std::span<T> alloc_span(std::size_t count, std::size_t align = alignof(T)) noexcept
+  [[nodiscard]] std::span<T> alloc_span(std::size_t count) noexcept
   {
-    return {alloc_array<T>(count, align), count};
+    return {alloc_array<T, align>(count), count};
   }
 
   [[nodiscard]] std::byte* mark() const noexcept { return cursor_; }
@@ -52,7 +53,7 @@ public:
 
   [[nodiscard]] Arena sub_arena(std::size_t bytes) noexcept
   {
-    void* p = alloc(bytes, kSimdAlign);
+    void* p = alloc<kSimdAlign>(bytes);
     if (!p) [[unlikely]]
       return Arena{std::span<std::byte>{}};
     return Arena{std::span<std::byte>{static_cast<std::byte*>(p), bytes}};
