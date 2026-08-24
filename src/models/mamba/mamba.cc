@@ -123,8 +123,7 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> dt = arena_span(l * di);
   const std::span<float> c_buf = arena_span(l * ds);
   const std::span<float> b_buf = arena_span(l * ds);
-  const std::span<float> da = arena_span(l * ds * di);
-  const std::span<float> dbu = arena_span(l * ds * di);
+
   const std::span<float> a_neg = arena_span(ds * di); // transposed A scratch for discretize
   const std::span<float> h = arena_span(ds * di);
   const std::span<float> yv = arena_span(l * di);
@@ -163,8 +162,8 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
       c_buf[(t * ds) + nn] = dbl[(t * wd) + dr + ds + nn];
     }
 
-  discretize(dt, {lw.a_log, di * ds}, b_buf, x_sm, da, dbu, a_neg, l, di, ds);
-  selective_scan(da, dbu, c_buf, {lw.d, di}, x_sm, h, yv, l, di, ds);
+  discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_sm, c_buf, {lw.d, di}, h, yv, a_neg, l, di,
+                      ds);
   gate_silu(yv, z, yv); // y · silu(z)
   matmul(yv, {lw.out_proj, dm * di}, out, l, di, dm, pool_);
 
@@ -205,8 +204,6 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   const std::span<float> dt = arena_span(di);
   const std::span<float> b_buf = arena_span(ds);
   const std::span<float> c_buf = arena_span(ds);
-  const std::span<float> da = arena_span(ds * di);
-  const std::span<float> dbu = arena_span(ds * di);
   const std::span<float> a_neg = arena_span(ds * di);
   const std::span<float> yv = arena_span(di);
   const std::span<float> out = arena_span(dm);
@@ -235,8 +232,8 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
     c_buf[nn] = dbl[dr + ds + nn];
   }
 
-  discretize(dt, {lw.a_log, di * ds}, b_buf, x_conv, da, dbu, a_neg, 1uz, di, ds);
-  scan_step(da, dbu, c_buf, {lw.d, di}, x_conv, h, yv, di, ds);
+  discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_conv, c_buf, {lw.d, di}, h, yv, a_neg, 1uz,
+                      di, ds);
   gate_silu(yv, z, yv);
   matmul(yv, {lw.out_proj, dm * di}, out, 1uz, di, dm);
 
