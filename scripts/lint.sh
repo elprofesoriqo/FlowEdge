@@ -6,8 +6,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FIX="${1:-}"
 FORMAT_FLAG=$([[ "$FIX" == "--fix" ]] && echo "-i" || echo "--dry-run")
 
-find "$ROOT" \( -name "*.h" -o -name "*.cc" -o -name "*.cpp" \) \
-  ! -path "*/build/*" -print0 \
+find "$ROOT/src" "$ROOT/bench" "$ROOT/test" "$ROOT/examples" "$ROOT/convert" \
+  -type f \( -name "*.h" -o -name "*.cc" -o -name "*.cpp" \) -print0 \
   | xargs -0 clang-format --style=file --Werror "$FORMAT_FLAG"
 
 PY="$(command -v py || command -v python3 || command -v python)"
