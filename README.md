@@ -63,12 +63,12 @@ FlowEdge supports the following hardware accelerators:
 
 | Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PT) |
 |-----------|---------|---------|----------|-----------------|
-| BM_engine_forward | CPU | 73.0 ms | 28.0 ms | ~2.6x |
+| BM_engine_forward | CPU | 66.3 ms | 27.2 ms | ~2.4x |
 | BM_engine_forward | CUDA | TBD | TBD | TBD |
 | BM_engine_forward | Metal | TBD | TBD | TBD |
 | BM_engine_forward | Vulkan | TBD | TBD | TBD |
 
-*Mamba-130M (24 layers, d_model=768), seq_len=4, FP32, single-threaded CPU. Regenerate with `./scripts/bench.sh`; numbers depend on model and host.*
+*Mamba-130M (24 layers, d_model=768), seq_len=4, BF16, 8-thread CPU. Regenerate with `./scripts/bench.sh`; numbers depend on model and host.*
 
 ## Python Installation
 
