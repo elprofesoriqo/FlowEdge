@@ -61,6 +61,21 @@ add_library(flowedge_engine STATIC
 )
 set_target_properties(flowedge_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+include(CheckIncludeFileCXX)
+check_include_file_cxx(mdspan HAS_MDSPAN)
+if(NOT HAS_MDSPAN)
+  include(FetchContent)
+  FetchContent_Declare(
+    mdspan
+    GIT_REPOSITORY https://github.com/kokkos/mdspan.git
+    GIT_TAG mdspan-0.6.0
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(mdspan)
+  target_link_libraries(flowedge_engine PUBLIC std::mdspan)
+endif()
+target_link_libraries(flowedge_engine PUBLIC Threads::Threads)
+
 target_include_directories(flowedge_engine PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> 
   $<INSTALL_INTERFACE:include>
@@ -100,6 +115,9 @@ if(FLOWEDGE_BENCH)
 
   add_executable(flowedge_latency_bench bench/latency_bench.cc)
   target_link_libraries(flowedge_latency_bench PRIVATE flowedge_engine)
+
+  add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
+  target_link_libraries(flowedge_threaded_matmul_bench PRIVATE flowedge_engine benchmark::benchmark_main Threads::Threads)
 endif()
 
 # TESTS
@@ -182,5 +200,3 @@ install(FILES
         "${CMAKE_CURRENT_BINARY_DIR}/FlowEdgeConfigVersion.cmake"
         DESTINATION ${FLOWEDGE_CMAKEDIR})
 endif()
-add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
-target_link_libraries(flowedge_threaded_matmul_bench PRIVATE flowedge_engine benchmark::benchmark_main Threads::Threads)

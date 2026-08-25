@@ -10,6 +10,15 @@
 #include <span>
 #include <string_view>
 
+#if __has_include(<mdspan>)
+#include <mdspan>
+#else
+#include <experimental/mdspan>
+namespace std {
+  using experimental::mdspan;
+}
+#endif
+
 namespace fe {
 namespace {
 
@@ -124,6 +133,17 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> c_buf = arena_span(l * ds);
   const std::span<float> b_buf = arena_span(l * ds);
 
+  std::mdspan x_cm_md{x_cm.data(), di, l};
+  std::mdspan xz_md{xz.data(), l, 2uz * di};
+  std::mdspan z_md{z.data(), l, di};
+  std::mdspan x_conv_md{x_conv.data(), di, l};
+  std::mdspan x_sm_md{x_sm.data(), l, di};
+  std::mdspan dbl_md{dbl.data(), l, wd};
+  std::mdspan dt_in_md{dt_in.data(), l, dr};
+  std::mdspan dt_md{dt.data(), l, di};
+  std::mdspan b_buf_md{b_buf.data(), l, ds};
+  std::mdspan c_buf_md{c_buf.data(), l, ds};
+
   const std::span<float> a_neg = arena_span(ds * di); // transposed A scratch for discretize
   const std::span<float> h = arena_span(ds * di);
   const std::span<float> yv = arena_span(l * di);
@@ -134,32 +154,32 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
 
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t c{0uz}; c < di; ++c) {
-      x_cm[(c * l) + t] = xz[(t * 2uz * di) + c];
-      z[(t * di) + c] = xz[(t * 2uz * di) + di + c];
+      x_cm_md[c, t] = xz_md[t, c];
+      z_md[t, c] = xz_md[t, di + c];
     }
 
   conv1d_causal(x_cm, {lw.conv_w, di * cfg_.d_conv}, {lw.conv_b, di}, x_conv, di, l, cfg_.d_conv);
   silu(x_conv);
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t c{0uz}; c < di; ++c)
-      x_sm[(t * di) + c] = x_conv[(c * l) + t];
+      x_sm_md[t, c] = x_conv_md[c, t];
 
   matmul(x_sm, {lw.x_proj, wd * di}, dbl, l, di, wd); // [l][dt | B | C]
 
   // dt = softplus(dt_proj · dbl[:, :dt_rank] + bias); gather the dt slice for matmul
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t k{0uz}; k < dr; ++k)
-      dt_in[(t * dr) + k] = dbl[(t * wd) + k];
+      dt_in_md[t, k] = dbl_md[t, k];
   matmul(dt_in, {lw.dt_w, di * dr}, dt, l, dr, di);
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t o{0uz}; o < di; ++o)
-      dt[(t * di) + o] += lw.dt_b[o];
+      dt_md[t, o] += lw.dt_b[o];
   softplus(dt);
 
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t nn{0uz}; nn < ds; ++nn) {
-      b_buf[(t * ds) + nn] = dbl[(t * wd) + dr + nn];
-      c_buf[(t * ds) + nn] = dbl[(t * wd) + dr + ds + nn];
+      b_buf_md[t, nn] = dbl_md[t, dr + nn];
+      c_buf_md[t, nn] = dbl_md[t, dr + ds + nn];
     }
 
   discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_sm, c_buf, {lw.d, di}, h, yv, a_neg, l, di,
