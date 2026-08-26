@@ -22,10 +22,10 @@ Scratch is stack-like: `mark()` records the cursor and `reset_to()` winds it bac
 The slab size is fixed at load:
 
 $$
-\text{slab} = W + 4 K \cdot \left(3\, d_{state} d_{inner} + 16\, d_{inner} + 8\, d_{model}\right)
+\text{slab} = W_{bytes} + 4 K \cdot \left(3\, d_{state} d_{inner} + 16\, d_{inner} + 8\, d_{model}\right)
 $$
 
-$W$ is the weight bytes, the bracket bounds the scratch floats one token needs, and the factor 4 turns those into bytes. $K$ is a fixed cap on prefix length, `k_max_decode_seq`, currently 512, not the length of any particular input. A longer prefix does not corrupt anything: `alloc` returns `nullptr` when the slab is full, and the call fails with an arena-exhausted error instead of throwing.
+$W_{bytes}$ is the stored weight footprint in bytes (2 bytes per element for `BF16` weights), the bracket bounds the scratch floats one token needs, and the factor 4 turns those into bytes. $K$ is a fixed cap on prefix length, `k_max_decode_seq` (currently 512). `alloc` returns `nullptr` on exhaustion.
 
 ## Why this way
 

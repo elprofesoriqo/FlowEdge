@@ -43,4 +43,14 @@ Almost everything here is bandwidth-bound. That sets the optimization order.
 
 The scan stores its state in a $[t][n][c]$ layout so that the inner loop over channels is unit-stride, which turns into contiguous vector loads over full cache lines. A $[t][c][n]$ layout would stride the reduction and waste bandwidth on partial lines. See [ADR 0001](../decisions/0001-cpu-kernels).
 
+## Threading
+
+To saturate memory bandwidth, large matrix multiplications dispatch concurrently across an SPMC lock-free thread pool. Workers actively spin (`_mm_pause` / `yield`) rather than sleep to eliminate context-switch latency, and are pinned to CPU cores to maximize L1/L2 cache hits across layers.
+
+## BF16 Weight Widening
+
+`in_proj`, `out_proj`, and Mamba projection weights are stored as `BF16` in the arena. They are dynamically widened to `F32` inline during the innermost SIMD loop of `matmul`. 
+
+This doubles effective DRAM bandwidth at the negligible cost of zero-extension and shift instructions (`_mm256_castsi256_ps` on AVX2, or `vreinterpretq_f32_u32` on NEON).
+
 Because the model only ever calls this header, a new backend is the same ten functions and a link-time switch.
