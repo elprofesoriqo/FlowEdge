@@ -15,9 +15,6 @@ option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
   add_compile_options(-mavx2 -mfma -fno-math-errno)
-  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    add_compile_options(-mstackrealign) # gcc-only; clang aligns the stack itself
-  endif()
 endif()
 
 if(MSVC)
@@ -157,10 +154,10 @@ if(FLOWEDGE_PYTHON)
     target_compile_options(flowedge PRIVATE -pthread)
     if(WIN32)
       if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        target_compile_options(flowedge PRIVATE -mstackrealign)
+        # removed -mstackrealign here
       endif()
       # static libstdc++ (resolves std::call_once) but keep winpthread dynamic
-      target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++)
+      target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++ "-Wl,--allow-multiple-definition")
       target_link_libraries(flowedge PRIVATE winpthread)
     endif()
   endif()

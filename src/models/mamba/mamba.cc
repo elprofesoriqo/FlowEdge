@@ -15,7 +15,7 @@
 #else
 #include <experimental/mdspan>
 namespace std {
-  using experimental::mdspan;
+using experimental::mdspan;
 }
 #endif
 

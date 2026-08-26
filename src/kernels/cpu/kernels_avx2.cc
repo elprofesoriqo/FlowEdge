@@ -12,7 +12,7 @@ namespace fe {
 namespace {
 
 // Cephes 8-wide expf (~1 ULP)
-__m256 exp8(__m256 x) noexcept
+__attribute__((always_inline)) inline __m256 exp8(__m256 x) noexcept
 {
   x = _mm256_min_ps(_mm256_max_ps(x, _mm256_set1_ps(-exp_clamp)), _mm256_set1_ps(exp_clamp));
   const __m256 fx = _mm256_round_ps(_mm256_mul_ps(x, _mm256_set1_ps(log2e)),
@@ -33,7 +33,7 @@ __m256 exp8(__m256 x) noexcept
 }
 
 // Cephes 8-wide logf (~1 ULP)
-__m256 log8(__m256 x) noexcept
+__attribute__((always_inline)) inline __m256 log8(__m256 x) noexcept
 {
   __m256 e = _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_srli_epi32(_mm256_castps_si256(x), 23),
                                                  _mm256_set1_epi32(0x7E))); // unbiased exp
@@ -60,7 +60,7 @@ __m256 log8(__m256 x) noexcept
   return _mm256_fmadd_ps(e, _mm256_set1_ps(ln2_hi), x);
 }
 
-float hsum8(__m256 v) noexcept
+__attribute__((always_inline)) inline float hsum8(__m256 v) noexcept
 {
   const __m128 lo = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
   const __m128 s2 = _mm_hadd_ps(lo, lo);
@@ -68,10 +68,12 @@ float hsum8(__m256 v) noexcept
 }
 
 // 1 recurrence step, state-major [n][c]: advance h in place, emit y (skip term + Σ_n h·c)
-inline void scan_advance(const float* __restrict__ da_t, const float* __restrict__ dbu_t,
-                         const float* __restrict__ c_t, const float* __restrict__ u_t,
-                         const float* __restrict__ d, float* __restrict__ hs,
-                         float* __restrict__ y_t, std::size_t d_inner, std::size_t d_state) noexcept
+inline void FE_FORCE_ALIGN scan_advance(const float* __restrict__ da_t,
+                                        const float* __restrict__ dbu_t,
+                                        const float* __restrict__ c_t,
+                                        const float* __restrict__ u_t, const float* __restrict__ d,
+                                        float* __restrict__ hs, float* __restrict__ y_t,
+                                        std::size_t d_inner, std::size_t d_state) noexcept
 {
   std::size_t c0{0uz};
   for (; c0 + 8uz <= d_inner; c0 += 8uz)
@@ -100,7 +102,7 @@ inline void scan_advance(const float* __restrict__ da_t, const float* __restrict
 }
 
 // widen 8 BF16 → 8 F32
-__m256 load_bf16_8(const uint16_t* p) noexcept
+__attribute__((always_inline)) inline __m256 load_bf16_8(const uint16_t* p) noexcept
 {
   return _mm256_castsi256_ps(
       _mm256_slli_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p))),
@@ -108,7 +110,7 @@ __m256 load_bf16_8(const uint16_t* p) noexcept
 }
 
 // scalar BF16 → F32
-inline float bf16_to_f32(uint16_t v) noexcept
+inline float FE_FORCE_ALIGN bf16_to_f32(uint16_t v) noexcept
 {
   const uint32_t bits = static_cast<uint32_t>(v) << 16;
   return std::bit_cast<float>(bits);
@@ -116,7 +118,8 @@ inline float bf16_to_f32(uint16_t v) noexcept
 
 } // namespace
 
-void gate_silu(std::span<const float> a, std::span<const float> g, std::span<float> out) noexcept
+void FE_FORCE_ALIGN gate_silu(std::span<const float> a, std::span<const float> g,
+                              std::span<float> out) noexcept
 {
   std::size_t i{0uz};
   const __m256 one = _mm256_set1_ps(1.0F);
@@ -132,7 +135,7 @@ void gate_silu(std::span<const float> a, std::span<const float> g, std::span<flo
   }
 }
 
-void silu(std::span<float> x) noexcept
+void FE_FORCE_ALIGN silu(std::span<float> x) noexcept
 {
   std::size_t i{0uz};
   const __m256 one = _mm256_set1_ps(1.0F);
@@ -146,7 +149,7 @@ void silu(std::span<float> x) noexcept
     x[i] = x[i] / (1.0F + std::exp(-x[i]));
 }
 
-void softplus(std::span<float> x) noexcept
+void FE_FORCE_ALIGN softplus(std::span<float> x) noexcept
 {
   // max(v,0) + log(1 + e^-|v|)
   // e^-|v| in (0,1]
@@ -172,7 +175,8 @@ struct MatmulF32Row1Ctx
   std::span<float> out;
   std::size_t in_dim;
 };
-void matmul_f32_row1(std::size_t lo, std::size_t hi, const MatmulF32Row1Ctx* ctx) noexcept
+void FE_FORCE_ALIGN matmul_f32_row1(std::size_t lo, std::size_t hi,
+                                    const MatmulF32Row1Ctx* ctx) noexcept
 {
   const float* __restrict__ ir = ctx->in.data();
   const float* __restrict__ wd = ctx->w.data();
@@ -216,7 +220,8 @@ struct MatmulF32RowNCtx
   std::size_t in_dim;
   std::size_t out_dim;
 };
-void matmul_f32_rown(std::size_t lo, std::size_t hi, const MatmulF32RowNCtx* ctx) noexcept
+void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
+                                    const MatmulF32RowNCtx* ctx) noexcept
 {
   const float* __restrict__ in_data = ctx->in.data();
   const float* __restrict__ w_data = ctx->w.data();
@@ -294,7 +299,8 @@ struct MatmulU16Row1Ctx
   std::span<float> out;
   std::size_t in_dim;
 };
-void matmul_u16_row1(std::size_t lo, std::size_t hi, const MatmulU16Row1Ctx* ctx) noexcept
+void FE_FORCE_ALIGN matmul_u16_row1(std::size_t lo, std::size_t hi,
+                                    const MatmulU16Row1Ctx* ctx) noexcept
 {
   const float* __restrict__ ir = ctx->in.data();
   const uint16_t* __restrict__ wd = ctx->w.data();
@@ -338,7 +344,8 @@ struct MatmulU16RowNCtx
   std::size_t in_dim;
   std::size_t out_dim;
 };
-void matmul_u16_rown(std::size_t lo, std::size_t hi, const MatmulU16RowNCtx* ctx) noexcept
+void FE_FORCE_ALIGN matmul_u16_rown(std::size_t lo, std::size_t hi,
+                                    const MatmulU16RowNCtx* ctx) noexcept
 {
   const float* __restrict__ in_data = ctx->in.data();
   const uint16_t* __restrict__ w_data = ctx->w.data();
@@ -410,8 +417,9 @@ struct MatmulU16RowNOp
 };
 } // namespace
 
-void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
+void FE_FORCE_ALIGN matmul(std::span<const float> in, std::span<const float> w,
+                           std::span<float> out, std::size_t rows, std::size_t in_dim,
+                           std::size_t out_dim, ThreadPool* pool) noexcept
 {
   const unsigned n = (pool != nullptr) ? pool->nthreads() : 0u;
   if (rows == 1uz) { // single vector
@@ -432,8 +440,9 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
     op(0uz, out_dim);
 }
 
-void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
+void FE_FORCE_ALIGN matmul(std::span<const float> in, std::span<const uint16_t> w,
+                           std::span<float> out, std::size_t rows, std::size_t in_dim,
+                           std::size_t out_dim, ThreadPool* pool) noexcept
 {
   const unsigned n = (pool != nullptr) ? pool->nthreads() : 0u;
   if (rows == 1uz) { // single vector
@@ -454,9 +463,10 @@ void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<fl
     op(0uz, out_dim);
 }
 
-void conv1d_causal(std::span<const float> x, std::span<const float> weight,
-                   std::span<const float> bias, std::span<float> y, std::size_t channels,
-                   std::size_t length, std::size_t kernel) noexcept
+void FE_FORCE_ALIGN conv1d_causal(std::span<const float> x, std::span<const float> weight,
+                                  std::span<const float> bias, std::span<float> y,
+                                  std::size_t channels, std::size_t length,
+                                  std::size_t kernel) noexcept
 {
   for (std::size_t c{0uz}; c < channels; ++c) {
     const float* __restrict__ xc = x.data() + (c * length);
@@ -483,9 +493,9 @@ void conv1d_causal(std::span<const float> x, std::span<const float> weight,
   }
 }
 
-void conv1d_step(std::span<const float> window, std::span<const float> weight,
-                 std::span<const float> bias, std::span<float> y, std::size_t channels,
-                 std::size_t kernel) noexcept
+void FE_FORCE_ALIGN conv1d_step(std::span<const float> window, std::span<const float> weight,
+                                std::span<const float> bias, std::span<float> y,
+                                std::size_t channels, std::size_t kernel) noexcept
 {
   for (std::size_t c{0uz}; c < channels; ++c) {
     const float* __restrict__ wc = window.data() + (c * kernel);
@@ -497,8 +507,8 @@ void conv1d_step(std::span<const float> window, std::span<const float> weight,
   }
 }
 
-void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span<float> out,
-             std::size_t rows, std::size_t dim) noexcept
+void FE_FORCE_ALIGN rmsnorm(std::span<const float> in, std::span<const float> weight,
+                            std::span<float> out, std::size_t rows, std::size_t dim) noexcept
 {
   constexpr float eps = 1e-5F;
   for (std::size_t r{0uz}; r < rows; ++r) {
@@ -525,11 +535,13 @@ void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span
   }
 }
 
-void discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
-                         std::span<const float> b, std::span<const float> u,
-                         std::span<const float> c_proj, std::span<const float> d_skip,
-                         std::span<float> h, std::span<float> y, std::span<float> a_work,
-                         std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
+void FE_FORCE_ALIGN discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
+                                        std::span<const float> b, std::span<const float> u,
+                                        std::span<const float> c_proj,
+                                        std::span<const float> d_skip, std::span<float> h,
+                                        std::span<float> y, std::span<float> a_work,
+                                        std::size_t length, std::size_t d_inner,
+                                        std::size_t d_state) noexcept
 {
   float* __restrict__ hs = h.data();
   for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
