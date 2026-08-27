@@ -54,12 +54,12 @@ private:
   }
 
   FlowConfig cfg_{};
-  const uint16_t* in_proj_{};                     // [hidden][action_dim]
-  const uint16_t* time_proj_{};                   // [hidden][time_dim]
-  const uint16_t* cond_proj_{};                   // [hidden][cond_dim]
-  std::array<const uint16_t*, kMaxMlp> layers_{}; // [hidden][hidden]
-  const uint16_t* out_proj_{};                    // [action_dim][hidden]
-  const float* freqs_{};                          // [time_dim/2] computed at init
+  WeightView in_proj_{};                     // [hidden][action_dim]
+  WeightView time_proj_{};                   // [hidden][time_dim]
+  WeightView cond_proj_{};                   // [hidden][cond_dim]
+  std::array<WeightView, kMaxMlp> layers_{}; // [hidden][hidden]
+  WeightView out_proj_{};                    // [action_dim][hidden]
+  const float* freqs_{};                     // [time_dim/2] computed at init
   Arena* scratch_{};
   ThreadPool* pool_{nullptr};
   bool ok_{false};

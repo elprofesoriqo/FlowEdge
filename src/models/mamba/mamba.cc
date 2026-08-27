@@ -1,8 +1,10 @@
 #include "mamba.h"
 
 #include "kernels/kernels.h"
+#include "kernels/span_ops.h"
+#include "loader/tensor_key.h"
+#include "loader/weight_ops.h"
 
-#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -12,11 +14,10 @@
 
 #if __has_include(<mdspan>)
 #include <mdspan>
+namespace fe_md = std;
 #else
 #include <experimental/mdspan>
-namespace std {
-using experimental::mdspan;
-}
+namespace fe_md = std::experimental;
 #endif
 
 namespace fe {
@@ -24,25 +25,10 @@ namespace {
 
 std::string_view layer_key(std::span<char> buf, std::size_t i, std::string_view sub) noexcept
 {
-  std::size_t p{0uz};
-  const auto put = [&](std::string_view s) noexcept {
-    for (const char ch : s)
-      if (p + 1uz < buf.size())
-        buf[p++] = ch;
-  };
-  put("backbone.layers.");
-  std::array<char, 20> digits{};
-  std::size_t nd{0uz};
-  for (; i != 0uz; i /= 10uz)
-    digits[nd++] = static_cast<char>('0' + (i % 10uz));
-  if (nd == 0uz)
-    digits[nd++] = '0';
-  while (nd > 0uz)
-    put({&digits[--nd], 1uz});
-  put(".");
-  put(sub);
-  buf[p] = '\0';
-  return {buf.data(), p};
+  TensorKeyBuilder key{buf};
+  if (!key.append("backbone.layers.") || !key.append(i) || !key.append(".") || !key.append(sub))
+    return {};
+  return key.view();
 }
 
 const float* layer_weight_f32(std::span<const TensorView> ts, std::size_t i, std::string_view sub,
@@ -50,17 +36,17 @@ const float* layer_weight_f32(std::span<const TensorView> ts, std::size_t i, std
 {
   std::array<char, 96> buf{};
   const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
-  ok = ok && (t != nullptr);
+  ok = ok && (t != nullptr) && t->is_f32();
   return (t != nullptr) ? t->as_f32() : nullptr;
 }
 
-const uint16_t* layer_weight_bf16(std::span<const TensorView> ts, std::size_t i,
-                                  std::string_view sub, bool& ok) noexcept
+WeightView layer_weight(std::span<const TensorView> ts, std::size_t i, std::string_view sub,
+                        bool& ok) noexcept
 {
   std::array<char, 96> buf{};
   const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
-  ok = ok && (t != nullptr);
-  return (t != nullptr) ? t->as_bf16() : nullptr;
+  ok = ok && is_matmul_weight(t);
+  return weight_view(t);
 }
 
 } // namespace
@@ -74,6 +60,9 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
   const TensorView* nf = find_tensor(weights, "backbone.norm_f.weight");
   if ((emb == nullptr) || (a0 == nullptr) || (cv0 == nullptr) || (xp0 == nullptr) ||
       (nf == nullptr))
+    return;
+  if (!emb->is_f32() || !a0->is_f32() || !cv0->is_f32() || (!xp0->is_f32() && !xp0->is_bf16()) ||
+      !nf->is_f32())
     return;
 
   cfg_.vocab = emb->shape[0];
@@ -94,15 +83,15 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
     Layer& lw = layers_[n];
     bool lok{true};
     lw.norm = layer_weight_f32(weights, n, "norm.weight", lok);
-    lw.in_proj = layer_weight_bf16(weights, n, "mixer.in_proj.weight", lok);
+    lw.in_proj = layer_weight(weights, n, "mixer.in_proj.weight", lok);
     lw.conv_w = layer_weight_f32(weights, n, "mixer.conv1d.weight", lok);
     lw.conv_b = layer_weight_f32(weights, n, "mixer.conv1d.bias", lok);
-    lw.x_proj = layer_weight_bf16(weights, n, "mixer.x_proj.weight", lok);
-    lw.dt_w = layer_weight_bf16(weights, n, "mixer.dt_proj.weight", lok);
+    lw.x_proj = layer_weight(weights, n, "mixer.x_proj.weight", lok);
+    lw.dt_w = layer_weight(weights, n, "mixer.dt_proj.weight", lok);
     lw.dt_b = layer_weight_f32(weights, n, "mixer.dt_proj.bias", lok);
     lw.a_log = layer_weight_f32(weights, n, "mixer.A_log", lok);
     lw.d = layer_weight_f32(weights, n, "mixer.D", lok);
-    lw.out_proj = layer_weight_bf16(weights, n, "mixer.out_proj.weight", lok);
+    lw.out_proj = layer_weight(weights, n, "mixer.out_proj.weight", lok);
     if (!lok)
       return; // malformed layer
   }
@@ -133,16 +122,16 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> c_buf = arena_span(l * ds);
   const std::span<float> b_buf = arena_span(l * ds);
 
-  std::mdspan x_cm_md{x_cm.data(), di, l};
-  std::mdspan xz_md{xz.data(), l, 2uz * di};
-  std::mdspan z_md{z.data(), l, di};
-  std::mdspan x_conv_md{x_conv.data(), di, l};
-  std::mdspan x_sm_md{x_sm.data(), l, di};
-  std::mdspan dbl_md{dbl.data(), l, wd};
-  std::mdspan dt_in_md{dt_in.data(), l, dr};
-  std::mdspan dt_md{dt.data(), l, di};
-  std::mdspan b_buf_md{b_buf.data(), l, ds};
-  std::mdspan c_buf_md{c_buf.data(), l, ds};
+  fe_md::mdspan x_cm_md{x_cm.data(), di, l};
+  fe_md::mdspan xz_md{xz.data(), l, 2uz * di};
+  fe_md::mdspan z_md{z.data(), l, di};
+  fe_md::mdspan x_conv_md{x_conv.data(), di, l};
+  fe_md::mdspan x_sm_md{x_sm.data(), l, di};
+  fe_md::mdspan dbl_md{dbl.data(), l, wd};
+  fe_md::mdspan dt_in_md{dt_in.data(), l, dr};
+  fe_md::mdspan dt_md{dt.data(), l, di};
+  fe_md::mdspan b_buf_md{b_buf.data(), l, ds};
+  fe_md::mdspan c_buf_md{c_buf.data(), l, ds};
 
   const std::span<float> a_neg = arena_span(ds * di); // transposed A scratch for discretize
   const std::span<float> h = arena_span(ds * di);
@@ -150,7 +139,7 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> out = arena_span(l * dm);
 
   rmsnorm(hidden, {lw.norm, dm}, normed, l, dm);
-  matmul(normed, {lw.in_proj, 2uz * di * dm}, xz, l, dm, 2uz * di, pool_); // [l][x|z]
+  matmul_weight(normed, lw.in_proj, xz, l, dm, 2uz * di, pool_); // [l][x|z]
 
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t c{0uz}; c < di; ++c) {
@@ -164,13 +153,13 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
     for (std::size_t c{0uz}; c < di; ++c)
       x_sm_md[t, c] = x_conv_md[c, t];
 
-  matmul(x_sm, {lw.x_proj, wd * di}, dbl, l, di, wd); // [l][dt | B | C]
+  matmul_weight(x_sm, lw.x_proj, dbl, l, di, wd); // [l][dt | B | C]
 
   // dt = softplus(dt_proj · dbl[:, :dt_rank] + bias); gather the dt slice for matmul
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t k{0uz}; k < dr; ++k)
       dt_in_md[t, k] = dbl_md[t, k];
-  matmul(dt_in, {lw.dt_w, di * dr}, dt, l, dr, di);
+  matmul_weight(dt_in, lw.dt_w, dt, l, dr, di);
   for (std::size_t t{0uz}; t < l; ++t)
     for (std::size_t o{0uz}; o < di; ++o)
       dt_md[t, o] += lw.dt_b[o];
@@ -185,10 +174,9 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_sm, c_buf, {lw.d, di}, h, yv, a_neg, l, di,
                       ds);
   gate_silu(yv, z, yv); // y · silu(z)
-  matmul(yv, {lw.out_proj, dm * di}, out, l, di, dm, pool_);
+  matmul_weight(yv, lw.out_proj, out, l, di, dm, pool_);
 
-  for (std::size_t i{0uz}; i < l * dm; ++i)
-    hidden[i] += out[i]; // residual
+  add_inplace(hidden, out); // residual
 
   scratch_->reset_to(mark);
 }
@@ -197,7 +185,7 @@ void Mamba::forward(std::span<const float> input, std::span<float> output,
                     std::size_t seq_len) noexcept
 {
   const std::size_t hz = seq_len * cfg_.d_model;
-  std::copy_n(input.data(), hz, output.data());
+  copy_span(input.first(hz), output.first(hz));
   for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
     layer_forward(layers_[layer], output.first(hz), seq_len);
   rmsnorm(output.first(hz), {norm_f_, cfg_.d_model}, output.first(hz), seq_len, cfg_.d_model);
@@ -229,7 +217,7 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   const std::span<float> out = arena_span(dm);
 
   rmsnorm(hidden, {lw.norm, dm}, normed, 1uz, dm);
-  matmul(normed, {lw.in_proj, 2uz * di * dm}, xz, 1uz, dm, 2uz * di); // [x|z]
+  matmul_weight(normed, lw.in_proj, xz, 1uz, dm, 2uz * di); // [x|z]
 
   for (std::size_t c{0uz}; c < di; ++c) {
     float* const w = conv_win.data() + (c * dc);
@@ -240,10 +228,10 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   conv1d_step(conv_win, {lw.conv_w, di * dc}, {lw.conv_b, di}, x_conv, di, dc);
   silu(x_conv);
 
-  matmul(x_conv, {lw.x_proj, wd * di}, dbl, 1uz, di, wd); // [dt | B | C]
+  matmul_weight(x_conv, lw.x_proj, dbl, 1uz, di, wd); // [dt | B | C]
   for (std::size_t k{0uz}; k < dr; ++k)
     dt_in[k] = dbl[k];
-  matmul(dt_in, {lw.dt_w, di * dr}, dt, 1uz, dr, di);
+  matmul_weight(dt_in, lw.dt_w, dt, 1uz, dr, di);
   for (std::size_t o{0uz}; o < di; ++o)
     dt[o] += lw.dt_b[o];
   softplus(dt);
@@ -255,10 +243,9 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_conv, c_buf, {lw.d, di}, h, yv, a_neg, 1uz,
                       di, ds);
   gate_silu(yv, z, yv);
-  matmul(yv, {lw.out_proj, dm * di}, out, 1uz, di, dm);
+  matmul_weight(yv, lw.out_proj, out, 1uz, di, dm);
 
-  for (std::size_t i{0uz}; i < dm; ++i)
-    hidden[i] += out[i]; // residual
+  add_inplace(hidden, out); // residual
 
   scratch_->reset_to(mark);
 }
@@ -266,7 +253,7 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
 void Mamba::decode(std::span<const float> x, std::span<float> state, std::span<float> out) noexcept
 {
   const std::size_t dm = cfg_.d_model;
-  std::copy_n(x.data(), dm, out.data());
+  copy_span(x.first(dm), out.first(dm));
   const std::size_t per = cfg_.d_inner * (cfg_.d_conv + cfg_.d_state);
   for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
     decode_layer(layers_[layer], out.first(dm), state.subspan(layer * per, per));

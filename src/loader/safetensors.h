@@ -28,13 +28,27 @@ struct TensorView
 
   [[nodiscard]] std::string_view name_view() const noexcept { return {name.data()}; }
 
-  // typed data access
-  [[nodiscard]] const float* as_f32() const noexcept { return static_cast<const float*>(data); }
+  [[nodiscard]] bool is_f32() const noexcept { return dtype == Dtype::F32; }
+  [[nodiscard]] bool is_bf16() const noexcept { return dtype == Dtype::BF16; }
+
+  [[nodiscard]] const float* as_f32() const noexcept
+  {
+    return is_f32() ? static_cast<const float*>(data) : nullptr;
+  }
   [[nodiscard]] const uint16_t* as_bf16() const noexcept
   {
-    return static_cast<const uint16_t*>(data);
+    return is_bf16() ? static_cast<const uint16_t*>(data) : nullptr;
   }
-  [[nodiscard]] const uint8_t* as_i8() const noexcept { return static_cast<const uint8_t*>(data); }
+  [[nodiscard]] const uint8_t* as_i8() const noexcept
+  {
+    return (dtype == Dtype::INT8) ? static_cast<const uint8_t*>(data) : nullptr;
+  }
+};
+
+struct WeightView
+{
+  const void* data{};
+  TensorView::Dtype dtype{};
 };
 
 // First tensor whose name matches, or nullptr.

@@ -26,6 +26,14 @@
 namespace fe {
 namespace {
 
+struct FileCloser
+{
+  void operator()(FILE* fp) const noexcept
+  {
+    std::fclose(fp); // NOLINT(cppcoreguidelines-owning-memory)
+  }
+};
+
 struct MappedFile
 {
   const std::byte* data{};
@@ -80,7 +88,7 @@ struct MappedFile
 
   [[nodiscard]] static std::expected<MappedFile, const char*> open(const char* p) noexcept
   {
-    std::unique_ptr<FILE, decltype(&std::fclose)> fp{std::fopen(p, "rb"), &std::fclose};
+    std::unique_ptr<FILE, FileCloser> fp{std::fopen(p, "rb")};
     if (!fp)
       return std::unexpected("Failed to open safetensors file");
     const int fd = fileno(fp.get());
@@ -207,7 +215,7 @@ struct MappedJson
   if (!mf_res)
     return std::unexpected(mf_res.error());
 
-  MappedFile mf = mf_res.value();
+  MappedFile mf = *mf_res;
   if (mf.size < 8uz) {
     mf.close();
     return std::unexpected("File too small");
@@ -218,9 +226,9 @@ struct MappedJson
     mf.close();
     return std::unexpected("Invalid header length");
   }
-  return MappedJson{mf,
-                    {reinterpret_cast<const char*>(mf.data + 8uz),
-                     static_cast<std::size_t>(header_len)}};
+  return MappedJson{.mf = mf,
+                    .json = {reinterpret_cast<const char*>(mf.data + 8uz),
+                             static_cast<std::size_t>(header_len)}};
 }
 
 } // namespace
@@ -234,8 +242,9 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
   if (!res)
     return std::unexpected(res.error());
 
-  MappedFile mf = res.value().mf;
-  const std::string_view json = res.value().json;
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const std::string_view json = mapped.json;
   const std::byte* const weights_base = mf.data + 8uz + json.size();
   const std::uint64_t data_size = mf.size - 8uz - json.size();
 
@@ -283,8 +292,9 @@ std::size_t safetensors_weight_bytes(std::string_view path) noexcept
   if (!res)
     return 0uz;
 
-  MappedFile mf = res.value().mf;
-  const std::string_view json = res.value().json;
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const std::string_view json = mapped.json;
   std::size_t total{0uz};
   static_cast<void>(
       foreach_tensor(json, [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
@@ -303,8 +313,9 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   if (!res)
     return {};
 
-  MappedFile mf = res.value().mf;
-  const std::string_view json = res.value().json;
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const std::string_view json = mapped.json;
   std::array<std::size_t, 4> out{};
   static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
                                              const std::array<std::uint64_t, 4>& shape,

@@ -26,11 +26,7 @@ public:
   [[nodiscard]] const MambaConfig& config() const noexcept { return cfg_; }
   [[nodiscard]] const float* embedding() const noexcept { return emb_; }
 
-  void set_pool(ThreadPool* p, std::span<Arena> arenas) noexcept
-  {
-    pool_ = p;
-    worker_arenas_ = arenas;
-  }
+  void set_pool(ThreadPool* p) noexcept { pool_ = p; }
 
   // [seq_len][d_model]
   void forward(std::span<const float> input, std::span<float> output, std::size_t seq_len) noexcept;
@@ -49,15 +45,15 @@ private:
   struct Layer
   {
     const float* norm;
-    const uint16_t* in_proj;
+    WeightView in_proj;
     const float* conv_w;
     const float* conv_b;
-    const uint16_t* x_proj;
-    const uint16_t* dt_w;
+    WeightView x_proj;
+    WeightView dt_w;
     const float* dt_b;
     const float* a_log;
     const float* d;
-    const uint16_t* out_proj;
+    WeightView out_proj;
   };
 
   void layer_forward(const Layer& lw, std::span<float> hidden, std::size_t seq_len) noexcept;
@@ -76,7 +72,6 @@ private:
   const float* norm_f_{};
   Arena* scratch_{};
   ThreadPool* pool_{nullptr};
-  std::span<Arena> worker_arenas_{};
   bool ok_{false};
 };
 
