@@ -148,7 +148,7 @@ void softplus(std::span<float> x) noexcept
 }
 
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
 {
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();
@@ -225,7 +225,7 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
 }
 
 void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
 {
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();

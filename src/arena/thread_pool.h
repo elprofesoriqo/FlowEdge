@@ -44,11 +44,7 @@ public:
   [[nodiscard]] unsigned nthreads() const noexcept { return nthreads_; }
 
 private:
-#if defined(_WIN32) && defined(__GNUC__)
-  __attribute__((force_align_arg_pointer))
-#endif
-  void
-  worker_loop(unsigned idx) noexcept;
+  FE_STACK_ALIGN void worker_loop(unsigned idx) noexcept;
 
   SpmcRing<Task> ring_;
   std::span<std::jthread> workers_;
@@ -59,11 +55,7 @@ private:
 };
 
 template<typename Fn>
-#if defined(_WIN32) && defined(__GNUC__)
-__attribute__((force_align_arg_pointer))
-#endif
-static void
-trampoline(void* ctx, std::size_t lo, std::size_t hi) noexcept
+FE_STACK_ALIGN static void trampoline(void* ctx, std::size_t lo, std::size_t hi) noexcept
 {
   (*static_cast<std::remove_reference_t<Fn>*>(ctx))(lo, hi);
 }

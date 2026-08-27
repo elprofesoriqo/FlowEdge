@@ -27,6 +27,8 @@ const char*& get_last_error()
 
 constexpr std::size_t max_tensors = 1024uz;
 constexpr std::size_t k_max_decode_seq = 512uz; // scratch is sized for prefills up to this length
+constexpr unsigned k_max_pool_threads = 8u;
+constexpr std::size_t k_thread_ring_slots = 128uz;
 
 std::size_t slab_bytes(const char* path)
 {
@@ -41,10 +43,20 @@ std::size_t slab_bytes(const char* path)
   const std::size_t d_model = emb[1];
   const std::size_t d_inner = a_log[0];
   const std::size_t d_state = a_log[1];
+  const auto conv = fe::safetensors_tensor_shape(path, "backbone.layers.0.mixer.conv1d.weight");
+  const auto time_proj = fe::safetensors_tensor_shape(path, "flow.time_proj.weight");
+  const std::size_t d_conv = conv[1];
+  const std::size_t n_layers = 64uz; // upper bound; exact count is discovered while loading weights
+  const std::size_t flow_time_dim = time_proj[1];
   if (d_model == 0uz || d_inner == 0uz || d_state == 0uz) // malformed header
     return 0uz;
   const std::size_t per_token = (3uz * d_state * d_inner) + (16uz * d_inner) + (8uz * d_model);
-  return weights + (k_max_decode_seq * per_token * sizeof(float));
+  const std::size_t persistent_state = n_layers * d_inner * (d_conv + d_state) * sizeof(float);
+  const std::size_t runtime = (k_thread_ring_slots * sizeof(fe::Task)) +
+                              (k_thread_ring_slots * sizeof(std::size_t)) +
+                              (k_max_pool_threads * sizeof(std::jthread)) + sizeof(fe::ThreadPool) +
+                              (flow_time_dim / 2uz * sizeof(float)) + persistent_state + 4096uz;
+  return weights + (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
 std::size_t load_views(const char* path, fe::Arena& arena, std::span<fe::TensorView> views) noexcept
@@ -69,8 +81,8 @@ struct FeEngine
   std::size_t n;
   fe::Mamba model;
   fe::FlowHead flow;
-  fe::ThreadPool* pool;
-  std::span<fe::Arena> worker_arenas;
+  fe::ThreadPool* pool{};
+  std::span<std::jthread> workers{};
   std::span<float> dstate; // persistent streaming state
 
   FeEngine(const char* path, std::size_t slab_sz)
@@ -79,31 +91,24 @@ struct FeEngine
         model{std::span<const fe::TensorView>{views.data(), n}, arena},
         flow{std::span<const fe::TensorView>{views.data(), n}, arena}
   {
-    const unsigned kMaxPoolThreads = 8u;
     const unsigned hw_threads = std::thread::hardware_concurrency();
-    const unsigned nthreads = std::min(hw_threads > 0 ? hw_threads : 1u, kMaxPoolThreads);
+    const unsigned nthreads = std::min(hw_threads > 0 ? hw_threads : 1u, k_max_pool_threads);
 
-    const std::size_t ring_sz = 128uz;
-    auto* ring = arena.alloc_array<fe::Task, fe::kSimdAlign>(ring_sz);
-    auto* seq = arena.alloc_array<std::size_t, fe::kSimdAlign>(ring_sz);
-    auto* workers = static_cast<std::jthread*>(
+    auto* ring = arena.alloc_array<fe::Task, fe::kSimdAlign>(k_thread_ring_slots);
+    auto* seq = arena.alloc_array<std::size_t, fe::kSimdAlign>(k_thread_ring_slots);
+    auto* worker_mem = static_cast<std::jthread*>(
         arena.alloc<alignof(std::jthread)>(sizeof(std::jthread) * nthreads));
-    for (unsigned i = 0; i < nthreads; ++i) {
-      new (&workers[i]) std::jthread();
-    }
-    pool = new (arena.alloc<alignof(fe::ThreadPool)>(sizeof(fe::ThreadPool)))
-        fe::ThreadPool(std::span<fe::Task>{ring, ring_sz}, std::span<std::size_t>{seq, ring_sz},
-                       std::span<std::jthread>{workers, nthreads}, nthreads);
-
-    worker_arenas = {static_cast<fe::Arena*>(
-                         arena.alloc<alignof(fe::Arena)>(sizeof(fe::Arena) * nthreads)),
-                     nthreads};
-    const std::size_t kWorkerScratch = 1024uz * 1024uz; // 1MB per worker
-    for (unsigned i = 0; i < nthreads; ++i) {
-      new (&worker_arenas[i]) fe::Arena(arena.sub_arena(kWorkerScratch));
+    auto* pool_mem = arena.alloc<alignof(fe::ThreadPool)>(sizeof(fe::ThreadPool));
+    if (ring != nullptr && seq != nullptr && worker_mem != nullptr && pool_mem != nullptr) {
+      workers = {worker_mem, nthreads};
+      for (unsigned i{0u}; i < nthreads; ++i)
+        std::construct_at(&workers[i]);
+      pool = std::construct_at(static_cast<fe::ThreadPool*>(pool_mem),
+                               std::span<fe::Task>{ring, k_thread_ring_slots},
+                               std::span<std::size_t>{seq, k_thread_ring_slots}, workers, nthreads);
     }
 
-    model.set_pool(pool, worker_arenas);
+    model.set_pool(pool);
     flow.set_pool(pool);
 
     if (model.valid())
@@ -116,7 +121,14 @@ struct FeEngine
     if (pool) {
       pool->~ThreadPool();
     }
+    for (std::jthread& worker : workers)
+      std::destroy_at(&worker);
   }
+
+  FeEngine(const FeEngine&) = delete;
+  FeEngine(FeEngine&&) = delete;
+  FeEngine& operator=(const FeEngine&) = delete;
+  FeEngine& operator=(FeEngine&&) = delete;
 
   // Embed tokens and run the backbone into `hidden` [seq_len*d_model]
   // Returns 0, or 2 (arena exhausted) / 3 (token out of range).

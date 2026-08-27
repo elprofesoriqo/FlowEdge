@@ -15,6 +15,12 @@ inline constexpr std::size_t kCacheLine = std::hardware_destructive_interference
 inline constexpr std::size_t kCacheLine = 64uz;
 #endif
 
+#if defined(_WIN32) && defined(__GNUC__)
+#define FE_STACK_ALIGN __attribute__((force_align_arg_pointer))
+#else
+#define FE_STACK_ALIGN
+#endif
+
 inline void cpu_pause() noexcept
 {
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)

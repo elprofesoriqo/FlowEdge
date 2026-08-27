@@ -47,9 +47,7 @@ ThreadPool::ThreadPool(std::span<Task> ring, std::span<std::size_t> sequence,
     return;
   }
   for (unsigned i{0u}; i < nthreads_; ++i)
-    workers_[i] = std::jthread{[this, i] {
-      worker_loop(i);
-    }};
+    workers_[i] = std::jthread{&ThreadPool::worker_loop, this, i};
 }
 
 ThreadPool::~ThreadPool() noexcept
@@ -75,10 +73,7 @@ void ThreadPool::wait() noexcept
     cpu_pause();
 }
 
-#if defined(_WIN32) && defined(__GNUC__)
-__attribute__((force_align_arg_pointer))
-#endif
-void ThreadPool::worker_loop(unsigned idx) noexcept
+FE_STACK_ALIGN void ThreadPool::worker_loop(unsigned idx) noexcept
 {
   pin_thread(idx);
   for (;;) {

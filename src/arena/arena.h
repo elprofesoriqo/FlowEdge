@@ -3,7 +3,7 @@
 #include <bit>
 #include <cassert>
 #include <cstddef>
-#include <cstdint>
+#include <memory>
 #include <span>
 #include <type_traits>
 
@@ -26,11 +26,11 @@ public:
   [[nodiscard]] void* alloc(std::size_t n) noexcept
   {
     static_assert(std::has_single_bit(align));
-    auto* p = reinterpret_cast<std::byte*>((reinterpret_cast<uintptr_t>(cursor_) + align - 1u) &
-                                           ~(align - 1u));
-    if (p > end_ || static_cast<std::size_t>(end_ - p) < n) [[unlikely]] // overflow-safe bound
+    void* p = cursor_;
+    std::size_t space = static_cast<std::size_t>(end_ - cursor_);
+    if (std::align(align, n, p, space) == nullptr) [[unlikely]]
       return nullptr;
-    cursor_ = p + n;
+    cursor_ = static_cast<std::byte*>(p) + n;
     return p;
   }
 

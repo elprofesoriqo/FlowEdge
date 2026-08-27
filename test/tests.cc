@@ -1,4 +1,5 @@
 #include "arena/arena.h"
+#include "arena/thread_pool.h"
 #include "heads/flow/flow.h"
 #include "kernels/kernels.h"
 #include "loader/safetensors.h"
@@ -55,6 +56,23 @@ TEST(Matmul, MatchesNaive)
         EXPECT_NEAR(got[(r * out) + o], acc, kTol) << "rows=" << rows;
       }
   }
+}
+
+TEST(ThreadPool, ParallelForCompletesAllSlices)
+{
+  std::vector<fe::Task> ring(8uz);
+  std::vector<std::size_t> sequence(8uz);
+  std::vector<std::jthread> workers(4uz);
+  fe::ThreadPool pool{ring, sequence, workers, 4u};
+  std::array<std::size_t, 64uz> counts{};
+
+  fe::parallel_for(pool, counts.size(), [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t i{lo}; i < hi; ++i)
+      counts[i] = i + 1uz;
+  });
+
+  for (std::size_t i{0uz}; i < counts.size(); ++i)
+    EXPECT_EQ(counts[i], i + 1uz);
 }
 
 TEST(Silu, MatchesReference)
@@ -181,6 +199,20 @@ struct FlowFixture
     return v;
   }
 
+  static fe::TensorView view_f32(const char* name, float* data, std::size_t r, std::size_t c)
+  {
+    fe::TensorView v{};
+    v.data = data;
+    v.dtype = fe::TensorView::Dtype::F32;
+    v.shape[0] = r;
+    v.shape[1] = c;
+    v.ndim = 2;
+    std::size_t j{0uz};
+    for (const char* p = name; (*p != '\0') && (j + 1uz < v.name.size()); ++p)
+      v.name[j++] = *p;
+    return v;
+  }
+
   std::vector<fe::TensorView> views()
   {
     std::vector<fe::TensorView> v;
@@ -190,6 +222,30 @@ struct FlowFixture
     v.push_back(view("flow.out_proj.weight", op_.data(), kA, kH));
     v.push_back(view("flow.layers.0.weight", layers_[0].data(), kH, kH));
     v.push_back(view("flow.layers.1.weight", layers_[1].data(), kH, kH));
+    return v;
+  }
+};
+
+struct FlowF32Fixture
+{
+  static constexpr std::size_t kA = FlowFixture::kA;
+  static constexpr std::size_t kC = FlowFixture::kC;
+  static constexpr std::size_t kH = FlowFixture::kH;
+  static constexpr std::size_t kT = FlowFixture::kT;
+  std::vector<float> in_ = seq(kH * kA, 0.011F, 0.0F);
+  std::vector<float> tp_ = seq(kH * kT, 0.013F, 1.0F);
+  std::vector<float> cp_ = seq(kH * kC, 0.009F, 0.5F);
+  std::vector<float> op_ = seq(kA * kH, 0.007F, 0.2F);
+  std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
+  fe::Arena arena{std::span<std::byte>{slab}};
+
+  std::vector<fe::TensorView> views()
+  {
+    std::vector<fe::TensorView> v;
+    v.push_back(FlowFixture::view_f32("flow.in_proj.weight", in_.data(), kH, kA));
+    v.push_back(FlowFixture::view_f32("flow.time_proj.weight", tp_.data(), kH, kT));
+    v.push_back(FlowFixture::view_f32("flow.cond_proj.weight", cp_.data(), kH, kC));
+    v.push_back(FlowFixture::view_f32("flow.out_proj.weight", op_.data(), kA, kH));
     return v;
   }
 };
@@ -210,6 +266,19 @@ TEST(FlowHead, DeterministicAndFinite)
     EXPECT_EQ(a[i], b[i]) << "not deterministic"; // same inputs -> identical bits
     EXPECT_TRUE(std::isfinite(a[i]));
   }
+}
+
+TEST(FlowHead, AcceptsF32Weights)
+{
+  FlowF32Fixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> cond = seq(FlowF32Fixture::kC, 0.1F, 0.0F);
+  const std::vector<float> x0 = seq(FlowF32Fixture::kA, 0.3F, 0.2F);
+  std::vector<float> out(FlowF32Fixture::kA);
+  head.sample(cond, x0, 2uz, fe::FlowHead::kEuler, out);
+  for (float v : out)
+    EXPECT_TRUE(std::isfinite(v));
 }
 
 TEST(FlowHead, EulerDiffersFromHeun)
