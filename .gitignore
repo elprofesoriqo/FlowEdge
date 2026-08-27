@@ -1,4 +1,5 @@
-build/
+build*/
+venv/
 /docs/_build/
 /models/
 .cache/

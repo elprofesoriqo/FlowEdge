@@ -11,21 +11,31 @@ graph LR
   SC -->|reset_to mark| C
 ```
 
-At load the engine sizes the slab from the checkpoint, then carves the weights once, aligned to 64 bytes, and the streaming state once, a conv window and SSM state per layer.
+At load the engine sizes the slab from the checkpoint, then carves the weights
+once, aligned to 64 bytes. Runtime storage is carved from the same slab:
+persistent decode state, flow scratch, the thread-pool task ring, and the
+`std::jthread` objects that own workers.
 
 ## How it works
 
-The arena owns one `std::byte` slab and a cursor. `alloc(n, a)` rounds the cursor up to alignment `a`, hands it back, and advances by `n`. Every allocation is O(1) and contiguous, with no free list and no per-object header.
+The arena owns one `std::byte` slab and a cursor. `alloc(n, a)` uses
+`std::align`, hands back the aligned span, and advances by `n`. Every allocation
+is O(1) and contiguous, with no free list and no per-object header.
 
 Scratch is stack-like: `mark()` records the cursor and `reset_to()` winds it back. A layer carves its intermediates, and the caller rewinds to the mark afterward, so the next layer reuses the same bytes.
 
 The slab size is fixed at load:
 
 $$
-\text{slab} = W_{bytes} + 4 K \cdot \left(3\, d_{state} d_{inner} + 16\, d_{inner} + 8\, d_{model}\right)
+\text{slab} = W_{bytes} + S_{decode} + S_{flow} + R_{pool} + O_{alignment}
 $$
 
-$W_{bytes}$ is the stored weight footprint in bytes (2 bytes per element for `BF16` weights), the bracket bounds the scratch floats one token needs, and the factor 4 turns those into bytes. $K$ is a fixed cap on prefix length, `k_max_decode_seq` (currently 512). `alloc` returns `nullptr` on exhaustion.
+$W_{bytes}$ is the stored weight footprint in bytes (2 bytes per element for
+`BF16` weights). $S_{decode}$ covers Mamba conv windows and SSM state per layer.
+$S_{flow}$ covers ODE solver temporaries and projection scratch. $R_{pool}$
+covers the power-of-two task ring and worker objects. `alloc` returns `nullptr`
+on exhaustion, so a model that does not fit fails at load instead of drifting
+into the control loop.
 
 ## Why this way
 

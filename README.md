@@ -14,7 +14,7 @@
 ***
 
 FlowEdge is a custom C++ inference engine designed to execute flow-matching action heads for robotics:
-- zero external dependencies
+- zero runtime dependencies
 - decoupled compute backends
 - native `.safetensors` loading, plus a torch/HF checkpoint converter
 - C API and Python bindings
@@ -34,7 +34,7 @@ FlowEdge supports the following hardware accelerators:
 - ☑ CPU (AVX2 / NEON)
 - ☐ CUDA
 - ☐ Metal
-- ☐ Vulkan
+- ☐ Tenstorrent / tt-metal
 
 ## Architectures & Heads
 
@@ -59,16 +59,21 @@ FlowEdge supports the following hardware accelerators:
 
 ## Performance
 
-**Mamba (Forward Pass)**
+**Local smoke benchmark**
 
-| Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PT) |
-|-----------|---------|---------|----------|-----------------|
-| BM_engine_forward | CPU | 66.3 ms | 27.2 ms | ~2.4x |
-| BM_engine_forward | CUDA | TBD | TBD | TBD |
-| BM_engine_forward | Metal | TBD | TBD | TBD |
-| BM_engine_forward | Vulkan | TBD | TBD | TBD |
+These numbers are from `models/mamba_flow.safetensors` on the current CPU path
+with a 2-layer, `d_model=128`, `seq_len=4` model. Regenerate them on your host
+with `./scripts/bench.sh models/mamba_flow.safetensors`; production numbers will
+move with model shape, compiler, CPU topology, and memory bandwidth.
 
-*Mamba-130M (24 layers, d_model=768), seq_len=4, BF16, 8-thread CPU. Regenerate with `./scripts/bench.sh`; numbers depend on model and host.*
+| Benchmark | PyTorch | FlowEdge | Speedup |
+|-----------|---------|----------|---------|
+| Flow action latency, mean | 1613 us | 368 us | 4.4x |
+| Flow action latency, p99 | 2978 us | 680 us | 4.4x |
+| C-ABI engine forward | 2.134 ms | 0.085 ms | 25.1x |
+
+The hot loop reports zero allocations. Large projection matmuls can use the
+arena-backed lock-free thread pool to increase DRAM bandwidth parallelism.
 
 ## Python Installation
 
@@ -118,7 +123,7 @@ Or bring your own - convert a torch / HuggingFace checkpoint into the FlowEdge l
 python convert/convert.py path/to/checkpoint.safetensors models/mamba_flow.safetensors
 ```
 
-See [`convert/`](convert/README.md) for supported architectures and how to add one.
+See the [converter guide](docs/guides/converter.md) for supported architectures and how to add one.
 
 **3. Sample an action chunk** (`euler|heun|rk4`, last argument = number of solver steps):
 

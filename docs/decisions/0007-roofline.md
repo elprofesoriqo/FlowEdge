@@ -26,12 +26,14 @@ Two very different shapes landing on the same 15 GB/s is a DRAM signature. `x_pr
 ## Decision
 
 - Optimize weight traffic first: BF16 or INT8 weights in memory, and threading for more memory parallelism.
-- Do not hand-optimize `selective_scan`. At 2.5% of a layer, Amdahl caps the total gain at 2.5% even if it became free.
-- If the scan path is touched, fuse `discretize` instead. It is 9%, three and a half times the scan.
+- Do not hand-optimize scan alone. At 2.5% of a layer, Amdahl caps the total
+  gain at 2.5% even if it became free.
+- If the scan path is touched, fuse discretization with the scan. That cut has
+  landed as `discretize_and_scan`.
 - Re-measure before optimizing anything else. This table, not intuition, sets the order.
 
 ## Consequences
 
 - Quantization moves from a precision feature to the top performance item. Halving weight bytes attacks 84% of the runtime.
 - The loader's decision to widen BF16 to F32 at load is now questionable. It trades double the weight bytes for a convert-free hot path, but bytes are the bottleneck. On AVX2 the convert is a zero-extend and a shift per eight values, cheap next to a DRAM stall. Measure before changing it.
-- The roadmap drops SIMD selective scan.
+- The roadmap drops standalone SIMD selective scan.
