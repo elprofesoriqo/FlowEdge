@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+build
+build-*
+cmake-build-*
+dist
+*.egg-info
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+models
+ab_results.md
