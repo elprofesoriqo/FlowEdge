@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${1:-$ROOT/models/mamba_flow.safetensors}"
-BENCH="$ROOT/build"
+BENCH="${FLOWEDGE_BUILD_DIR:-$ROOT/build}"
 
 if [[ ! -f "$MODEL" ]]; then
     echo "Downloading mamba_flow.safetensors from Hugging Face..."
@@ -42,4 +42,4 @@ echo "== FlowEdge (C-ABI) =="
 FLOWEDGE_MODEL="$MODEL" "$BENCH/flowedge_engine_bench"
 
 echo "== PyTorch =="
-"$PY" "$ROOT/scripts/torch_ref.py" bench "$MODEL" 1
+"$PY" "$ROOT/scripts/torch_ref.py" bench "$MODEL" 1 || echo "PyTorch forward: (requires torch/numpy)"

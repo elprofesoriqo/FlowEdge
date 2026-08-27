@@ -17,6 +17,10 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES 
   add_compile_options(-mavx2 -mfma -fno-math-errno)
 endif()
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  add_compile_options(--param=destructive-interference-size=64)
+endif()
+
 if(MSVC)
   add_compile_options(/D__restrict__=__restrict)
 endif()
@@ -27,15 +31,14 @@ set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
 if(FLOWEDGE_BACKEND STREQUAL "cpu")
   set(KERNEL_SRC "")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
-    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc
-  src/arena/thread_pool.cc)
+    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64|ARM64")
     list(APPEND KERNEL_SRC src/kernels/cpu/kernels_neon.cc)
   else()
     list(APPEND KERNEL_SRC src/kernels/cpu/kernels_scalar.cc)
   endif()
 elseif(FLOWEDGE_BACKEND STREQUAL "avx512")
-  set(KERNEL_SRC src/kernels/cpu/kernels_avx512.cc src/arena/thread_pool.cc)
+  set(KERNEL_SRC src/kernels/cpu/kernels_avx512.cc)
   add_compile_options(-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512bf16 -mfma -fno-math-errno)
 elseif(FLOWEDGE_BACKEND STREQUAL "cuda")
   set(KERNEL_SRC src/kernels/cuda/kernels_cuda.cu)
@@ -51,6 +54,7 @@ endif()
 # ENGINE
 add_library(flowedge_engine STATIC
   ${KERNEL_SRC}
+  src/arena/thread_pool.cc
   src/loader/safetensors.cc
   src/models/mamba/mamba.cc
   src/heads/flow/flow.cc
@@ -141,13 +145,17 @@ endif()
 
 # PYTHON (Pybind11)
 if(FLOWEDGE_PYTHON)
-  include(FetchContent)
-  FetchContent_Declare(
-    pybind11
-    GIT_REPOSITORY https://github.com/pybind/pybind11.git
-    GIT_TAG v2.13.6
-    GIT_SHALLOW TRUE)
-  FetchContent_MakeAvailable(pybind11)
+  set(PYBIND11_FINDPYTHON ON)
+  find_package(pybind11 CONFIG QUIET)
+  if(NOT pybind11_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+      pybind11
+      GIT_REPOSITORY https://github.com/pybind/pybind11.git
+      GIT_TAG v2.13.6
+      GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(pybind11)
+  endif()
 
   pybind11_add_module(flowedge python/flowedge_ext.cc)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

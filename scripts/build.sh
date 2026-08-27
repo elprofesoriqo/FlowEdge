@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_TYPE="${1:-Release}"
+BUILD_DIR="${FLOWEDGE_BUILD_DIR:-$ROOT/build}"
 
 command -v cmake >/dev/null || { echo "cmake not found"; exit 1; }
 
@@ -11,7 +12,7 @@ GEN="Unix Makefiles"
 command -v ninja >/dev/null && GEN="Ninja"
 
 ARGS=(
-  -S "$ROOT" -B "$ROOT/build" -G "$GEN"
+  -S "$ROOT" -B "$BUILD_DIR" -G "$GEN"
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
 )
 
@@ -39,4 +40,4 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 cmake --log-level=WARNING "${ARGS[@]}"
-cmake --build "$ROOT/build" -j "$(nproc 2>/dev/null || echo 4)"
+cmake --build "$BUILD_DIR" -j "$(nproc 2>/dev/null || echo 4)"

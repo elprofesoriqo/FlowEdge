@@ -5,6 +5,7 @@ FILTER="${1:-}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+BUILD_DIR="${FLOWEDGE_BUILD_DIR:-build}"
 
 BACKEND="${FLOWEDGE_BACKEND:-cpu}"
 PY="$(command -v py || command -v python3 || command -v python)"
@@ -29,25 +30,26 @@ run_benchmark() {
     local branch=$1
     local out_csv=$2
     
-    rm -rf build/CMakeCache.txt build/CMakeFiles/ build/_deps/googlebenchmark-subbuild/CMakeCache.txt build/_deps/googlebenchmark-subbuild/CMakeFiles/
-    if ! cmake -B build -S . -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND="${BACKEND}" -DCMAKE_BUILD_TYPE=Release > build/cmake_log.txt 2>&1; then
+    rm -rf "$BUILD_DIR/CMakeCache.txt" "$BUILD_DIR/CMakeFiles/" "$BUILD_DIR/_deps/googlebenchmark-subbuild/CMakeCache.txt" "$BUILD_DIR/_deps/googlebenchmark-subbuild/CMakeFiles/"
+    mkdir -p "$BUILD_DIR"
+    if ! cmake -B "$BUILD_DIR" -S . -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND="${BACKEND}" -DCMAKE_BUILD_TYPE=Release > "$BUILD_DIR/cmake_log.txt" 2>&1; then
         exit 1
     fi
     
-    if ! cmake --build build --config Release -j 4 > build/build_log.txt 2>&1; then
+    if ! cmake --build "$BUILD_DIR" --config Release -j 4 > "$BUILD_DIR/build_log.txt" 2>&1; then
         exit 1
     fi
-    local exe_k="./build/bench/flowedge_kernels_bench"
-    local exe_e="./build/bench/flowedge_engine_bench"
-    if [[ -f "./build/bench/flowedge_kernels_bench.exe" ]]; then
-        exe_k="./build/bench/flowedge_kernels_bench.exe"
-        exe_e="./build/bench/flowedge_engine_bench.exe"
-    elif [[ -f "./build/flowedge_kernels_bench.exe" ]]; then
-        exe_k="./build/flowedge_kernels_bench.exe"
-        exe_e="./build/flowedge_engine_bench.exe"
-    elif [[ -f "./build/flowedge_kernels_bench" ]]; then
-        exe_k="./build/flowedge_kernels_bench"
-        exe_e="./build/flowedge_engine_bench"
+    local exe_k="./$BUILD_DIR/bench/flowedge_kernels_bench"
+    local exe_e="./$BUILD_DIR/bench/flowedge_engine_bench"
+    if [[ -f "./$BUILD_DIR/bench/flowedge_kernels_bench.exe" ]]; then
+        exe_k="./$BUILD_DIR/bench/flowedge_kernels_bench.exe"
+        exe_e="./$BUILD_DIR/bench/flowedge_engine_bench.exe"
+    elif [[ -f "./$BUILD_DIR/flowedge_kernels_bench.exe" ]]; then
+        exe_k="./$BUILD_DIR/flowedge_kernels_bench.exe"
+        exe_e="./$BUILD_DIR/flowedge_engine_bench.exe"
+    elif [[ -f "./$BUILD_DIR/flowedge_kernels_bench" ]]; then
+        exe_k="./$BUILD_DIR/flowedge_kernels_bench"
+        exe_e="./$BUILD_DIR/flowedge_engine_bench"
     fi
     local cmd_k="$exe_k --benchmark_out=${out_csv}_k --benchmark_out_format=csv"
     export FLOWEDGE_MODEL="$ROOT/models/mamba_flow.safetensors"
@@ -78,10 +80,10 @@ if [[ ! -f "$MODEL" ]]; then
     wget -qO "$MODEL" "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
 fi
 
-run_benchmark "$CURRENT_BRANCH" "$ROOT/build/current.csv"
+run_benchmark "$CURRENT_BRANCH" "$ROOT/$BUILD_DIR/current.csv"
 
 git switch -q main
-run_benchmark "main" "$ROOT/build/main.csv"
+run_benchmark "main" "$ROOT/$BUILD_DIR/main.csv"
 git switch -q "$CURRENT_BRANCH"
 
 PT_FORWARD="N/A"
@@ -147,6 +149,5 @@ END {
         printf "| %s | %.4f %s | %.4f %s | %.2fx | %s |\n", pt, engine_main, engine_u, engine_cur, engine_u, engine_speedup, speedup_pt
     }
 }
-' "$ROOT/build/main.csv" "$ROOT/build/current.csv" > "$ROOT/ab_results.md"
-
+' "$ROOT/$BUILD_DIR/main.csv" "$ROOT/$BUILD_DIR/current.csv" > "$ROOT/ab_results.md"
 
