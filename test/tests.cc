@@ -42,7 +42,7 @@ constexpr float kTol = 2e-3F; // ~1 ULP exp8/log8 + fp32 reduction reorder
 TEST(Matmul, MatchesNaive)
 {
   for (const std::size_t rows : {1uz, 4uz, 7uz}) { // 1 hits the single-vector fast path
-    const std::size_t in{40uz};
+    const std::size_t in{37uz}; // exercises SIMD tails without assuming an aligned width
     const std::size_t out{17uz};
     const std::vector<float> a = seq(rows * in, 0.1F, 0.0F);
     const std::vector<float> w = seq(out * in, 0.07F, 1.0F);

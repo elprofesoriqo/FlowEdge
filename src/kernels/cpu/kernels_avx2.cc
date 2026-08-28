@@ -237,13 +237,6 @@ void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
   const std::size_t rows = ctx->rows;
   const std::size_t in_dim = ctx->in_dim;
   const std::size_t out_dim = ctx->out_dim;
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wattributes"
-  if (in_dim % 8 != 0)
-    __builtin_unreachable();
-#pragma GCC diagnostic pop
-#endif
   for (std::size_t o{lo}; o < hi; ++o) {
     const float* __restrict__ wr = w_data + (o * in_dim);
     for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
@@ -361,13 +354,6 @@ void FE_FORCE_ALIGN matmul_u16_rown(std::size_t lo, std::size_t hi,
   const std::size_t rows = ctx->rows;
   const std::size_t in_dim = ctx->in_dim;
   const std::size_t out_dim = ctx->out_dim;
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wattributes"
-  if (in_dim % 8 != 0)
-    __builtin_unreachable();
-#pragma GCC diagnostic pop
-#endif
   for (std::size_t o{lo}; o < hi; ++o) {
     const uint16_t* __restrict__ wr = w_data + (o * in_dim);
     for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
