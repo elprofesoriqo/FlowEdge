@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdio>
 #include <cstring>
 #include <expected>
@@ -222,7 +223,9 @@ struct MappedJson
   }
   std::uint64_t header_len{};
   std::memcpy(&header_len, mf.data, 8uz);
-  if (header_len > mf.size - 8uz) { // overflow-safe: mf.size >= 8
+  if constexpr (std::endian::native == std::endian::big)
+    header_len = std::byteswap(header_len); // safetensors encodes its length as little-endian
+  if (header_len > mf.size - 8uz) {         // overflow-safe: mf.size >= 8
     mf.close();
     return std::unexpected("Invalid header length");
   }
