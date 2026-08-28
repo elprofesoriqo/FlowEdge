@@ -2,7 +2,8 @@
 
 ## Build
 
-Needs CMake 3.21+ and a C++23 compiler (GCC 13+ or Clang 16+).
+Needs CMake 3.21+ and a C++23 compiler. CI and the container use LLVM/Clang 23;
+GCC 13+ is also supported.
 
 ```bash
 git clone <repo> && cd FlowEdge

@@ -155,12 +155,19 @@ if(FLOWEDGE_PYTHON)
       if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
         # removed -mstackrealign here
       endif()
-      # static libstdc++ (resolves std::call_once) but keep winpthread dynamic
+      # Statically link the C++ runtime; package winpthread beside the extension below.
       target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++ "-Wl,--allow-multiple-definition")
       target_link_libraries(flowedge PRIVATE winpthread)
     endif()
   endif()
   target_link_libraries(flowedge PRIVATE flowedge_engine)
+  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    find_file(FLOWEDGE_WINPTHREAD_DLL NAMES libwinpthread-1.dll HINTS $ENV{PATH})
+    if(NOT FLOWEDGE_WINPTHREAD_DLL)
+      message(FATAL_ERROR "libwinpthread-1.dll is required to package the MinGW Python extension")
+    endif()
+    install(FILES "${FLOWEDGE_WINPTHREAD_DLL}" DESTINATION .)
+  endif()
   install(TARGETS flowedge LIBRARY DESTINATION . RUNTIME DESTINATION .) # wheel root: pip install .
 endif()
 
