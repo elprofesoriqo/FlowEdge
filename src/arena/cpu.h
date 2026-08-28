@@ -5,15 +5,10 @@
 #endif
 
 #include <cstddef>
-#include <new>
 
 namespace fe {
 
-#ifdef __cpp_lib_hardware_interference_size
-inline constexpr std::size_t kCacheLine = std::hardware_destructive_interference_size;
-#else
 inline constexpr std::size_t kCacheLine = 64uz;
-#endif
 
 #if defined(_WIN32) && defined(__GNUC__)
 #define FE_STACK_ALIGN __attribute__((force_align_arg_pointer))

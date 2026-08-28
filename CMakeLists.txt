@@ -17,10 +17,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES 
   add_compile_options(-mavx2 -mfma -fno-math-errno)
 endif()
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_compile_options(--param=destructive-interference-size=64)
-endif()
-
 if(MSVC)
   add_compile_options(/D__restrict__=__restrict)
 endif()

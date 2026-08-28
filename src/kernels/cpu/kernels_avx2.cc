@@ -11,8 +11,14 @@
 namespace fe {
 namespace {
 
+#if defined(_MSC_VER)
+#define FE_ALWAYS_INLINE __forceinline
+#else
+#define FE_ALWAYS_INLINE __attribute__((always_inline)) inline
+#endif
+
 // Cephes 8-wide expf (~1 ULP)
-__attribute__((always_inline)) inline __m256 exp8(__m256 x) noexcept
+FE_ALWAYS_INLINE __m256 exp8(__m256 x) noexcept
 {
   x = _mm256_min_ps(_mm256_max_ps(x, _mm256_set1_ps(-exp_clamp)), _mm256_set1_ps(exp_clamp));
   const __m256 fx = _mm256_round_ps(_mm256_mul_ps(x, _mm256_set1_ps(log2e)),
@@ -33,7 +39,7 @@ __attribute__((always_inline)) inline __m256 exp8(__m256 x) noexcept
 }
 
 // Cephes 8-wide logf (~1 ULP)
-__attribute__((always_inline)) inline __m256 log8(__m256 x) noexcept
+FE_ALWAYS_INLINE __m256 log8(__m256 x) noexcept
 {
   __m256 e = _mm256_cvtepi32_ps(_mm256_sub_epi32(_mm256_srli_epi32(_mm256_castps_si256(x), 23),
                                                  _mm256_set1_epi32(0x7E))); // unbiased exp
@@ -60,7 +66,7 @@ __attribute__((always_inline)) inline __m256 log8(__m256 x) noexcept
   return _mm256_fmadd_ps(e, _mm256_set1_ps(ln2_hi), x);
 }
 
-__attribute__((always_inline)) inline float hsum8(__m256 v) noexcept
+FE_ALWAYS_INLINE float hsum8(__m256 v) noexcept
 {
   const __m128 lo = _mm_add_ps(_mm256_castps256_ps128(v), _mm256_extractf128_ps(v, 1));
   const __m128 s2 = _mm_hadd_ps(lo, lo);
@@ -102,7 +108,7 @@ inline void FE_FORCE_ALIGN scan_advance(const float* __restrict__ da_t,
 }
 
 // widen 8 BF16 → 8 F32
-__attribute__((always_inline)) inline __m256 load_bf16_8(const uint16_t* p) noexcept
+FE_ALWAYS_INLINE __m256 load_bf16_8(const uint16_t* p) noexcept
 {
   return _mm256_castsi256_ps(
       _mm256_slli_epi32(_mm256_cvtepu16_epi32(_mm_loadu_si128(reinterpret_cast<const __m128i*>(p))),
@@ -115,6 +121,8 @@ inline float FE_FORCE_ALIGN bf16_to_f32(uint16_t v) noexcept
   const uint32_t bits = static_cast<uint32_t>(v) << 16;
   return std::bit_cast<float>(bits);
 }
+
+#undef FE_ALWAYS_INLINE
 
 } // namespace
 

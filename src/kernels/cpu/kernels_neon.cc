@@ -2,6 +2,7 @@
 #include "kernels/kernels.h"
 
 #include <arm_neon.h>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>

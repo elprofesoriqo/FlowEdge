@@ -1,8 +1,8 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CC=clang-18
-ENV CXX=clang++-18
+ENV CC=gcc-13
+ENV CXX=g++-13
 ENV FLOWEDGE_BUILD_DIR=/workspace/build
 
 RUN apt-get update && apt-get install -y \
@@ -24,14 +24,18 @@ RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100 \
     && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100 \
     && update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-18 100 \
     && update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-18 100 \
-    && update-alternatives --install /usr/bin/cc cc /usr/bin/clang 100 \
-    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++ 100
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 100 \
+    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 100
 
 WORKDIR /workspace
 
 COPY . .
 
 RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
+      -DCMAKE_C_COMPILER=/usr/bin/gcc-13 \
+      -DCMAKE_CXX_COMPILER=/usr/bin/g++-13 \
       -DCMAKE_BUILD_TYPE=Release \
       -DFLOWEDGE_TESTS=ON \
       -DFLOWEDGE_BENCH=ON \
@@ -41,4 +45,4 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
 
 RUN python3 -m pip install --break-system-packages .
 
-CMD ["./build/flow_sample", "models/mamba_flow.safetensors", "euler"]
+CMD ["./build/flowedge_tests"]
