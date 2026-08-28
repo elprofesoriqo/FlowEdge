@@ -5,10 +5,11 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "flowedge"
 version = "0.1.0"
-description = ""
+description = "Deterministic, low-latency flow-matching policy inference for edge robotics"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = []
+keywords = ["robotics", "embodied-ai", "inference", "flow-matching", "real-time"]
 dependencies = [
     "numpy>=1.20"
 ]

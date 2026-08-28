@@ -21,7 +21,8 @@ graph TD
 
 - Arena. Fixed bump allocator. Holds all weights and scratch. No malloc on the hot path.
 - Loader. Zero-dependency safetensors mmap. Reads F32 and BF16.
-- Runtime. Arena-carved persistent state plus an SPMC thread pool for large CPU matmuls.
+- Runtime. `src/runtime/engine_runtime.*` owns arena-carved persistent state, model assembly, and
+  the SPMC thread pool. The C ABI remains a narrow adapter in `src/api/`.
 - Kernels. One backend-agnostic interface. CPU today. CUDA and Tenstorrent-shaped backends behind the same calls.
 - Backbone. Compresses the prefix into a conditioning vector. Mamba today.
 - Head. Turns the vector into an action. Flow matching today.

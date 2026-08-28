@@ -99,10 +99,12 @@ guides/add-a-head
 guides/add-a-backbone
 guides/converter
 guides/verification
+guides/benchmarking
 ```
 
 ```{toctree}
 :hidden:
 :caption: Reference
 roadmap
+product-direction
 ```
