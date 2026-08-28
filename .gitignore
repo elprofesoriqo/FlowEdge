@@ -4,3 +4,5 @@ venv/
 /models/
 .cache/
 ab_results.md
+/bench-results/
+__pycache__/
