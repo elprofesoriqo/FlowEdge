@@ -21,8 +21,9 @@ if(MSVC)
   add_compile_options(/D__restrict__=__restrict)
 endif()
 
-# compute kernels, select with -DFLOWEDGE_BACKEND=cpu (default)
-set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
+# Compute kernels. CPU is the only production backend; AVX-512 is an explicit CPU variant.
+set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu or avx512")
+set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512)
 
 if(FLOWEDGE_BACKEND STREQUAL "cpu")
   set(KERNEL_SRC "")
@@ -36,15 +37,8 @@ if(FLOWEDGE_BACKEND STREQUAL "cpu")
 elseif(FLOWEDGE_BACKEND STREQUAL "avx512")
   set(KERNEL_SRC src/kernels/cpu/kernels_avx512.cc)
   add_compile_options(-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512bf16 -mfma -fno-math-errno)
-elseif(FLOWEDGE_BACKEND STREQUAL "cuda")
-  set(KERNEL_SRC src/kernels/cuda/kernels_cuda.cu)
-  enable_language(CUDA)
-elseif(FLOWEDGE_BACKEND STREQUAL "vulkan")
-  set(KERNEL_SRC src/kernels/vulkan/kernels_vulkan.cc)
-elseif(FLOWEDGE_BACKEND STREQUAL "metal")
-  set(KERNEL_SRC src/kernels/metal/kernels_metal.mm)
 else()
-  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' has no implementation")
+  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' is not implemented; use cpu or avx512")
 endif()
 
 # ENGINE

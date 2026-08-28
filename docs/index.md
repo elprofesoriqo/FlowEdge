@@ -55,7 +55,7 @@ graph TD
   B --> C[conditioning vector]
   C --> H[Head]
   H --> ACT[action chunk]
-  K["Kernels: CPU / CUDA / Tenstorrent"] -.-> B
+  K["Kernels: CPU"] -.-> B
   K -.-> H
 ```
 

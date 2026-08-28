@@ -7,15 +7,19 @@ One header declares every kernel, and each backend implements it.
 graph TD
   I["kernels.h"]
   I --> CPU["cpu: avx2 / neon / scalar"]
-  I --> CU["cuda (planned)"]
-  I --> TT["tenstorrent (planned)"]
+  I -.-> CU["CUDA (design target)"]
+  I -.-> TT["Tenstorrent (design target)"]
 ```
 
-The backend is picked at build time:
+The production backend is picked at build time:
 
 ```bash
 cmake -B build -DFLOWEDGE_BACKEND=cpu
 ```
+
+`cpu` selects AVX2, NEON, or scalar code for the host. `avx512` is an explicit x86 build option.
+CUDA, Metal, Vulkan, and Tenstorrent files are placeholders for future ports and are rejected by
+CMake until they implement the complete kernel interface.
 
 The CPU backend splits by ISA. `kernels_avx2.cc`, `kernels_neon.cc`, and
 `kernels_scalar.cc` all implement the same public surface, and CMake picks the
