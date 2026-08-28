@@ -27,7 +27,15 @@ int main(int argc, char** argv)
     return 1;
   }
   const std::string_view m_arg = (argc > 2) ? argv[2] : "";
-  const int method = (m_arg == "rk4") ? 2 : (m_arg == "heun") ? 1 : 0;
+  const int method = (m_arg.empty() || m_arg == "euler") ? FE_SOLVER_EULER
+                     : (m_arg == "heun")                 ? FE_SOLVER_HEUN
+                     : (m_arg == "rk4")                  ? FE_SOLVER_RK4
+                                                         : -1;
+  if (method < 0) {
+    std::cerr << "error: solver must be euler, heun, or rk4\n";
+    fe_engine_free(engine);
+    return 1;
+  }
   const std::size_t steps = (argc > 3) ? std::stoull(argv[3]) : 10uz;
 
   const std::array<std::int32_t, 4> prefix{1, 2, 3, 4};
@@ -38,13 +46,15 @@ int main(int argc, char** argv)
 
   const int rc = fe_engine_sample(engine, prefix.data(), prefix.size(), noise.data(), steps, method,
                                   action.data());
-  const char* solver = (method == 2) ? "rk4" : (method == 1) ? "heun" : "euler";
+  const char* solver = (method == FE_SOLVER_RK4)    ? "rk4"
+                       : (method == FE_SOLVER_HEUN) ? "heun"
+                                                    : "euler";
   if (rc == 0) {
     std::cout << "action_dim=" << a << "  solver=" << solver << "  NFE=" << steps
               << "  action[0..2]=" << action[0] << ", " << action[1 % a] << ", " << action[2 % a]
               << '\n';
   } else {
-    std::cerr << "sample failed rc=" << rc << '\n';
+    std::cerr << "sample failed: " << fe_engine_last_error() << " (rc=" << rc << ")\n";
   }
   fe_engine_free(engine);
   return rc;

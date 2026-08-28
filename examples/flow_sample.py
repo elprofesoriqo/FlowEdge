@@ -20,6 +20,9 @@ def main():
     model_path = sys.argv[1]
     method = sys.argv[2] if len(sys.argv) > 2 else "euler"
     steps = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+    if method not in {"euler", "heun", "rk4"}:
+        print("Error: solver must be euler, heun, or rk4")
+        sys.exit(1)
     
     try:
         e = flowedge.Engine(model_path)

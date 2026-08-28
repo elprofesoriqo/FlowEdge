@@ -23,6 +23,25 @@ namespace fe_md = std::experimental;
 namespace fe {
 namespace {
 
+[[nodiscard]] bool is_vector_f32(const TensorView* tensor, std::size_t size) noexcept
+{
+  return tensor != nullptr && tensor->ndim == 1uz && tensor->shape[0] == size && tensor->is_f32();
+}
+
+[[nodiscard]] bool is_matrix_weight(const TensorView* tensor, std::size_t rows,
+                                    std::size_t columns) noexcept
+{
+  return tensor != nullptr && tensor->ndim == 2uz && tensor->shape[0] == rows &&
+         tensor->shape[1] == columns && is_matmul_weight(tensor);
+}
+
+[[nodiscard]] bool is_conv_weight(const TensorView* tensor, std::size_t channels,
+                                  std::size_t kernel) noexcept
+{
+  return tensor != nullptr && tensor->ndim == 3uz && tensor->shape[0] == channels &&
+         tensor->shape[1] == 1uz && tensor->shape[2] == kernel && tensor->is_f32();
+}
+
 std::string_view layer_key(std::span<char> buf, std::size_t i, std::string_view sub) noexcept
 {
   TensorKeyBuilder key{buf};
@@ -31,11 +50,17 @@ std::string_view layer_key(std::span<char> buf, std::size_t i, std::string_view 
   return key.view();
 }
 
+const TensorView* layer_tensor(std::span<const TensorView> ts, std::size_t i,
+                               std::string_view sub) noexcept
+{
+  std::array<char, 96> buf{};
+  return find_tensor(ts, layer_key(buf, i, sub));
+}
+
 const float* layer_weight_f32(std::span<const TensorView> ts, std::size_t i, std::string_view sub,
                               bool& ok) noexcept
 {
-  std::array<char, 96> buf{};
-  const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
+  const TensorView* t = layer_tensor(ts, i, sub);
   ok = ok && (t != nullptr) && t->is_f32();
   return (t != nullptr) ? t->as_f32() : nullptr;
 }
@@ -43,8 +68,7 @@ const float* layer_weight_f32(std::span<const TensorView> ts, std::size_t i, std
 WeightView layer_weight(std::span<const TensorView> ts, std::size_t i, std::string_view sub,
                         bool& ok) noexcept
 {
-  std::array<char, 96> buf{};
-  const TensorView* t = find_tensor(ts, layer_key(buf, i, sub));
+  const TensorView* t = layer_tensor(ts, i, sub);
   ok = ok && is_matmul_weight(t);
   return weight_view(t);
 }
@@ -59,10 +83,8 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
   const TensorView* xp0 = find_tensor(weights, "backbone.layers.0.mixer.x_proj.weight");
   const TensorView* nf = find_tensor(weights, "backbone.norm_f.weight");
   if ((emb == nullptr) || (a0 == nullptr) || (cv0 == nullptr) || (xp0 == nullptr) ||
-      (nf == nullptr))
-    return;
-  if (!emb->is_f32() || !a0->is_f32() || !cv0->is_f32() || (!xp0->is_f32() && !xp0->is_bf16()) ||
-      !nf->is_f32())
+      (nf == nullptr) || emb->ndim != 2uz || a0->ndim != 2uz || cv0->ndim != 3uz ||
+      xp0->ndim != 2uz)
     return;
 
   cfg_.vocab = emb->shape[0];
@@ -70,14 +92,22 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
   cfg_.d_inner = a0->shape[0];
   cfg_.d_state = a0->shape[1];
   cfg_.d_conv = cv0->shape[2];
+  if (cfg_.vocab == 0uz || cfg_.d_model == 0uz || cfg_.d_inner == 0uz || cfg_.d_state == 0uz ||
+      cfg_.d_conv == 0uz || xp0->shape[0] < 2uz * cfg_.d_state)
+    return;
   cfg_.dt_rank = xp0->shape[0] - (2uz * cfg_.d_state);
+  if (cfg_.dt_rank == 0uz || !emb->is_f32() || !a0->is_f32() || !is_vector_f32(nf, cfg_.d_model) ||
+      !is_conv_weight(cv0, cfg_.d_inner, cfg_.d_conv) ||
+      !is_matrix_weight(xp0, cfg_.dt_rank + (2uz * cfg_.d_state), cfg_.d_inner))
+    return;
   emb_ = emb->as_f32();
   norm_f_ = nf->as_f32();
 
   std::size_t n{0uz};
   for (; n < kMaxLayers; ++n) {
     bool present{true};
-    layer_weight_f32(weights, n, "norm.weight", present);
+    const TensorView* norm = layer_tensor(weights, n, "norm.weight");
+    present = norm != nullptr;
     if (!present)
       break;
     Layer& lw = layers_[n];
@@ -92,7 +122,21 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
     lw.a_log = layer_weight_f32(weights, n, "mixer.A_log", lok);
     lw.d = layer_weight_f32(weights, n, "mixer.D", lok);
     lw.out_proj = layer_weight(weights, n, "mixer.out_proj.weight", lok);
-    if (!lok)
+    if (!lok || !is_vector_f32(layer_tensor(weights, n, "norm.weight"), cfg_.d_model) ||
+        !is_matrix_weight(layer_tensor(weights, n, "mixer.in_proj.weight"), 2uz * cfg_.d_inner,
+                          cfg_.d_model) ||
+        !is_conv_weight(layer_tensor(weights, n, "mixer.conv1d.weight"), cfg_.d_inner,
+                        cfg_.d_conv) ||
+        !is_vector_f32(layer_tensor(weights, n, "mixer.conv1d.bias"), cfg_.d_inner) ||
+        !is_matrix_weight(layer_tensor(weights, n, "mixer.x_proj.weight"),
+                          cfg_.dt_rank + (2uz * cfg_.d_state), cfg_.d_inner) ||
+        !is_matrix_weight(layer_tensor(weights, n, "mixer.dt_proj.weight"), cfg_.d_inner,
+                          cfg_.dt_rank) ||
+        !is_vector_f32(layer_tensor(weights, n, "mixer.dt_proj.bias"), cfg_.d_inner) ||
+        !is_matrix_weight(layer_tensor(weights, n, "mixer.A_log"), cfg_.d_inner, cfg_.d_state) ||
+        !is_vector_f32(layer_tensor(weights, n, "mixer.D"), cfg_.d_inner) ||
+        !is_matrix_weight(layer_tensor(weights, n, "mixer.out_proj.weight"), cfg_.d_model,
+                          cfg_.d_inner))
       return; // malformed layer
   }
   cfg_.n_layers = n;

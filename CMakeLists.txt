@@ -52,6 +52,7 @@ add_library(flowedge_engine STATIC
   ${KERNEL_SRC}
   src/arena/thread_pool.cc
   src/loader/safetensors.cc
+  src/runtime/engine_runtime.cc
   src/models/mamba/mamba.cc
   src/heads/flow/flow.cc
   src/api/engine.cc

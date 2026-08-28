@@ -341,3 +341,13 @@ TEST(FlowHead, RejectsOddTimeDim)
   const fe::FlowHead head{v, fx.arena};
   EXPECT_FALSE(head.valid());
 }
+
+TEST(FlowHead, RejectsIncompatibleProjectionShape)
+{
+  FlowFixture fx;
+  auto v = fx.views();
+  v[3] = FlowFixture::view("flow.out_proj.weight", fx.op_.data(), FlowFixture::kA - 1uz,
+                           FlowFixture::kH);
+  const fe::FlowHead head{v, fx.arena};
+  EXPECT_FALSE(head.valid());
+}

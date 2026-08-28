@@ -15,6 +15,13 @@
 namespace fe {
 namespace {
 
+[[nodiscard]] bool is_matrix(const TensorView* tensor, std::size_t rows,
+                             std::size_t columns) noexcept
+{
+  return tensor != nullptr && tensor->ndim == 2uz && tensor->shape[0] == rows &&
+         tensor->shape[1] == columns && is_matmul_weight(tensor);
+}
+
 std::string_view layer_key(std::span<char> buf, std::size_t layer) noexcept
 {
   TensorKeyBuilder key{buf};
@@ -39,8 +46,12 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
   cfg_.action_dim = in->shape[1];
   cfg_.time_dim = tp->shape[1];
   cfg_.cond_dim = cp->shape[1];
-  bool dtype_ok =
-      is_matmul_weight(in) && is_matmul_weight(tp) && is_matmul_weight(cp) && is_matmul_weight(op);
+  if (cfg_.hidden == 0uz || cfg_.action_dim == 0uz || cfg_.time_dim == 0uz ||
+      cfg_.cond_dim == 0uz || cfg_.time_dim % 2uz != 0uz ||
+      !is_matrix(in, cfg_.hidden, cfg_.action_dim) || !is_matrix(tp, cfg_.hidden, cfg_.time_dim) ||
+      !is_matrix(cp, cfg_.hidden, cfg_.cond_dim) || !is_matrix(op, cfg_.action_dim, cfg_.hidden))
+    return;
+
   in_proj_ = weight_view(in);
   time_proj_ = weight_view(tp);
   cond_proj_ = weight_view(cp);
@@ -52,12 +63,11 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
     const TensorView* lw = find_tensor(weights, layer_key(buf, n));
     if (lw == nullptr)
       break;
-    dtype_ok = dtype_ok && is_matmul_weight(lw);
+    if (!is_matrix(lw, cfg_.hidden, cfg_.hidden))
+      return;
     layers_[n] = weight_view(lw);
   }
   cfg_.mlp_layers = n;
-  if (!dtype_ok || cfg_.time_dim % 2uz != 0uz) // sinusoidal embed needs sin/cos pairs
-    return;
 
   const std::size_t half = cfg_.time_dim / 2uz; // sinusoidal freqs are constant
   auto* const f = scratch.alloc_array<float, kSimdAlign>(half);

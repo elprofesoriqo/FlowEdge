@@ -25,7 +25,7 @@ public:
   explicit Engine(const std::string& path) : engine_{fe_engine_load(path.c_str())}
   {
     if (engine_ == nullptr)
-      throw std::runtime_error("FlowEdge: cannot load " + path);
+      throw std::runtime_error("FlowEdge: cannot load " + path + ": " + fe_engine_last_error());
   }
   Engine(const Engine&) = delete;
   Engine& operator=(const Engine&) = delete;
@@ -47,7 +47,7 @@ public:
     const std::size_t dm = d_model();
     py::array_t<float> out({static_cast<std::size_t>(tokens.size()), dm});
     if (fe_engine_run(engine_, tokens.data(), tokens.size(), out.mutable_data()) != 0)
-      throw std::runtime_error("fe_engine_run failed");
+      throw std::runtime_error(fe_engine_last_error());
     return out;
   }
 
@@ -63,11 +63,16 @@ public:
       throw std::runtime_error("checkpoint has no flow head");
     if (static_cast<std::size_t>(noise.size()) != a)
       throw std::runtime_error("noise length must equal action_dim");
-    const int m = (method == "rk4") ? 2 : (method == "heun") ? 1 : 0;
+    const int m = (method == "euler")  ? FE_SOLVER_EULER
+                  : (method == "heun") ? FE_SOLVER_HEUN
+                  : (method == "rk4")  ? FE_SOLVER_RK4
+                                       : -1;
+    if (m < 0)
+      throw std::runtime_error("method must be one of: euler, heun, rk4");
     py::array_t<float> action(a);
     if (fe_engine_sample(engine_, prefix.data(), prefix.size(), noise.data(), steps, m,
                          action.mutable_data()) != 0)
-      throw std::runtime_error("fe_engine_sample failed");
+      throw std::runtime_error(fe_engine_last_error());
     return action;
   }
 
