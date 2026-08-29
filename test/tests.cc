@@ -3,14 +3,18 @@
 #include "heads/flow/flow.h"
 #include "kernels/kernels.h"
 #include "loader/safetensors.h"
+#include "models/mamba/mamba.h"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <gtest/gtest.h>
+#include <initializer_list>
 #include <span>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -73,6 +77,24 @@ TEST(ThreadPool, ParallelForCompletesAllSlices)
 
   for (std::size_t i{0uz}; i < counts.size(); ++i)
     EXPECT_EQ(counts[i], i + 1uz);
+}
+
+TEST(ThreadPool, WakesAfterIdlePark)
+{
+  using namespace std::chrono_literals;
+  std::vector<fe::Task> ring(8uz);
+  std::vector<std::size_t> sequence(8uz);
+  std::vector<std::jthread> workers(2uz);
+  fe::ThreadPool pool{ring, sequence, workers, 2u};
+  std::this_thread::sleep_for(10ms);
+
+  std::array<std::size_t, 32uz> values{};
+  fe::parallel_for(pool, values.size(), [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t i{lo}; i < hi; ++i)
+      values[i] = 3uz * i;
+  });
+  for (std::size_t i{0uz}; i < values.size(); ++i)
+    EXPECT_EQ(values[i], 3uz * i);
 }
 
 TEST(Silu, MatchesReference)
@@ -144,11 +166,14 @@ TEST(DiscretizeAndScan, MatchesNaiveRecurrence)
   const std::vector<float> u = seq(l * di, 0.25F, 0.9F);
   const std::vector<float> cp = seq(l * ds, 0.35F, 0.15F);
   const std::vector<float> d = seq(di, 0.15F, 0.2F);
+  std::vector<float> a_neg(ds * di);
+  for (std::size_t nn{0uz}; nn < ds; ++nn)
+    for (std::size_t c{0uz}; c < di; ++c)
+      a_neg[(nn * di) + c] = -std::exp(a_log[(c * ds) + nn]);
   std::vector<float> h(ds * di);
   std::vector<float> y(l * di);
-  std::vector<float> a_work(ds * di);
 
-  fe::discretize_and_scan(delta, a_log, b, u, cp, d, h, y, a_work, l, di, ds);
+  fe::discretize_and_scan(delta, a_neg, b, u, cp, d, h, y, l, di, ds, true);
 
   std::vector<float> hr(ds * di, 0.0F);
   std::vector<float> yr(l * di);
@@ -166,6 +191,29 @@ TEST(DiscretizeAndScan, MatchesNaiveRecurrence)
   }
   for (std::size_t i{0uz}; i < l * di; ++i)
     EXPECT_NEAR(y[i], yr[i], kTol);
+}
+
+TEST(DiscretizeAndScan, PreservesStreamingState)
+{
+  constexpr std::size_t di{3uz};
+  constexpr std::size_t ds{2uz};
+  const std::vector<float> delta{0.2F, 0.3F, 0.4F};
+  const std::vector<float> a_neg{-1.0F, -2.0F, -3.0F, -0.5F, -1.5F, -2.5F};
+  const std::vector<float> b{0.7F, -0.2F};
+  const std::vector<float> u{0.4F, -0.6F, 0.8F};
+  const std::vector<float> cp{0.9F, 0.25F};
+  const std::vector<float> d{0.1F, 0.2F, 0.3F};
+  std::vector<float> h(ds * di);
+  std::vector<float> first(di), second(di);
+
+  fe::discretize_and_scan(delta, a_neg, b, u, cp, d, h, first, 1uz, di, ds, true);
+  const std::vector<float> state_after_first = h;
+  fe::discretize_and_scan(delta, a_neg, b, u, cp, d, h, second, 1uz, di, ds, false);
+
+  for (std::size_t i{0uz}; i < h.size(); ++i)
+    EXPECT_NE(h[i], state_after_first[i]);
+  for (std::size_t c{0uz}; c < di; ++c)
+    EXPECT_NE(second[c], first[c]);
 }
 
 namespace {
@@ -250,7 +298,107 @@ struct FlowF32Fixture
   }
 };
 
+struct MambaFixture
+{
+  static constexpr std::size_t kDm = 4uz, kDi = 4uz, kDs = 2uz, kDc = 3uz, kDr = 1uz, kVocab = 8uz;
+  std::vector<float> embeddings = seq(kVocab * kDm, 0.07F, 0.1F);
+  std::vector<float> norm_f = std::vector<float>(kDm, 1.0F);
+  std::vector<float> norm = std::vector<float>(kDm, 1.0F);
+  std::vector<float> in_proj = seq(2uz * kDi * kDm, 0.03F, 0.1F);
+  std::vector<float> conv_w = seq(kDi * kDc, 0.04F, 0.2F);
+  std::vector<float> conv_b = seq(kDi, 0.02F, 0.0F);
+  std::vector<float> x_proj = seq((kDr + (2uz * kDs)) * kDi, 0.02F, 0.3F);
+  std::vector<float> dt_w = seq(kDi * kDr, 0.015F, 0.4F);
+  std::vector<float> dt_b = std::vector<float>(kDi, 0.1F);
+  std::vector<float> a_log = seq(kDi * kDs, 0.025F, -0.2F);
+  std::vector<float> d = std::vector<float>(kDi, 0.2F);
+  std::vector<float> out_proj = seq(kDm * kDi, 0.02F, 0.5F);
+  std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
+  fe::Arena arena{std::span<std::byte>{slab}};
+
+  static fe::TensorView view(const char* name, float* data,
+                             std::initializer_list<std::size_t> shape)
+  {
+    fe::TensorView v{};
+    v.data = data;
+    v.dtype = fe::TensorView::Dtype::F32;
+    v.ndim = shape.size();
+    std::size_t axis{0uz};
+    for (const std::size_t extent : shape)
+      v.shape[axis++] = extent;
+    std::size_t j{0uz};
+    for (const char* p = name; (*p != '\0') && (j + 1uz < v.name.size()); ++p)
+      v.name[j++] = *p;
+    return v;
+  }
+
+  std::vector<fe::TensorView> views()
+  {
+    return {
+        view("backbone.embeddings.weight", embeddings.data(), {kVocab, kDm}),
+        view("backbone.norm_f.weight", norm_f.data(), {kDm}),
+        view("backbone.layers.0.norm.weight", norm.data(), {kDm}),
+        view("backbone.layers.0.mixer.in_proj.weight", in_proj.data(), {2uz * kDi, kDm}),
+        view("backbone.layers.0.mixer.conv1d.weight", conv_w.data(), {kDi, 1uz, kDc}),
+        view("backbone.layers.0.mixer.conv1d.bias", conv_b.data(), {kDi}),
+        view("backbone.layers.0.mixer.x_proj.weight", x_proj.data(), {kDr + (2uz * kDs), kDi}),
+        view("backbone.layers.0.mixer.dt_proj.weight", dt_w.data(), {kDi, kDr}),
+        view("backbone.layers.0.mixer.dt_proj.bias", dt_b.data(), {kDi}),
+        view("backbone.layers.0.mixer.A_log", a_log.data(), {kDi, kDs}),
+        view("backbone.layers.0.mixer.D", d.data(), {kDi}),
+        view("backbone.layers.0.mixer.out_proj.weight", out_proj.data(), {kDm, kDi}),
+    };
+  }
+};
+
 } // namespace
+
+TEST(Mamba, StreamingStateCanBeSnapshottedAndRestored)
+{
+  MambaFixture fx;
+  fe::Mamba model{fx.views(), fx.arena};
+  ASSERT_TRUE(model.valid());
+  std::vector<float> state(model.state_size(), 0.0F);
+  const std::vector<float> first = seq(MambaFixture::kDm, 0.2F, 0.1F);
+  const std::vector<float> second = seq(MambaFixture::kDm, 0.3F, -0.2F);
+  std::vector<float> ignored(MambaFixture::kDm), branch_a(MambaFixture::kDm),
+      branch_b(MambaFixture::kDm), fresh_out(MambaFixture::kDm);
+
+  model.decode(first, state, ignored);
+  const std::vector<float> snapshot = state;
+  model.decode(second, state, branch_a);
+  state = snapshot;
+  model.decode(second, state, branch_b);
+
+  for (std::size_t i{0uz}; i < branch_a.size(); ++i)
+    EXPECT_EQ(branch_a[i], branch_b[i]);
+
+  std::vector<float> fresh_state(model.state_size(), 0.0F);
+  model.decode(second, fresh_state, fresh_out);
+  float continuation_delta{0.0F};
+  for (std::size_t i{0uz}; i < branch_a.size(); ++i)
+    continuation_delta += std::fabs(branch_a[i] - fresh_out[i]);
+  EXPECT_GT(continuation_delta, 0.0F);
+}
+
+TEST(Mamba, StreamingMatchesBatchForward)
+{
+  MambaFixture fx;
+  fe::Mamba model{fx.views(), fx.arena};
+  ASSERT_TRUE(model.valid());
+  constexpr std::size_t kLength{4uz};
+  const std::vector<float> input = seq(kLength * MambaFixture::kDm, 0.17F, -0.3F);
+  std::vector<float> batch(input.size()), streamed(input.size());
+  std::vector<float> state(model.state_size(), 0.0F);
+
+  model.forward(input, batch, kLength);
+  for (std::size_t t{0uz}; t < kLength; ++t)
+    model.decode({input.data() + (t * MambaFixture::kDm), MambaFixture::kDm}, state,
+                 {streamed.data() + (t * MambaFixture::kDm), MambaFixture::kDm});
+
+  for (std::size_t i{0uz}; i < batch.size(); ++i)
+    EXPECT_NEAR(streamed[i], batch[i], 3.0e-6F);
+}
 
 TEST(FlowHead, DeterministicAndFinite)
 {
@@ -279,6 +427,42 @@ TEST(FlowHead, AcceptsF32Weights)
   head.sample(cond, x0, 2uz, fe::FlowHead::kEuler, out);
   for (float v : out)
     EXPECT_TRUE(std::isfinite(v));
+}
+
+TEST(FlowHead, ResumableSamplerMatchesMonolithicResult)
+{
+  FlowFixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> cond = seq(FlowFixture::kC, 0.1F, 0.0F);
+  const std::vector<float> x0 = seq(FlowFixture::kA, 0.3F, 0.2F);
+  std::vector<float> reference(FlowFixture::kA), resumed(FlowFixture::kA);
+  head.sample(cond, x0, 10uz, fe::FlowHead::kHeun, reference);
+
+  std::vector<float> workspace(head.sampler_workspace_size());
+  fe::FlowHead::SamplerState state{};
+  ASSERT_TRUE(head.sampler_begin(cond, x0, 10uz, fe::FlowHead::kHeun, workspace, state));
+  EXPECT_EQ(head.sampler_advance(state, 3uz, resumed), 3uz);
+  EXPECT_EQ(state.remaining(), 7uz);
+  EXPECT_EQ(head.sampler_advance(state, 4uz, resumed), 4uz);
+  EXPECT_EQ(state.remaining(), 3uz);
+  EXPECT_EQ(head.sampler_advance(state, 99uz, resumed), 3uz);
+  EXPECT_EQ(state.remaining(), 0uz);
+
+  for (std::size_t i{0uz}; i < resumed.size(); ++i)
+    EXPECT_EQ(resumed[i], reference[i]);
+}
+
+TEST(FlowHead, ResumableSamplerRejectsSmallWorkspace)
+{
+  FlowFixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> cond(FlowFixture::kC);
+  const std::vector<float> x0(FlowFixture::kA);
+  std::vector<float> workspace(head.sampler_workspace_size() - 1uz);
+  fe::FlowHead::SamplerState state{};
+  EXPECT_FALSE(head.sampler_begin(cond, x0, 2uz, fe::FlowHead::kEuler, workspace, state));
 }
 
 TEST(FlowHead, EulerDiffersFromHeun)

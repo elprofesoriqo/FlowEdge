@@ -30,10 +30,34 @@ public:
     kRK4 = 2
   };
 
+  struct SamplerState
+  {
+    std::span<float> condition_embedding{};
+    std::span<float> x{};
+    std::span<float> k1{};
+    std::span<float> k2{};
+    std::span<float> k3{};
+    std::span<float> k4{};
+    std::span<float> probe{};
+    std::size_t steps{};
+    std::size_t next_step{};
+    Method method{kEuler};
+    bool active{false};
+
+    [[nodiscard]] std::size_t remaining() const noexcept
+    {
+      return active && next_step < steps ? steps - next_step : 0uz;
+    }
+  };
+
   FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const FlowConfig& config() const noexcept { return cfg_; }
+  [[nodiscard]] std::size_t sampler_workspace_size() const noexcept
+  {
+    return cfg_.hidden + (6uz * cfg_.action_dim);
+  }
 
   void set_pool(ThreadPool* p) noexcept { pool_ = p; }
 
@@ -42,6 +66,15 @@ public:
   // out: action [action_dim]
   void sample(std::span<const float> cond, std::span<const float> x0, std::size_t steps,
               Method method, std::span<float> out) noexcept;
+
+  // Start and cooperatively advance a solver without allocating. The caller
+  // owns `workspace` for the entire session and may execute a bounded number
+  // of complete solver steps per control-loop tick.
+  [[nodiscard]] bool sampler_begin(std::span<const float> cond, std::span<const float> x0,
+                                   std::size_t steps, Method method, std::span<float> workspace,
+                                   SamplerState& state) noexcept;
+  [[nodiscard]] std::size_t sampler_advance(SamplerState& state, std::size_t step_budget,
+                                            std::span<float> out) noexcept;
 
 private:
   // v[action_dim] = velocity(x[action_dim], t, c_emb[hidden])

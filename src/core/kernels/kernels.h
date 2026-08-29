@@ -40,14 +40,15 @@ FE_FORCE_ALIGN void conv1d_step(std::span<const float> window, std::span<const f
                                 std::span<const float> bias, std::span<float> y,
                                 std::size_t channels, std::size_t kernel) noexcept;
 
-// fused discretize and scan
-FE_FORCE_ALIGN void discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
+// Fused selective scan. `a_neg` is the load-time-transformed
+// A[n,c] = -exp(A_log[c,n]); `reset_state` distinguishes a prefill from a
+// streaming continuation.
+FE_FORCE_ALIGN void discretize_and_scan(std::span<const float> delta, std::span<const float> a_neg,
                                         std::span<const float> b, std::span<const float> u,
                                         std::span<const float> c_proj,
                                         std::span<const float> d_skip, std::span<float> h,
-                                        std::span<float> y, std::span<float> a_work,
-                                        std::size_t length, std::size_t d_inner,
-                                        std::size_t d_state) noexcept;
+                                        std::span<float> y, std::size_t length, std::size_t d_inner,
+                                        std::size_t d_state, bool reset_state) noexcept;
 
 FE_FORCE_ALIGN void matmul(std::span<const float> in, std::span<const float> w,
                            std::span<float> out, std::size_t rows, std::size_t in_dim,

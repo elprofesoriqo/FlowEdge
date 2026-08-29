@@ -19,7 +19,7 @@ case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin
 
 "$ROOT/scripts/build.sh" Release -DFLOWEDGE_BENCH=ON -DFLOWEDGE_TESTS=OFF
 
-PY="$(command -v py || command -v python3 || command -v python)"
+PY="${PYTHON:-$(command -v python3 || command -v python || command -v py)}"
 
 exe_l="$BENCH/flowedge_latency_bench"
 exe_k="$BENCH/flowedge_kernels_bench"

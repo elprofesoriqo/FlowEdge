@@ -37,3 +37,14 @@ test checks the real kernel against a second implementation. Covered: `matmul`,
 `conv1d_step`.
 
 Add a reference and a test for every new kernel and head.
+
+## External-head and streaming smoke test
+
+`scripts/verify_external_head.py` generates two small checkpoints without downloading model data.
+One contains only a flow head and verifies direct conditions plus bit-identical resumable solving.
+The other verifies Mamba batch/streaming parity and decode-state branch restoration through the
+Python extension.
+
+```bash
+python scripts/verify_external_head.py build
+```

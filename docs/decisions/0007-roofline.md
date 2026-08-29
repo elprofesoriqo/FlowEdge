@@ -1,6 +1,6 @@
 # ADR 0007: Optimize weight traffic, not the scan
 
-Status: Accepted. Scope: `src/kernels/`, roadmap.
+Status: Accepted. Scope: `src/core/kernels/`, roadmap.
 
 ## Context
 

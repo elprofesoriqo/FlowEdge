@@ -71,12 +71,14 @@ jobs:
           import numpy as np, flowedge
           a = flowedge.Engine("models/mamba_flow.safetensors")
           b = flowedge.Engine("models/converted.safetensors")
+          tokens = np.array([1, 2, 3, 4], dtype=np.int32)
           noise = np.zeros(a.action_dim, dtype="float32")
-          xa = a.sample([1, 2, 3, 4], noise, 10, "euler")
-          xb = b.sample([1, 2, 3, 4], noise, 10, "euler")
+          xa = a.sample(tokens, noise, 10, "euler")
+          xb = b.sample(tokens, noise, 10, "euler")
           assert np.allclose(xa, xb, atol=1e-6), (xa, xb)
           print("convert round-trip OK", xa[:3])
           PY
+          python scripts/verify_external_head.py
         env:
           PYTHONPATH: build
 

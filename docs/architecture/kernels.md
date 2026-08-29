@@ -18,6 +18,8 @@ cmake -B build -DFLOWEDGE_BACKEND=cpu
 ```
 
 `cpu` selects AVX2, NEON, or scalar code for the host. `avx512` is an explicit x86 build option.
+`scalar` explicitly selects the portable implementation for compatibility builds, differential
+testing, sanitizers, and CPUs where an AVX2 deployment baseline is unsuitable.
 CUDA, Metal, Vulkan, and Tenstorrent files are placeholders for future ports and are rejected by
 CMake until they implement the complete kernel interface.
 
@@ -61,9 +63,11 @@ The scan stores its state in a $[t][n][c]$ layout so that the inner loop over ch
 ## Threading
 
 To saturate memory bandwidth, large matrix multiplications dispatch concurrently
-across an SPMC lock-free thread pool. Workers actively spin (`_mm_pause` /
-`yield`) rather than sleep to eliminate context-switch latency, and are pinned to
-CPU cores where the platform allows it. The task ring and worker storage are
+across an SPMC lock-free thread pool. Workers spin briefly (`_mm_pause` / `yield`)
+to absorb gaps inside a forward pass, then park with C++ `atomic::wait`. Enqueue
+increments a work epoch and wakes a worker, avoiding both a lost-wakeup race and
+permanently burning CPU between inference requests. Threads are pinned to CPU
+cores where the platform allows it. The task ring and worker storage are
 arena-carved, power-of-two sized, and isolated on destructive-interference
 boundaries.
 

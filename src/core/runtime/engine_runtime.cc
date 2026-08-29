@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <ranges>
 #include <thread>
@@ -11,7 +12,7 @@
 namespace fe {
 namespace {
 
-constexpr std::size_t kMaxDecodeSeq = 512uz; // scratch is sized for prefills up to this length
+constexpr std::size_t k_max_decode_seq = 512uz; // scratch is sized for prefills up to this length
 
 } // namespace
 
@@ -24,22 +25,31 @@ std::size_t EngineRuntime::required_slab_bytes(std::string_view path) noexcept
   const auto emb = safetensors_tensor_shape(path, "backbone.embeddings.weight");
   const auto a_log = safetensors_tensor_shape(path, "backbone.layers.0.mixer.A_log");
   const auto conv = safetensors_tensor_shape(path, "backbone.layers.0.mixer.conv1d.weight");
+  const auto flow_in = safetensors_tensor_shape(path, "flow.in_proj.weight");
   const auto time_proj = safetensors_tensor_shape(path, "flow.time_proj.weight");
   const std::size_t d_model = emb[1];
   const std::size_t d_inner = a_log[0];
   const std::size_t d_state = a_log[1];
   const std::size_t d_conv = conv[2];
+  const std::size_t flow_hidden = flow_in[0];
+  const std::size_t action_dim = flow_in[1];
   const std::size_t flow_time_dim = time_proj[1];
-  if (d_model == 0uz || d_inner == 0uz || d_state == 0uz || d_conv == 0uz)
+  const bool has_backbone = d_model != 0uz && d_inner != 0uz && d_state != 0uz && d_conv != 0uz;
+  const bool has_flow = flow_hidden != 0uz && action_dim != 0uz && flow_time_dim != 0uz;
+  if (!has_backbone && !has_flow)
     return 0uz;
 
-  const std::size_t per_token = (3uz * d_state * d_inner) + (16uz * d_inner) + (8uz * d_model);
-  const std::size_t persistent_state = 64uz * d_inner * (d_conv + d_state) * sizeof(float);
+  const std::size_t per_token =
+      has_backbone ? (3uz * d_state * d_inner) + (16uz * d_inner) + (8uz * d_model) : 0uz;
+  const std::size_t persistent_state =
+      has_backbone ? 64uz * d_inner * (d_conv + (2uz * d_state)) * sizeof(float) : 0uz;
+  const std::size_t flow_floats =
+      has_flow ? (3uz * flow_hidden) + (6uz * action_dim) + ((3uz * flow_time_dim) / 2uz) : 0uz;
   const std::size_t runtime = (kThreadRingSlots * sizeof(Task)) +
                               (kThreadRingSlots * sizeof(std::size_t)) +
                               (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
-                              (flow_time_dim / 2uz * sizeof(float)) + persistent_state + 4096uz;
-  return weights + (kMaxDecodeSeq * per_token * sizeof(float)) + runtime;
+                              (flow_floats * sizeof(float)) + persistent_state + 4096uz;
+  return weights + (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
 EngineRuntime::EngineRuntime(std::string_view path, std::size_t slab_bytes, const char*& error)
@@ -71,6 +81,10 @@ EngineRuntime::EngineRuntime(std::string_view path, std::size_t slab_bytes, cons
   if (model_.valid())
     if (auto* const state = arena_.alloc_array<float, kSimdAlign>(model_.state_size()))
       decode_state_ = {state, model_.state_size()};
+  if (flow_.valid())
+    if (auto* const workspace =
+            arena_.alloc_array<float, kSimdAlign>(flow_.sampler_workspace_size()))
+      flow_workspace_ = {workspace, flow_.sampler_workspace_size()};
 }
 
 EngineRuntime::~EngineRuntime()
@@ -83,7 +97,7 @@ EngineRuntime::~EngineRuntime()
 
 bool EngineRuntime::has_compatible_flow_head() const noexcept
 {
-  return !flow_.valid() || flow_.config().cond_dim == model_.config().d_model;
+  return !flow_.valid() || !model_.valid() || flow_.config().cond_dim == model_.config().d_model;
 }
 
 unsigned EngineRuntime::thread_count() const noexcept
@@ -94,6 +108,11 @@ unsigned EngineRuntime::thread_count() const noexcept
 std::size_t EngineRuntime::action_dim() const noexcept
 {
   return flow_.valid() ? flow_.config().action_dim : 0uz;
+}
+
+std::size_t EngineRuntime::condition_dim() const noexcept
+{
+  return flow_.valid() ? flow_.config().cond_dim : 0uz;
 }
 
 int EngineRuntime::run(const std::int32_t* tokens, std::size_t seq_len, float* out,
@@ -143,6 +162,18 @@ int EngineRuntime::sample(const std::int32_t* tokens, std::size_t seq_len, const
     error = "Model has no flow head to sample from";
     return 4;
   }
+  if (!model_.valid()) {
+    error = "Model has no backbone for token-conditioned sampling";
+    return 4;
+  }
+  if (!has_compatible_flow_head()) {
+    error = "Flow conditioning dimension does not match the backbone";
+    return 4;
+  }
+  if (seq_len == 0uz || seq_len > k_max_decode_seq) {
+    error = "Token sequence exceeds the configured prefill limit";
+    return 1;
+  }
 
   std::byte* const mark = arena_.mark();
   const MambaConfig& c = model_.config();
@@ -157,10 +188,92 @@ int EngineRuntime::sample(const std::int32_t* tokens, std::size_t seq_len, const
     return rc;
   }
 
-  const std::size_t action_size = flow_.config().action_dim;
   const std::span<const float> cond{hidden + ((seq_len - 1uz) * c.d_model), c.d_model};
-  flow_.sample(cond, {noise, action_size}, steps, method, {action, action_size});
+  int sample_rc = flow_begin(cond.data(), noise, steps, method, error);
+  if (sample_rc == 0) {
+    std::size_t remaining{steps};
+    sample_rc = flow_advance(steps, action, remaining, error);
+  }
   arena_.reset_to(mark);
+  return sample_rc;
+}
+
+int EngineRuntime::sample_condition(const float* condition, const float* noise, std::size_t steps,
+                                    FlowHead::Method method, float* action,
+                                    const char*& error) noexcept
+{
+  if (!flow_.valid()) {
+    error = "Model has no flow head to sample from";
+    return 4;
+  }
+  const int rc = flow_begin(condition, noise, steps, method, error);
+  if (rc != 0)
+    return rc;
+  std::size_t remaining{steps};
+  return flow_advance(steps, action, remaining, error);
+}
+
+int EngineRuntime::flow_begin(const float* condition, const float* noise, std::size_t steps,
+                              FlowHead::Method method, const char*& error) noexcept
+{
+  if (!flow_.valid()) {
+    error = "Model has no flow head to sample from";
+    return 4;
+  }
+  if (flow_workspace_.empty()) [[unlikely]] {
+    error = "Flow sampler workspace is unavailable";
+    return 2;
+  }
+  if (!flow_.sampler_begin({condition, flow_.config().cond_dim}, {noise, flow_.config().action_dim},
+                           steps, method, flow_workspace_, flow_state_)) [[unlikely]] {
+    error = "Failed to initialize resumable flow sampler";
+    return 2;
+  }
+  return 0;
+}
+
+int EngineRuntime::flow_advance(std::size_t step_budget, float* action,
+                                std::size_t& steps_remaining, const char*& error) noexcept
+{
+  if (!flow_state_.active) {
+    error = "No resumable flow sample is active";
+    return 6;
+  }
+  static_cast<void>(
+      flow_.sampler_advance(flow_state_, step_budget, {action, flow_.config().action_dim}));
+  steps_remaining = flow_state_.remaining();
+  return 0;
+}
+
+int EngineRuntime::export_decode_state(std::span<std::byte> destination,
+                                       const char*& error) const noexcept
+{
+  const std::span<const std::byte> state = std::as_bytes(decode_state_);
+  if (state.empty()) {
+    error = "Model has no streaming decode state";
+    return 7;
+  }
+  if (destination.size() < state.size()) {
+    error = "Decode state destination is too small";
+    return 1;
+  }
+  std::ranges::copy(state, destination.begin());
+  return 0;
+}
+
+int EngineRuntime::import_decode_state(std::span<const std::byte> source,
+                                       const char*& error) noexcept
+{
+  const std::span<std::byte> state = std::as_writable_bytes(decode_state_);
+  if (state.empty()) {
+    error = "Model has no streaming decode state";
+    return 7;
+  }
+  if (source.size() != state.size()) {
+    error = "Decode state snapshot has the wrong size";
+    return 1;
+  }
+  std::ranges::copy(source, state.begin());
   return 0;
 }
 
@@ -178,7 +291,16 @@ std::size_t EngineRuntime::load_views(std::string_view path, const char*& error)
 int EngineRuntime::run_backbone(const std::int32_t* tokens, std::size_t seq_len, float* hidden,
                                 const char*& error) noexcept
 {
+  if (!model_.valid()) {
+    error = "Model has no backbone";
+    return 4;
+  }
   const MambaConfig& c = model_.config();
+  if (seq_len == 0uz || seq_len > k_max_decode_seq ||
+      seq_len > (std::numeric_limits<std::size_t>::max() / c.d_model)) {
+    error = "Token sequence length is outside the configured prefill limit";
+    return 1;
+  }
   const std::size_t hidden_size = seq_len * c.d_model;
   auto* const input = arena_.alloc_array<float, kSimdAlign>(hidden_size);
   if (input == nullptr) {

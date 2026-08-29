@@ -3,6 +3,7 @@
 #include <bit>
 #include <cassert>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <span>
 #include <type_traits>
@@ -38,6 +39,8 @@ public:
     requires std::is_trivially_copyable_v<T>
   [[nodiscard]] T* alloc_array(std::size_t count) noexcept
   {
+    if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) [[unlikely]]
+      return nullptr;
     return static_cast<T*>(alloc<align>(count * sizeof(T)));
   }
 
@@ -45,7 +48,8 @@ public:
     requires std::is_trivially_copyable_v<T>
   [[nodiscard]] std::span<T> alloc_span(std::size_t count) noexcept
   {
-    return {alloc_array<T, align>(count), count};
+    T* const data = alloc_array<T, align>(count);
+    return data != nullptr ? std::span<T>{data, count} : std::span<T>{};
   }
 
   [[nodiscard]] std::byte* mark() const noexcept { return cursor_; }

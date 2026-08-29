@@ -22,6 +22,10 @@ FlowEdge is a custom C++ inference engine designed to execute flow-matching acti
 
 It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused on edge robotics with hard real-time latency constraints and zero dynamic allocations.
 
+The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
+`FlowEdge::Core`. A future optional Relay systems layer will live in `src/relay/` and depend on Core;
+Core will not depend on transport, telemetry, ROS, or daemon libraries.
+
 ## How FlowEdge compares
 
 - **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge is significantly faster for small control models due to zero interpreter overhead and static memory graphs (see the Performance section).
@@ -80,6 +84,8 @@ FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench
 ```
 
 On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
+
+Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>
 
 ## Architectures & Heads
@@ -119,3 +125,5 @@ On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/b
 |---|---|---|
 | Engine forward | [`bench/engine_bench.cc`](bench/engine_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`bench`) |
 | Flow action latency | [`bench/latency_bench.cc`](bench/latency_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`latency`) |
+
+These numbers use the included two-layer smoke checkpoint on one host; use `scripts/bench.sh` and `scripts/ab_bench.sh` on the same idle machine for deployment decisions.

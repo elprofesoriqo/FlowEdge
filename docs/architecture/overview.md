@@ -21,12 +21,16 @@ graph TD
 
 - Arena. Fixed bump allocator. Holds all weights and scratch. No malloc on the hot path.
 - Loader. Zero-dependency safetensors mmap. Reads F32 and BF16.
-- Runtime. `src/runtime/engine_runtime.*` owns arena-carved persistent state, model assembly, and
-  the SPMC thread pool. The C ABI remains a narrow adapter in `src/api/`.
+- Runtime. `src/core/runtime/engine_runtime.*` owns arena-carved persistent state, model assembly,
+  and the SPMC thread pool. The C ABI remains a narrow adapter in `src/core/api/`.
 - Kernels. One backend-agnostic interface. CPU today. CUDA and Tenstorrent-shaped backends behind the same calls.
 - Backbone. Compresses the prefix into a conditioning vector. Mamba today.
 - Head. Turns the vector into an action. Flow matching today.
 - API. The only public surface. A C-ABI over an opaque handle.
+
+The head is also a first-class entry point. An external encoder can supply the conditioning vector
+directly, and a checkpoint can contain only head tensors. This preserves the small runtime while
+allowing FlowEdge to sit inside a heterogeneous ML stack.
 
 ## The matrix
 
@@ -59,6 +63,10 @@ sequenceDiagram
   H-->>E: action chunk
   E-->>U: action
 ```
+
+For deadline-aware execution, the caller may replace the final head call with
+`flow_begin(condition, noise)` followed by bounded `flow_advance(step_budget)` calls. See
+[Cooperative execution](cooperative-execution).
 
 ## Why this way
 

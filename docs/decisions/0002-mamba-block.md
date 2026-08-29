@@ -1,6 +1,6 @@
 # ADR 0002: Mamba block and zero-alloc forward
 
-Status: Accepted. Scope: `src/models/mamba/`.
+Status: Accepted. Scope: `src/core/models/mamba/`.
 
 ## Context
 

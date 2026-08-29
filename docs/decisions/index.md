@@ -15,4 +15,5 @@ A pull request that makes an architectural choice adds an ADR.
 0007-roofline
 0008-threading
 0009-bf16-weights
+0010-cooperative-execution
 ```

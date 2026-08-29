@@ -13,70 +13,18 @@ option(FLOWEDGE_TESTS "Build the GoogleTest suite (dev/CI-only)" OFF)
 option(FLOWEDGE_BENCH "Build the Google Benchmark microbenchmarks (dev-only)" OFF)
 option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF)
 
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
-  add_compile_options(-mavx2 -mfma -fno-math-errno)
-endif()
+# Core compute kernels. CPU auto-selects the host ISA; scalar is also explicit
+# for compatibility testing and targets where deploying AVX2 is undesirable.
+set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu, avx512, or scalar")
+set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512 scalar)
 
-if(MSVC)
-  add_compile_options(/D__restrict__=__restrict)
-endif()
-
-# Compute kernels. CPU is the only production backend; AVX-512 is an explicit CPU variant.
-set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu or avx512")
-set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512)
-
-if(FLOWEDGE_BACKEND STREQUAL "cpu")
-  set(KERNEL_SRC "")
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
-    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc)
-  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64|ARM64")
-    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_neon.cc)
-  else()
-    list(APPEND KERNEL_SRC src/kernels/cpu/kernels_scalar.cc)
-  endif()
-elseif(FLOWEDGE_BACKEND STREQUAL "avx512")
-  set(KERNEL_SRC src/kernels/cpu/kernels_avx512.cc)
-  add_compile_options(-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512bf16 -mfma -fno-math-errno)
-else()
-  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' is not implemented; use cpu or avx512")
-endif()
-
-# ENGINE
-add_library(flowedge_engine STATIC
-  ${KERNEL_SRC}
-  src/arena/thread_pool.cc
-  src/loader/safetensors.cc
-  src/runtime/engine_runtime.cc
-  src/models/mamba/mamba.cc
-  src/heads/flow/flow.cc
-  src/api/engine.cc
-)
-set_target_properties(flowedge_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-include(CheckIncludeFileCXX)
-check_include_file_cxx(mdspan HAS_MDSPAN)
-if(NOT HAS_MDSPAN)
-  include(FetchContent)
-  FetchContent_Declare(
-    mdspan
-    GIT_REPOSITORY https://github.com/kokkos/mdspan.git
-    GIT_TAG mdspan-0.6.0
-    GIT_SHALLOW TRUE
-  )
-  FetchContent_MakeAvailable(mdspan)
-  target_link_libraries(flowedge_engine PUBLIC std::mdspan)
-endif()
-target_link_libraries(flowedge_engine PUBLIC Threads::Threads)
-
-target_include_directories(flowedge_engine PUBLIC 
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> 
-  $<INSTALL_INTERFACE:include>
-)
+# CORE
+add_subdirectory(src/core)
 
 # EXAMPLES
-foreach(ex flow_sample mamba_forward)
+foreach(ex flow_sample mamba_forward external_flow_sample)
   add_executable(${ex} examples/${ex}.cc)
-  target_link_libraries(${ex} PRIVATE flowedge_engine)
+  target_link_libraries(${ex} PRIVATE FlowEdge::Core)
 endforeach()
 
 # BENCHMARKS
@@ -100,16 +48,16 @@ if(FLOWEDGE_BENCH)
   endforeach()
 
   add_executable(flowedge_kernels_bench bench/kernels_bench.cc)
-  target_link_libraries(flowedge_kernels_bench PRIVATE flowedge_engine benchmark::benchmark)
+  target_link_libraries(flowedge_kernels_bench PRIVATE FlowEdge::Core benchmark::benchmark)
 
   add_executable(flowedge_engine_bench bench/engine_bench.cc)
-  target_link_libraries(flowedge_engine_bench PRIVATE flowedge_engine benchmark::benchmark)
+  target_link_libraries(flowedge_engine_bench PRIVATE FlowEdge::Core benchmark::benchmark)
 
   add_executable(flowedge_latency_bench bench/latency_bench.cc)
-  target_link_libraries(flowedge_latency_bench PRIVATE flowedge_engine)
+  target_link_libraries(flowedge_latency_bench PRIVATE FlowEdge::Core)
 
   add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
-  target_link_libraries(flowedge_threaded_matmul_bench PRIVATE flowedge_engine benchmark::benchmark_main Threads::Threads)
+  target_link_libraries(flowedge_threaded_matmul_bench PRIVATE FlowEdge::Core benchmark::benchmark_main Threads::Threads)
 endif()
 
 # TESTS
@@ -128,7 +76,7 @@ if(FLOWEDGE_TESTS)
 
   find_package(Threads REQUIRED)
   add_executable(flowedge_tests test/tests.cc)
-  target_link_libraries(flowedge_tests PRIVATE flowedge_engine GTest::gtest_main Threads::Threads)
+  target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
   
   include(GoogleTest)
   gtest_discover_tests(flowedge_tests)
@@ -152,15 +100,12 @@ if(FLOWEDGE_PYTHON)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(flowedge PRIVATE -pthread)
     if(WIN32)
-      if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        # removed -mstackrealign here
-      endif()
       # Statically link the C++ runtime; package winpthread beside the extension below.
       target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++ "-Wl,--allow-multiple-definition")
       target_link_libraries(flowedge PRIVATE winpthread)
     endif()
   endif()
-  target_link_libraries(flowedge PRIVATE flowedge_engine)
+  target_link_libraries(flowedge PRIVATE FlowEdge::Core)
   if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     find_file(FLOWEDGE_WINPTHREAD_DLL NAMES libwinpthread-1.dll HINTS $ENV{PATH})
     if(NOT FLOWEDGE_WINPTHREAD_DLL)
@@ -173,13 +118,13 @@ endif()
 
 if(NOT SKBUILD)
 include(GNUInstallDirs)
-install(TARGETS flowedge_engine
+install(TARGETS flowedge_core flowedge_engine
         EXPORT FlowEdgeTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/core/
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "*.h")
 

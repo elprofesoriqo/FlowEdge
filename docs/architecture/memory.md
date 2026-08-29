@@ -13,7 +13,8 @@ graph LR
 
 At load the engine sizes the slab from the checkpoint, then carves the weights
 once, aligned to 64 bytes. Runtime storage is carved from the same slab:
-persistent decode state, flow scratch, the thread-pool task ring, and the
+persistent decode state, a persistent resumable-flow workspace, flow scratch,
+load-time-transformed SSM matrices, the thread-pool task ring, and the
 `std::jthread` objects that own workers.
 
 ## How it works
@@ -31,8 +32,9 @@ $$
 $$
 
 $W_{bytes}$ is the stored weight footprint in bytes (2 bytes per element for
-`BF16` weights). $S_{decode}$ covers Mamba conv windows and SSM state per layer.
-$S_{flow}$ covers ODE solver temporaries and projection scratch. $R_{pool}$
+`BF16` weights). $S_{decode}$ covers Mamba conv windows, SSM state, and the
+state-major $-\exp(A_{\log})$ matrix per layer. $S_{flow}$ covers the resumable
+ODE state, velocity temporaries, and projection scratch. $R_{pool}$
 covers the power-of-two task ring and worker objects. `alloc` returns `nullptr`
 on exhaustion, so a model that does not fit fails at load instead of drifting
 into the control loop.
@@ -47,4 +49,4 @@ Rewinding to a mark is a cache decision as much as a bookkeeping one. A layer's 
 
 The footprint is $O(1)$ in the action horizon, where a growing KV cache would be $O(N)$. An embedded target cannot bound an $O(N)$ cache, but here the peak is known at load and checked, so the engine cannot quietly run past its budget.
 
-Source: `src/arena/arena.h`.
+Source: `src/core/arena/arena.h`.

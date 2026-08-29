@@ -36,7 +36,10 @@ graph LR
   OP --> R["+ residual"]
 ```
 
-Config comes from the checkpoint shapes, and the state is $d_{inner} \times d_{state}$. Streaming decode keeps a conv window and $h$ per layer and advances one step per token.
+Config comes from the checkpoint shapes, and the state is $d_{inner} \times d_{state}$. Streaming
+decode keeps a conv window and $h$ per layer and advances one step per token. The batch path clears
+its temporary recurrence; the streaming path deliberately preserves the caller-owned state. That
+distinction is part of the kernel contract and is checked by batch-versus-streaming tests.
 
 ## Why this way
 
@@ -46,11 +49,17 @@ The diagonal $A$ keeps the state update elementwise. $\bar{A} h_{t-1}$ is a Hada
 
 Discretization is fused into the scan as `discretize_and_scan`. The kernel keeps
 the state-major `[t][n][c]` access pattern for contiguous channel loads while
-avoiding a separate intermediate write of $\bar{A}$ and $\bar{B}u$.
+avoiding a separate intermediate write of $\bar{A}$ and $\bar{B}u$. Since $A$
+is immutable, $-\exp(A_{\log})$ is transformed and transposed once at model load.
+Prefill and every subsequent streaming token reuse this state-major matrix.
 
 Since the recurrence carries the same state over a batch or a single token, streaming decode is one step. It tracks the batch forward to about 2e-7, the two paths differing only in floating-point ordering.
 
-Source: `src/models/mamba/`. See [ADR 0002](../decisions/0002-mamba-block).
+The runtime can export and restore the conv windows and SSM states without allocation. This enables
+branch-and-rollback workflows such as speculative SSM decoding, session migration, deterministic
+replay, and alternative control continuations without rerunning a prefix.
+
+Source: `src/core/models/mamba/`. See [ADR 0002](../decisions/0002-mamba-block).
 
 ## Transformer
 

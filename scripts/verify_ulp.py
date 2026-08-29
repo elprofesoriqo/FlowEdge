@@ -7,12 +7,20 @@ if os.path.exists("build") and "build" not in sys.path:
     sys.path.append("build")
 if os.path.exists("build/Release") and "build/Release" not in sys.path:
     sys.path.append("build/Release")
+if os.name == "nt":
+    from pathlib import Path
+
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        winpthread = Path(entry) / "libwinpthread-1.dll"
+        if winpthread.is_file():
+            os.add_dll_directory(str(winpthread.parent))
+            break
 
 import numpy as np
 import flowedge  # built with -DFLOWEDGE_PYTHON=ON
 
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "models/mamba_flow.safetensors"
-PREFIX = [1, 2, 3, 4]  # must match scripts/torch_ref.py TOKENS
+PREFIX = np.array([1, 2, 3, 4], dtype=np.int32)  # must match scripts/torch_ref.py TOKENS
 NFE = 10
 EPS_REL = 2e-3  # per-dim relative-error gate
 EPS_ULP = 4096  # per-dim float32 ULP gate

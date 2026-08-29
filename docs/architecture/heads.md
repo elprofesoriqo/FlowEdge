@@ -27,6 +27,15 @@ graph LR
 
 Heun uses two evaluations per step and RK4 uses four. The conditioning $c$ is projected once and reused across every step.
 
+The flow head can be loaded without a backbone and driven directly by an external condition vector.
+That makes the solver usable behind vision-language-action models, observation encoders, and model
+servers that should not be linked into the core engine.
+
+Sampling also has a resumable form. `sampler_begin` stores the projected condition, current action,
+and Runge-Kutta stages in caller-owned fixed workspace. `sampler_advance` runs a bounded number of
+complete ODE steps. Splitting a solve does not change floating-point operation order, so the final
+action is bit-identical to a monolithic solve on the same backend.
+
 ## Why this way
 
 The head's cost comes down to one number, the count of velocity-net evaluations, or NFE, since the total time is NFE times a single net eval. Euler spends one eval per step, Heun two, RK4 four. A deterministic flow ODE reaches the action in roughly ten evals, where a diffusion head denoises over dozens of stochastic steps. On a fixed loop budget that gap decides whether the step lands inside the period, which is why flow matching is the first head.
@@ -35,7 +44,11 @@ Solver order is a second lever on the same budget. A higher-order step like RK4 
 
 Because $c$ is projected once and held fixed for the whole integration, the backbone and prefix cost is paid once per action rather than once per step, and only the small velocity net runs inside the loop. The loop carries no RNG, so the same observation always yields the same action, which is what a controller needs.
 
-Source: `src/heads/flow/`. See [ADR 0004](../decisions/0004-decouple-head).
+Cooperative steps add a scheduling boundary at a mathematically safe point. A control process can
+service I/O, enforce a deadline, or cancel stale work between solver steps without exposing partial
+matrix operations or allocating a task graph. See [Cooperative execution](cooperative-execution).
+
+Source: `src/core/heads/flow/`. See [ADR 0004](../decisions/0004-decouple-head).
 
 ## Diffusion, ACT, others
 
