@@ -52,28 +52,39 @@ std::size_t EngineRuntime::required_slab_bytes(std::string_view path) noexcept
   return weights + (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
-EngineRuntime::EngineRuntime(std::string_view path, std::size_t slab_bytes, const char*& error)
+unsigned EngineRuntime::recommended_thread_count() noexcept
+{
+  const unsigned hardware_threads = std::thread::hardware_concurrency();
+  if (hardware_threads < 2u)
+    return 0u;
+  // Short-sequence policy inference is normally memory-bandwidth-bound. Four
+  // workers saturate typical desktop/edge memory without the WSL/SMT cliff
+  // observed when every logical CPU is used.
+  return std::min(std::max(hardware_threads / 2u, 2u), 4u);
+}
+
+EngineRuntime::EngineRuntime(std::string_view path, std::size_t slab_bytes, unsigned worker_threads,
+                             const char*& error)
     : slab_{slab_bytes}, arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
       tensor_count_{load_views(path, error)},
       model_{std::span<const TensorView>{views_.data(), tensor_count_}, arena_},
       flow_{std::span<const TensorView>{views_.data(), tensor_count_}, arena_}
 {
-  const unsigned hw_threads = std::thread::hardware_concurrency();
-  const unsigned nthreads = std::min(hw_threads > 0 ? hw_threads : 1u, kMaxPoolThreads);
-
-  auto* ring = arena_.alloc_array<Task, kSimdAlign>(kThreadRingSlots);
-  auto* sequence = arena_.alloc_array<std::size_t, kSimdAlign>(kThreadRingSlots);
-  auto* worker_mem = static_cast<std::jthread*>(
-      arena_.alloc<alignof(std::jthread)>(sizeof(std::jthread) * nthreads));
-  auto* pool_mem = arena_.alloc<alignof(ThreadPool)>(sizeof(ThreadPool));
-  if (ring != nullptr && sequence != nullptr && worker_mem != nullptr && pool_mem != nullptr) {
-    workers_ = {worker_mem, nthreads};
-    for (unsigned i{0u}; i < nthreads; ++i)
-      std::construct_at(&workers_[i]);
-    pool_ =
-        std::construct_at(static_cast<ThreadPool*>(pool_mem),
-                          std::span<Task>{ring, kThreadRingSlots},
-                          std::span<std::size_t>{sequence, kThreadRingSlots}, workers_, nthreads);
+  if (worker_threads > 0u) {
+    auto* ring = arena_.alloc_array<Task, kSimdAlign>(kThreadRingSlots);
+    auto* sequence = arena_.alloc_array<std::size_t, kSimdAlign>(kThreadRingSlots);
+    auto* worker_mem = static_cast<std::jthread*>(
+        arena_.alloc<alignof(std::jthread)>(sizeof(std::jthread) * worker_threads));
+    auto* pool_mem = arena_.alloc<alignof(ThreadPool)>(sizeof(ThreadPool));
+    if (ring != nullptr && sequence != nullptr && worker_mem != nullptr && pool_mem != nullptr) {
+      workers_ = {worker_mem, worker_threads};
+      for (unsigned i{0u}; i < worker_threads; ++i)
+        std::construct_at(&workers_[i]);
+      pool_ = std::construct_at(static_cast<ThreadPool*>(pool_mem),
+                                std::span<Task>{ring, kThreadRingSlots},
+                                std::span<std::size_t>{sequence, kThreadRingSlots}, workers_,
+                                worker_threads);
+    }
   }
 
   model_.set_pool(pool_);

@@ -118,151 +118,177 @@ void softplus(std::span<float> x) noexcept
 }
 
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {
+  const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kF32);
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();
-    for (std::size_t o{0uz}; o < out_dim; ++o) {
-      const float* __restrict__ wr = w.data() + (o * in_dim);
-      float acc{0.0F};
-      std::size_t i{0uz};
-      float32x4_t a0 = vdupq_n_f32(0.0F);
-      float32x4_t a1 = a0;
-      float32x4_t a2 = a0;
-      float32x4_t a3 = a0;
-      for (; i + 16uz <= in_dim; i += 16uz) {
-        a0 = vfmaq_f32(a0, vld1q_f32(ir + i), vld1q_f32(wr + i));
-        a1 = vfmaq_f32(a1, vld1q_f32(ir + i + 4uz), vld1q_f32(wr + i + 4uz));
-        a2 = vfmaq_f32(a2, vld1q_f32(ir + i + 8uz), vld1q_f32(wr + i + 8uz));
-        a3 = vfmaq_f32(a3, vld1q_f32(ir + i + 12uz), vld1q_f32(wr + i + 12uz));
+    const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+      for (std::size_t o{lo}; o < hi; ++o) {
+        const float* __restrict__ wr = w.data() + (o * in_dim);
+        float acc{0.0F};
+        std::size_t i{0uz};
+        float32x4_t a0 = vdupq_n_f32(0.0F);
+        float32x4_t a1 = a0;
+        float32x4_t a2 = a0;
+        float32x4_t a3 = a0;
+        for (; i + 16uz <= in_dim; i += 16uz) {
+          a0 = vfmaq_f32(a0, vld1q_f32(ir + i), vld1q_f32(wr + i));
+          a1 = vfmaq_f32(a1, vld1q_f32(ir + i + 4uz), vld1q_f32(wr + i + 4uz));
+          a2 = vfmaq_f32(a2, vld1q_f32(ir + i + 8uz), vld1q_f32(wr + i + 8uz));
+          a3 = vfmaq_f32(a3, vld1q_f32(ir + i + 12uz), vld1q_f32(wr + i + 12uz));
+        }
+        float32x4_t av = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
+        for (; i + 4uz <= in_dim; i += 4uz)
+          av = vfmaq_f32(av, vld1q_f32(ir + i), vld1q_f32(wr + i));
+        acc = vaddvq_f32(av);
+        for (; i < in_dim; ++i)
+          acc += ir[i] * wr[i];
+        out.data()[o] = acc;
       }
-      float32x4_t av = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
-      for (; i + 4uz <= in_dim; i += 4uz)
-        av = vfmaq_f32(av, vld1q_f32(ir + i), vld1q_f32(wr + i));
-      acc = vaddvq_f32(av);
-      for (; i < in_dim; ++i)
-        acc += ir[i] * wr[i];
-      out.data()[o] = acc;
-    }
+    };
+    if (pool != nullptr && tasks > 1u)
+      parallel_for(*pool, out_dim, tasks, op);
+    else
+      op(0uz, out_dim);
     return;
   }
 
-  for (std::size_t o{0uz}; o < out_dim; ++o) {
-    const float* __restrict__ wr = w.data() + (o * in_dim);
-    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
-      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz; // tail rows clamp to r0
-      const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
-      const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
-      const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
-      const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
-      float acc0{0.0F};
-      float acc1{0.0F};
-      float acc2{0.0F};
-      float acc3{0.0F};
-      std::size_t i{0uz};
-      float32x4_t v0 = vdupq_n_f32(0.0F);
-      float32x4_t v1 = v0;
-      float32x4_t v2 = v0;
-      float32x4_t v3 = v0;
-      for (; i + 4uz <= in_dim; i += 4uz) {
-        const float32x4_t wv = vld1q_f32(wr + i);
-        v0 = vfmaq_f32(v0, vld1q_f32(i0 + i), wv);
-        v1 = vfmaq_f32(v1, vld1q_f32(i1 + i), wv);
-        v2 = vfmaq_f32(v2, vld1q_f32(i2 + i), wv);
-        v3 = vfmaq_f32(v3, vld1q_f32(i3 + i), wv);
+  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t o{lo}; o < hi; ++o) {
+      const float* __restrict__ wr = w.data() + (o * in_dim);
+      for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+        const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz; // tail rows clamp to r0
+        const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
+        const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
+        const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
+        const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
+        float acc0{0.0F};
+        float acc1{0.0F};
+        float acc2{0.0F};
+        float acc3{0.0F};
+        std::size_t i{0uz};
+        float32x4_t v0 = vdupq_n_f32(0.0F);
+        float32x4_t v1 = v0;
+        float32x4_t v2 = v0;
+        float32x4_t v3 = v0;
+        for (; i + 4uz <= in_dim; i += 4uz) {
+          const float32x4_t wv = vld1q_f32(wr + i);
+          v0 = vfmaq_f32(v0, vld1q_f32(i0 + i), wv);
+          v1 = vfmaq_f32(v1, vld1q_f32(i1 + i), wv);
+          v2 = vfmaq_f32(v2, vld1q_f32(i2 + i), wv);
+          v3 = vfmaq_f32(v3, vld1q_f32(i3 + i), wv);
+        }
+        acc0 = vaddvq_f32(v0);
+        acc1 = vaddvq_f32(v1);
+        acc2 = vaddvq_f32(v2);
+        acc3 = vaddvq_f32(v3);
+        for (; i < in_dim; ++i) {
+          const float wv = wr[i];
+          acc0 += i0[i] * wv;
+          acc1 += i1[i] * wv;
+          acc2 += i2[i] * wv;
+          acc3 += i3[i] * wv;
+        }
+        float* __restrict__ orow = out.data() + (r0 * out_dim);
+        orow[o] = acc0;
+        if (nr > 1uz)
+          orow[out_dim + o] = acc1;
+        if (nr > 2uz)
+          orow[(2uz * out_dim) + o] = acc2;
+        if (nr > 3uz)
+          orow[(3uz * out_dim) + o] = acc3;
       }
-      acc0 = vaddvq_f32(v0);
-      acc1 = vaddvq_f32(v1);
-      acc2 = vaddvq_f32(v2);
-      acc3 = vaddvq_f32(v3);
-      for (; i < in_dim; ++i) {
-        const float wv = wr[i];
-        acc0 += i0[i] * wv;
-        acc1 += i1[i] * wv;
-        acc2 += i2[i] * wv;
-        acc3 += i3[i] * wv;
-      }
-      float* __restrict__ orow = out.data() + (r0 * out_dim);
-      orow[o] = acc0;
-      if (nr > 1uz)
-        orow[out_dim + o] = acc1;
-      if (nr > 2uz)
-        orow[(2uz * out_dim) + o] = acc2;
-      if (nr > 3uz)
-        orow[(3uz * out_dim) + o] = acc3;
     }
-  }
+  };
+  if (pool != nullptr && tasks > 1u)
+    parallel_for(*pool, out_dim, tasks, op);
+  else
+    op(0uz, out_dim);
 }
 
 void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {
+  const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kBF16);
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();
-    for (std::size_t o{0uz}; o < out_dim; ++o) {
-      const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
-      float acc{0.0F};
-      std::size_t i{0uz};
-      float32x4_t a0 = vdupq_n_f32(0.0F);
-      float32x4_t a1 = a0, a2 = a0, a3 = a0;
-      for (; i + 16uz <= in_dim; i += 16uz) {
-        a0 = vfmaq_f32(a0, vld1q_f32(ir + i), load_bf16_4(wr + i));
-        a1 = vfmaq_f32(a1, vld1q_f32(ir + i + 4uz), load_bf16_4(wr + i + 4uz));
-        a2 = vfmaq_f32(a2, vld1q_f32(ir + i + 8uz), load_bf16_4(wr + i + 8uz));
-        a3 = vfmaq_f32(a3, vld1q_f32(ir + i + 12uz), load_bf16_4(wr + i + 12uz));
+    const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+      for (std::size_t o{lo}; o < hi; ++o) {
+        const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+        float acc{0.0F};
+        std::size_t i{0uz};
+        float32x4_t a0 = vdupq_n_f32(0.0F);
+        float32x4_t a1 = a0, a2 = a0, a3 = a0;
+        for (; i + 16uz <= in_dim; i += 16uz) {
+          a0 = vfmaq_f32(a0, vld1q_f32(ir + i), load_bf16_4(wr + i));
+          a1 = vfmaq_f32(a1, vld1q_f32(ir + i + 4uz), load_bf16_4(wr + i + 4uz));
+          a2 = vfmaq_f32(a2, vld1q_f32(ir + i + 8uz), load_bf16_4(wr + i + 8uz));
+          a3 = vfmaq_f32(a3, vld1q_f32(ir + i + 12uz), load_bf16_4(wr + i + 12uz));
+        }
+        float32x4_t av = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
+        for (; i + 4uz <= in_dim; i += 4uz)
+          av = vfmaq_f32(av, vld1q_f32(ir + i), load_bf16_4(wr + i));
+        acc = vaddvq_f32(av);
+        for (; i < in_dim; ++i)
+          acc += ir[i] * bf16_to_f32(wr[i]);
+        out.data()[o] = acc;
       }
-      float32x4_t av = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
-      for (; i + 4uz <= in_dim; i += 4uz)
-        av = vfmaq_f32(av, vld1q_f32(ir + i), load_bf16_4(wr + i));
-      acc = vaddvq_f32(av);
-      for (; i < in_dim; ++i)
-        acc += ir[i] * bf16_to_f32(wr[i]);
-      out.data()[o] = acc;
-    }
+    };
+    if (pool != nullptr && tasks > 1u)
+      parallel_for(*pool, out_dim, tasks, op);
+    else
+      op(0uz, out_dim);
     return;
   }
 
   // multi-row
-  for (std::size_t o{0uz}; o < out_dim; ++o) {
-    const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
-    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
-      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
-      const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
-      const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
-      const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
-      const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
-      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
-      std::size_t i{0uz};
-      float32x4_t v0 = vdupq_n_f32(0.0F);
-      float32x4_t v1 = v0, v2 = v0, v3 = v0;
-      for (; i + 4uz <= in_dim; i += 4uz) {
-        const float32x4_t wv = load_bf16_4(wr + i); // widen once
-        v0 = vfmaq_f32(v0, vld1q_f32(i0 + i), wv);
-        v1 = vfmaq_f32(v1, vld1q_f32(i1 + i), wv);
-        v2 = vfmaq_f32(v2, vld1q_f32(i2 + i), wv);
-        v3 = vfmaq_f32(v3, vld1q_f32(i3 + i), wv);
+  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t o{lo}; o < hi; ++o) {
+      const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+      for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+        const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
+        const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
+        const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
+        const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
+        const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
+        float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
+        std::size_t i{0uz};
+        float32x4_t v0 = vdupq_n_f32(0.0F);
+        float32x4_t v1 = v0, v2 = v0, v3 = v0;
+        for (; i + 4uz <= in_dim; i += 4uz) {
+          const float32x4_t wv = load_bf16_4(wr + i); // widen once
+          v0 = vfmaq_f32(v0, vld1q_f32(i0 + i), wv);
+          v1 = vfmaq_f32(v1, vld1q_f32(i1 + i), wv);
+          v2 = vfmaq_f32(v2, vld1q_f32(i2 + i), wv);
+          v3 = vfmaq_f32(v3, vld1q_f32(i3 + i), wv);
+        }
+        acc0 = vaddvq_f32(v0);
+        acc1 = vaddvq_f32(v1);
+        acc2 = vaddvq_f32(v2);
+        acc3 = vaddvq_f32(v3);
+        for (; i < in_dim; ++i) {
+          const float wv = bf16_to_f32(wr[i]);
+          acc0 += i0[i] * wv;
+          acc1 += i1[i] * wv;
+          acc2 += i2[i] * wv;
+          acc3 += i3[i] * wv;
+        }
+        float* __restrict__ orow = out.data() + (r0 * out_dim);
+        orow[o] = acc0;
+        if (nr > 1uz)
+          orow[out_dim + o] = acc1;
+        if (nr > 2uz)
+          orow[(2uz * out_dim) + o] = acc2;
+        if (nr > 3uz)
+          orow[(3uz * out_dim) + o] = acc3;
       }
-      acc0 = vaddvq_f32(v0);
-      acc1 = vaddvq_f32(v1);
-      acc2 = vaddvq_f32(v2);
-      acc3 = vaddvq_f32(v3);
-      for (; i < in_dim; ++i) {
-        const float wv = bf16_to_f32(wr[i]);
-        acc0 += i0[i] * wv;
-        acc1 += i1[i] * wv;
-        acc2 += i2[i] * wv;
-        acc3 += i3[i] * wv;
-      }
-      float* __restrict__ orow = out.data() + (r0 * out_dim);
-      orow[o] = acc0;
-      if (nr > 1uz)
-        orow[out_dim + o] = acc1;
-      if (nr > 2uz)
-        orow[(2uz * out_dim) + o] = acc2;
-      if (nr > 3uz)
-        orow[(3uz * out_dim) + o] = acc3;
     }
-  }
+  };
+  if (pool != nullptr && tasks > 1u)
+    parallel_for(*pool, out_dim, tasks, op);
+  else
+    op(0uz, out_dim);
 }
 void conv1d_causal(std::span<const float> x, std::span<const float> weight,
                    std::span<const float> bias, std::span<float> y, std::size_t channels,

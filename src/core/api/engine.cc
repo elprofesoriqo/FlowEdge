@@ -2,10 +2,14 @@
 
 #include "runtime/engine_runtime.h"
 
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <exception>
 #include <memory>
+#include <optional>
+#include <string_view>
 
 namespace {
 
@@ -25,28 +29,44 @@ const char*& last_error()
   return true;
 }
 
+[[nodiscard]] std::optional<unsigned> environment_thread_count(const char*& error) noexcept
+{
+  const char* const value = std::getenv("FLOWEDGE_THREADS");
+  if (value == nullptr || value[0] == '\0')
+    return fe::EngineRuntime::recommended_thread_count();
+  const std::string_view text{value};
+  unsigned threads{0u};
+  const auto [end, code] = std::from_chars(text.data(), text.data() + text.size(), threads);
+  if (code != std::errc{} || end != text.data() + text.size() ||
+      threads > fe::EngineRuntime::kMaxPoolThreads) {
+    error = "FLOWEDGE_THREADS must be an integer from 0 through 8";
+    return std::nullopt;
+  }
+  return threads;
+}
+
 } // namespace
 
 struct FeEngine
 {
-  FeEngine(const char* path, std::size_t slab_bytes, const char*& error)
-      : runtime{path, slab_bytes, error}
+  FeEngine(const char* path, std::size_t slab_bytes, unsigned worker_threads, const char*& error)
+      : runtime{path, slab_bytes, worker_threads, error}
   {
   }
 
   fe::EngineRuntime runtime;
 };
 
-const char* fe_engine_last_error(void)
-{
-  return last_error();
-}
+namespace {
 
-fe_engine* fe_engine_load(const char* path)
+fe_engine* load_engine(const char* path, unsigned worker_threads)
 {
-  last_error() = "";
   if (path == nullptr) {
     last_error() = "Invalid null model path";
+    return nullptr;
+  }
+  if (worker_threads > fe::EngineRuntime::kMaxPoolThreads) {
+    last_error() = "Worker thread count must be from 0 through 8";
     return nullptr;
   }
   try {
@@ -55,7 +75,7 @@ fe_engine* fe_engine_load(const char* path)
       last_error() = "Failed to load safetensors file or find required tensors";
       return nullptr;
     }
-    auto engine = std::make_unique<FeEngine>(path, slab_bytes, last_error());
+    auto engine = std::make_unique<FeEngine>(path, slab_bytes, worker_threads, last_error());
     if (!engine->runtime.valid()) {
       last_error() = "Model architecture initialization failed";
       return nullptr;
@@ -65,6 +85,26 @@ fe_engine* fe_engine_load(const char* path)
     last_error() = "Exception during engine load (likely OOM)";
     return nullptr;
   }
+}
+
+} // namespace
+
+const char* fe_engine_last_error(void)
+{
+  return last_error();
+}
+
+fe_engine* fe_engine_load(const char* path)
+{
+  last_error() = "";
+  const std::optional<unsigned> worker_threads = environment_thread_count(last_error());
+  return worker_threads ? load_engine(path, *worker_threads) : nullptr;
+}
+
+fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads)
+{
+  last_error() = "";
+  return load_engine(path, worker_threads);
 }
 
 void fe_engine_free(fe_engine* engine)

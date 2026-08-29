@@ -81,33 +81,47 @@ void softplus(std::span<float> x) noexcept
 }
 
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {
-  for (std::size_t o{0uz}; o < out_dim; ++o) {
-    const float* __restrict__ wr = w.data() + (o * in_dim);
-    for (std::size_t r{0uz}; r < rows; ++r) {
-      const float* __restrict__ ir = in.data() + (r * in_dim);
-      float acc{0.0F};
-      for (std::size_t i{0uz}; i < in_dim; ++i)
-        acc += ir[i] * wr[i];
-      out.data()[(r * out_dim) + o] = acc;
+  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t o{lo}; o < hi; ++o) {
+      const float* __restrict__ wr = w.data() + (o * in_dim);
+      for (std::size_t r{0uz}; r < rows; ++r) {
+        const float* __restrict__ ir = in.data() + (r * in_dim);
+        float acc{0.0F};
+        for (std::size_t i{0uz}; i < in_dim; ++i)
+          acc += ir[i] * wr[i];
+        out.data()[(r * out_dim) + o] = acc;
+      }
     }
-  }
+  };
+  const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kF32);
+  if (pool != nullptr && tasks > 1u)
+    parallel_for(*pool, out_dim, tasks, op);
+  else
+    op(0uz, out_dim);
 }
 
 void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {
-  for (std::size_t o{0uz}; o < out_dim; ++o) {
-    const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
-    for (std::size_t r{0uz}; r < rows; ++r) {
-      const float* __restrict__ ir = in.data() + (r * in_dim);
-      float acc{0.0F};
-      for (std::size_t i{0uz}; i < in_dim; ++i)
-        acc += ir[i] * std::bit_cast<float>(static_cast<std::uint32_t>(wr[i]) << 16u);
-      out.data()[(r * out_dim) + o] = acc;
+  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t o{lo}; o < hi; ++o) {
+      const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+      for (std::size_t r{0uz}; r < rows; ++r) {
+        const float* __restrict__ ir = in.data() + (r * in_dim);
+        float acc{0.0F};
+        for (std::size_t i{0uz}; i < in_dim; ++i)
+          acc += ir[i] * std::bit_cast<float>(static_cast<std::uint32_t>(wr[i]) << 16u);
+        out.data()[(r * out_dim) + o] = acc;
+      }
     }
-  }
+  };
+  const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kBF16);
+  if (pool != nullptr && tasks > 1u)
+    parallel_for(*pool, out_dim, tasks, op);
+  else
+    op(0uz, out_dim);
 }
 
 void discretize_and_scan(std::span<const float> delta, std::span<const float> a_neg,
