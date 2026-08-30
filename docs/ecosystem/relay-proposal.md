@@ -43,10 +43,11 @@ The current MVP provides:
 - local checksummed shared-memory rings with no ROS 2, gRPC, or cloud dependency;
 - bounded earliest-deadline-first admission and expiration before dispatch;
 - stale-request pruning and cancellation between complete solver steps;
-- binary condition/action traces with checksum validation and a C++ replay reader;
+- portable little-endian condition/action traces with checksum validation and v1 read compatibility;
 - `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints;
 - `RelayClient`, a typed SPSC producer/action-consumer endpoint for external C++ services;
 - `flowedge-relayctl`, which submits a deterministic smoke request or asks a daemon to shut down;
+- `flowedge-relay-trace`, which inspects traces as text/JSONL or replays actions against a model;
 - a Windows/POSIX integration test that crosses a real process and shared-memory boundary.
 
 Action overlap policies, state-capsule migration, deadline-miss telemetry, worker pools, and adapters
@@ -102,6 +103,19 @@ between concurrent producer threads is unsupported; use one endpoint or an appli
 gate per ring pair. Model loading in `flowedge-relayctl` is intentionally a diagnostic convenience.
 Long-lived producers should retain model metadata from their own model/configuration layer and call
 `RelayClient` directly.
+
+Captured traces are durable cross-platform artifacts rather than dumps of C++ object memory:
+
+```bash
+./build/src/relay/flowedge-relay-trace inspect run.trace
+./build/src/relay/flowedge-relay-trace inspect run.trace --jsonl
+./build/src/relay/flowedge-relay-trace replay run.trace \
+  --model models/mamba_flow.safetensors --tolerance 1e-5
+```
+
+Replay compares completed action vectors. Cancelled/failed records and accepted conditions without a
+published action are counted separately because the trace does not record every cooperative solver
+step or scheduler interleaving.
 
 ## Reuse outside robotics
 

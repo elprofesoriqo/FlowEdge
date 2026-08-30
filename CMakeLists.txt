@@ -107,6 +107,8 @@ if(FLOWEDGE_TESTS)
   gtest_discover_tests(flowedge_tests)
   if(FLOWEDGE_RELAY)
     gtest_discover_tests(flowedge_relay_tests)
+    add_test(NAME RelayTools.ClientHelp COMMAND flowedge-relayctl --help)
+    add_test(NAME RelayTools.TraceHelp COMMAND flowedge-relay-trace --help)
   endif()
 endif()
 

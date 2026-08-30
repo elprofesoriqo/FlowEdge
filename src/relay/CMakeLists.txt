@@ -32,4 +32,7 @@ target_link_libraries(flowedge-relayd PRIVATE FlowEdge::Relay)
 add_executable(flowedge-relayctl client/relay_control.cc)
 target_link_libraries(flowedge-relayctl PRIVATE FlowEdge::Relay)
 
-install(TARGETS flowedge-relayd flowedge-relayctl RUNTIME DESTINATION bin)
+add_executable(flowedge-relay-trace tools/trace_tool.cc)
+target_link_libraries(flowedge-relay-trace PRIVATE FlowEdge::Relay)
+
+install(TARGETS flowedge-relayd flowedge-relayctl flowedge-relay-trace RUNTIME DESTINATION bin)

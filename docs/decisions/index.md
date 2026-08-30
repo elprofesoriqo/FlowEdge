@@ -19,4 +19,5 @@ A pull request that makes an architectural choice adds an ADR.
 0011-versioned-state-contracts
 0012-in-repository-relay
 0013-relay-client-lifecycle
+0014-portable-relay-traces
 ```

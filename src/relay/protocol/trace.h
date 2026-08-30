@@ -2,6 +2,7 @@
 
 #include "relay/protocol/messages.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdio>
 #include <expected>
@@ -63,6 +64,7 @@ public:
 private:
   explicit TraceWriter(std::FILE* file) noexcept : file_{file} {}
   detail::TraceFileHandle file_{};
+  std::array<std::byte, sizeof(ConditionMessage)> encoded_{};
 };
 
 class TraceReader
@@ -78,8 +80,12 @@ public:
   [[nodiscard]] std::expected<std::optional<TraceRecord>, std::string> next() noexcept;
 
 private:
-  explicit TraceReader(std::FILE* file) noexcept : file_{file} {}
+  explicit TraceReader(std::FILE* file, std::uint32_t version) noexcept
+      : file_{file}, version_{version}
+  {
+  }
   detail::TraceFileHandle file_{};
+  std::uint32_t version_{};
 };
 
 } // namespace fe::relay

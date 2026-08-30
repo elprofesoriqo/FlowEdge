@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <memory>
 #include <span>
@@ -175,6 +176,27 @@ TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
     ASSERT_TRUE(writer.append(condition));
     ASSERT_TRUE(writer.append(action));
     writer.flush();
+  }
+
+  // Trace v2 is canonical little-endian rather than a dump of native structs.
+  // Check the file and record magics plus representative integer/float bytes.
+  {
+    std::ifstream file{path, std::ios::binary};
+    ASSERT_TRUE(file);
+    std::array<unsigned char, 172uz> bytes{};
+    file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    ASSERT_EQ(file.gcount(), static_cast<std::streamsize>(bytes.size()));
+    EXPECT_EQ(std::memcmp(bytes.data(), "FETRACE2", 8uz), 0);
+    EXPECT_EQ(bytes[8], 2u);
+    EXPECT_EQ(bytes[9], 0u);
+    EXPECT_EQ(std::memcmp(bytes.data() + 16uz, "REC2", 4uz), 0);
+    EXPECT_EQ(std::memcmp(bytes.data() + 48uz, "FRE1", 4uz), 0);
+    EXPECT_EQ(bytes[64], 7u);  // envelope.sequence, little-endian
+    EXPECT_EQ(bytes[72], 77u); // envelope.session_id, little-endian
+    EXPECT_EQ(bytes[168], 0u); // first condition float: 1.0f = 0x3f800000
+    EXPECT_EQ(bytes[169], 0u);
+    EXPECT_EQ(bytes[170], 0x80u);
+    EXPECT_EQ(bytes[171], 0x3fu);
   }
   auto opened = TraceReader::open(path.string().c_str());
   ASSERT_TRUE(opened) << opened.error();

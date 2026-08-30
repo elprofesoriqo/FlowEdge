@@ -44,6 +44,12 @@ condition through `RelayClient`, validates the returned action and model identit
 clean shutdown. This test runs on native Windows and POSIX/WSL builds; component-only ring and worker
 tests do not replace it.
 
+`RelayTrace.ReplaysExactConditionAndActionRecords` also asserts representative on-disk bytes for the
+v2 file header, record header, envelope integers, and a float payload. This guards against accidentally
+reintroducing native-struct serialization while ordinary round-trip tests still pass on one host.
+Use `flowedge-relay-trace replay TRACE --model FILE` to compare a field capture against a checkpoint;
+the command returns non-zero when a completed recorded action exceeds its configured tolerance.
+
 ## External-head and streaming smoke test
 
 `scripts/verify_external_head.py` generates two small checkpoints without downloading model data.
