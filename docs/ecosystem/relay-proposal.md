@@ -10,6 +10,11 @@ rings, bounded earliest-deadline-first
 scheduling, generation cancellation, a head-only worker, and replayable binary traces. Core has no
 dependency on Relay; Relay links only `FlowEdge::Core` and the platform shared-memory API.
 
+The production-hardening track adds a move-only `RelayClient`, the `flowedge-relayctl` smoke/control
+tool, and a cross-process test that launches the real daemon. The client owns all message construction,
+model-identity validation, compact ring I/O, and control-message details while preserving an
+allocation-free request/response hot path.
+
 ## Problem
 
 Companies assembling embodied-AI systems repeatedly build the same fragile layer: shared-memory or
@@ -39,7 +44,10 @@ The current MVP provides:
 - bounded earliest-deadline-first admission and expiration before dispatch;
 - stale-request pruning and cancellation between complete solver steps;
 - binary condition/action traces with checksum validation and a C++ replay reader;
-- `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints.
+- `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints;
+- `RelayClient`, a typed SPSC producer/action-consumer endpoint for external C++ services;
+- `flowedge-relayctl`, which submits a deterministic smoke request or asks a daemon to shut down;
+- a Windows/POSIX integration test that crosses a real process and shared-memory boundary.
 
 Action overlap policies, state-capsule migration, deadline-miss telemetry, worker pools, and adapters
 for training/serving runtimes remain later milestones. They should be justified by real traces rather
@@ -78,6 +86,22 @@ condition ring, EDF queue, cooperative head worker, action ring, and consumer va
 `scripts/relay_bench.sh` performs the
 same build and run on WSL, Linux, or Git Bash. The daemon uses `--create` when it owns both rings and
 `--trace FILE` to record accepted inputs and published outputs.
+
+For a manual two-process smoke test, keep the daemon in one terminal and use the control tool from a
+second terminal:
+
+```bash
+./build/src/relay/flowedge-relayd --model models/mamba_flow.safetensors --create
+./build/src/relay/flowedge-relayctl request --model models/mamba_flow.safetensors
+./build/src/relay/flowedge-relayctl shutdown
+```
+
+The daemon owns ring creation in this example. `RelayClient::create` is available when the embedding
+service should own their lifetime instead. A ring remains strictly SPSC: sharing one `RelayClient`
+between concurrent producer threads is unsupported; use one endpoint or an application-side MPSC
+gate per ring pair. Model loading in `flowedge-relayctl` is intentionally a diagnostic convenience.
+Long-lived producers should retain model metadata from their own model/configuration layer and call
+`RelayClient` directly.
 
 ## Reuse outside robotics
 

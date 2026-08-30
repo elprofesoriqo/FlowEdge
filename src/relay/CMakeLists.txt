@@ -1,4 +1,5 @@
 add_library(flowedge_relay STATIC
+  client/relay_client.cc
   protocol/trace.cc
   shared_memory/shared_memory_ring.cc
   scheduler/edf_scheduler.cc
@@ -27,4 +28,8 @@ endif()
 
 add_executable(flowedge-relayd worker/relay_daemon.cc)
 target_link_libraries(flowedge-relayd PRIVATE FlowEdge::Relay)
-install(TARGETS flowedge-relayd RUNTIME DESTINATION bin)
+
+add_executable(flowedge-relayctl client/relay_control.cc)
+target_link_libraries(flowedge-relayctl PRIVATE FlowEdge::Relay)
+
+install(TARGETS flowedge-relayd flowedge-relayctl RUNTIME DESTINATION bin)

@@ -204,6 +204,16 @@ enum class ProtocolResult : std::uint8_t
          std::ranges::equal(message.metadata.model_digest.bytes, model.model_digest.bytes);
 }
 
+[[nodiscard]] inline bool compatible(const ActionMessage& message,
+                                     const fe_model_metadata& model) noexcept
+{
+  return validate(message) == ProtocolResult::kSuccess &&
+         model.protocol_version == FE_PROTOCOL_VERSION &&
+         message.metadata.condition_dim == model.condition_dim &&
+         message.metadata.action_dim == model.action_dim &&
+         std::ranges::equal(message.metadata.model_digest.bytes, model.model_digest.bytes);
+}
+
 [[nodiscard]] inline ProtocolResult make_condition_message(
     ConditionMessage& destination, const fe_model_metadata& model, std::uint64_t sequence,
     std::uint64_t session_id, std::uint64_t timestamp_ns, std::uint64_t deadline_ns,

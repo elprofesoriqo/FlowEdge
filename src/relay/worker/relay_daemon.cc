@@ -153,6 +153,16 @@ try {
     return 0;
   }
 
+  // In daemon-owned mode, publishing the mappings is the readiness signal.
+  // Finish checkpoint loading first so a client cannot spend its deadline
+  // waiting for startup work after it successfully connects.
+  auto worker_result = HeadWorker::open(options.model, options.threads);
+  if (!worker_result) {
+    std::cerr << "flowedge-relayd: " << worker_result.error() << '\n';
+    return 1;
+  }
+  HeadWorker worker = std::move(*worker_result);
+
   auto conditions_result =
       options.create ? SharedMemoryRing::create(options.condition_shm,
                                                 RingConfig{.capacity = options.capacity,
@@ -174,12 +184,6 @@ try {
   SharedMemoryRing conditions = std::move(*conditions_result);
   SharedMemoryRing actions = std::move(*actions_result);
 
-  auto worker_result = HeadWorker::open(options.model, options.threads);
-  if (!worker_result) {
-    std::cerr << "flowedge-relayd: " << worker_result.error() << '\n';
-    return 1;
-  }
-  HeadWorker worker = std::move(*worker_result);
   EdfScheduler scheduler{options.capacity};
 
   std::optional<TraceWriter> trace{};

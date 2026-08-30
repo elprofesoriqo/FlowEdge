@@ -38,6 +38,12 @@ test checks the real kernel against a second implementation. Covered: `matmul`,
 
 Add a reference and a test for every new kernel and head.
 
+When Relay is enabled, `RelayProcess.ExchangesRequestWithDaemonAcrossProcessBoundary` launches the
+actual `flowedge-relayd` executable. It waits for daemon-owned shared-memory mappings, sends a typed
+condition through `RelayClient`, validates the returned action and model identity, then requests a
+clean shutdown. This test runs on native Windows and POSIX/WSL builds; component-only ring and worker
+tests do not replace it.
+
 ## External-head and streaming smoke test
 
 `scripts/verify_external_head.py` generates two small checkpoints without downloading model data.
