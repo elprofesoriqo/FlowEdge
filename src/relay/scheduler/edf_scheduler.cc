@@ -37,12 +37,12 @@ EdfScheduler::EdfScheduler(std::size_t capacity, AdmissionPolicy policy)
 {
   heap_.reserve(capacity_);
   free_slots_.reserve(capacity_);
+  admission_jobs_.reserve(capacity_ + 1uz);
   for (std::size_t slot{capacity_}; slot > 0uz; --slot)
     free_slots_.push_back(slot - 1uz);
 }
 
-bool EdfScheduler::admissible(const ConditionMessage& message,
-                              AdmissionContext context) const noexcept
+bool EdfScheduler::admissible(const ConditionMessage& message, AdmissionContext context) noexcept
 {
   if (admission_.nanoseconds_per_nfe == 0u || context.now_ns == 0u ||
       message.metadata.deadline_ns == 0u)
@@ -59,36 +59,43 @@ bool EdfScheduler::admissible(const ConditionMessage& message,
       displaced = *worst;
   }
 
-  const auto prefix_fits = [&](std::uint64_t candidate_deadline) {
-    if (candidate_deadline < message.metadata.deadline_ns || candidate_deadline <= context.now_ns)
-      return true;
-    std::uint64_t demand = message.metadata.remaining_nfe;
-    if (context.active_remaining_nfe != 0u &&
-        context.active_generation >= message.metadata.generation)
-      demand = saturating_add(demand, context.active_remaining_nfe);
-    for (const std::size_t slot : heap_) {
-      if (displaced && slot == *displaced)
-        continue;
-      const ConditionMessage& queued = storage_[slot];
-      if (queued.metadata.generation >= message.metadata.generation &&
-          queued.metadata.deadline_ns != 0u && queued.metadata.deadline_ns <= candidate_deadline)
-        demand = saturating_add(demand, queued.metadata.remaining_nfe);
-    }
-    const std::uint64_t estimate =
-        saturating_add(saturating_multiply(demand, admission_.nanoseconds_per_nfe),
-                       admission_.reserve_ns);
-    return estimate <= candidate_deadline - context.now_ns;
-  };
+  const std::size_t worker_count =
+      std::clamp(context.worker_count, 1uz, AdmissionContext::kMaxWorkers);
+  std::array<std::uint64_t, AdmissionContext::kMaxWorkers> available_at{};
+  std::ranges::fill(available_at, context.now_ns);
+  for (std::size_t lane{}; lane < worker_count; ++lane) {
+    const AdmissionContext::ActiveLane& active = context.active[lane];
+    if (active.remaining_nfe == 0u || active.generation < message.metadata.generation)
+      continue;
+    available_at[lane] =
+        saturating_add(context.now_ns,
+                       saturating_multiply(active.remaining_nfe, admission_.nanoseconds_per_nfe));
+  }
 
-  if (!prefix_fits(message.metadata.deadline_ns))
-    return false;
+  admission_jobs_.clear();
+  admission_jobs_.push_back(&message);
   for (const std::size_t slot : heap_) {
     if (displaced && slot == *displaced)
       continue;
     const ConditionMessage& queued = storage_[slot];
     if (queued.metadata.generation >= message.metadata.generation &&
-        queued.metadata.deadline_ns != 0u && !prefix_fits(queued.metadata.deadline_ns))
+        queued.metadata.deadline_ns != 0u)
+      admission_jobs_.push_back(&queued);
+  }
+  std::ranges::sort(admission_jobs_,
+                    [](const ConditionMessage* left, const ConditionMessage* right) {
+                      return EdfScheduler::earlier(*left, *right);
+                    });
+  for (const ConditionMessage* const job : admission_jobs_) {
+    auto lane = std::ranges::min_element(available_at.begin(), available_at.begin() + worker_count);
+    const std::uint64_t duration =
+        saturating_multiply(job->metadata.remaining_nfe, admission_.nanoseconds_per_nfe);
+    if (*lane > job->metadata.deadline_ns || duration > job->metadata.deadline_ns - *lane)
       return false;
+    const std::uint64_t finish = *lane + duration;
+    if (admission_.reserve_ns > job->metadata.deadline_ns - finish)
+      return false;
+    *lane = finish;
   }
   return true;
 }

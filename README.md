@@ -25,7 +25,7 @@ It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractio
 
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
-typed client, EDF admission, portable traces, and preallocated parallel head workers. Core does not
+typed client, worker-aware EDF admission, portable traces, and preallocated parallel head workers. Core does not
 depend on transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares

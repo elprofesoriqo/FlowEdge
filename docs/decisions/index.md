@@ -23,4 +23,5 @@ A pull request that makes an architectural choice adds an ADR.
 0015-calibrated-deadline-admission
 0016-preallocated-head-worker-pool
 0017-shared-weights-and-worker-placement
+0018-multi-lane-deadline-admission
 ```

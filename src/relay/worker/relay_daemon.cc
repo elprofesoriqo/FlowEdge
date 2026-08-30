@@ -293,13 +293,7 @@ try {
       const std::uint64_t submitted_at = monotonic_ns();
       rejection = {};
       const SubmitResult submitted =
-          scheduler.submit(*incoming,
-                           AdmissionContext{.now_ns = submitted_at,
-                                            .active_generation = incoming->metadata.generation,
-                                            .active_remaining_nfe =
-                                                pool.active_remaining_nfe_at_or_after(
-                                                    incoming->metadata.generation)},
-                           &rejection);
+          scheduler.submit(*incoming, pool.admission_context(submitted_at), &rejection);
       if (accepted(submitted)) {
         pool.cancel_before(scheduler.newest_generation());
         if (trace) {

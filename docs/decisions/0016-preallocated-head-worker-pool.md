@@ -38,8 +38,8 @@ several Core thread pools simultaneously must be justified by measurement to avo
   for zero allocations after warm setup.
 - A newer generation atomically cancels running older work and drops older results that were already
   waiting under output backpressure.
-- Deadline admission conservatively counts aggregate active NFE as single-lane work. This cannot
-  overpromise a deadline, although it may under-admit when several workers are available.
+- The initial admission calculation counted aggregate active NFE as single-lane work. ADR 0018
+  supersedes it with a bounded EDF simulation over the actual worker lanes.
 - This first implementation loaded a complete model and arena per worker. ADR 0017 supersedes that
   ownership detail with one shared immutable checkpoint store plus private mutable worker arenas.
 - Worker failures are counted and reported without terminating healthy slots or growing an error queue.

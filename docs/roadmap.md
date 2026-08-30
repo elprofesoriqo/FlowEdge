@@ -13,6 +13,7 @@
 - FlowEdge Relay: typed shared-memory client, EDF admission, cancellation, portable traces, and a
   preallocated multi-worker pool.
 - Shared immutable checkpoint weights and compact/spread NUMA-aware Relay worker placement.
+- Worker-aware deadline admission over active and queued EDF lanes.
 
 ## Next
 
@@ -20,7 +21,7 @@
 - Backbone: Transformer. Unlocks the transformer heads.
 - Weight traffic: per-node replication experiments and INT8. See
   [ADR 0007](decisions/0007-roofline).
-- Relay: worker-aware admission, production metrics, action overlap, and portable state migration.
+- Relay: production metrics, action overlap, and portable state migration.
 - Cooperative adapters for iterative diffusion, streaming SSM/LLM decode, and speculative branches.
 - Backends: CUDA, Tenstorrent.
 - Observation encoders, which every real vision policy needs before it runs end to end. See [ADR 0006](decisions/0006-obs-encoder-out-of-scope).

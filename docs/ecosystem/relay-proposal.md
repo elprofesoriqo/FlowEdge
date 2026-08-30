@@ -42,7 +42,7 @@ The current MVP provides:
   and cancellation generation;
 - local checksummed shared-memory rings with no ROS 2, gRPC, or cloud dependency;
 - bounded earliest-deadline-first admission and expiration before dispatch;
-- optional calibrated EDF-prefix schedulability checks that include active and queued NFE demand;
+- optional calibrated multi-worker EDF simulation that includes each active lane and queued NFE;
 - stale-request pruning and cancellation between complete solver steps;
 - typed stale, unreachable-deadline, capacity, and expiry outcomes returned on the action ring;
 - a preallocated 1..8 worker pool with one independent Core engine and outer thread per slot;
@@ -131,7 +131,8 @@ Deadline admission is opt-in because its estimate is deployment-specific. Start 
   --nfe-ns 3000 --admission-reserve-ns 20000
 ```
 
-The scheduler checks every affected finite-deadline prefix, not just the new request in isolation.
+The scheduler assigns retained EDF work to the earliest available simulated worker lane and checks
+every completion, not just the new request in isolation.
 Passing `--nfe-ns 0` (the default) disables calibrated rejection while expiry-at-dispatch remains
 active. A producer receives a normal, model-compatible action record with `status=failed` and an
 outcome code such as `rejected_deadline`; `RelayClient::try_receive` therefore remains one typed path

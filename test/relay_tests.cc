@@ -153,10 +153,9 @@ TEST(EdfScheduler, RejectsUnreachableDeadlinePrefixesWithoutPruningFeasibleWork)
   EXPECT_EQ(scheduler.newest_generation(), 5u);
 
   EdfScheduler active_scheduler{2uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 5u}};
-  EXPECT_EQ(active_scheduler.submit(request(4u, 4u, 200u),
-                                    AdmissionContext{.now_ns = 100u,
-                                                     .active_generation = 4u,
-                                                     .active_remaining_nfe = 2u}),
+  AdmissionContext active{.now_ns = 100u};
+  active.active[0] = {.generation = 4u, .remaining_nfe = 2u};
+  EXPECT_EQ(active_scheduler.submit(request(4u, 4u, 200u), active),
             SubmitResult::kDeadlineUnreachable);
 
   EdfScheduler replacement{1uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 0u}};
@@ -172,6 +171,28 @@ TEST(EdfScheduler, RejectsUnreachableDeadlinePrefixesWithoutPruningFeasibleWork)
                                          .reserve_ns = std::numeric_limits<std::uint64_t>::max()}};
   EXPECT_EQ(saturated.submit(request(7u, 4u, std::numeric_limits<std::uint64_t>::max()), idle),
             SubmitResult::kDeadlineUnreachable);
+}
+
+TEST(EdfScheduler, AdmitsIndependentDeadlineWorkAcrossWorkerLanes)
+{
+  const AdmissionPolicy policy{.nanoseconds_per_nfe = 10u, .reserve_ns = 0u};
+  EdfScheduler single_lane{4uz, policy};
+  EdfScheduler two_lanes{4uz, policy};
+  const ConditionMessage first = request(20u, 8u, 190u); // 8 NFE = 80 ns
+  const ConditionMessage second = request(21u, 8u, 190u);
+  const AdmissionContext single{.now_ns = 100u, .worker_count = 1uz};
+  const AdmissionContext parallel{.now_ns = 100u, .worker_count = 2uz};
+
+  EXPECT_EQ(single_lane.submit(first, single), SubmitResult::kAccepted);
+  EXPECT_EQ(single_lane.submit(second, single), SubmitResult::kDeadlineUnreachable);
+  EXPECT_EQ(two_lanes.submit(first, parallel), SubmitResult::kAccepted);
+  EXPECT_EQ(two_lanes.submit(second, parallel), SubmitResult::kAccepted);
+
+  EdfScheduler occupied{4uz, policy};
+  AdmissionContext one_busy{.now_ns = 100u, .worker_count = 2uz};
+  one_busy.active[0] = {.generation = 8u, .remaining_nfe = 8u};
+  EXPECT_EQ(occupied.submit(first, one_busy), SubmitResult::kAccepted);
+  EXPECT_EQ(occupied.submit(second, one_busy), SubmitResult::kDeadlineUnreachable);
 }
 
 TEST(SharedMemoryRing, ExchangesChecksummedVariableSizedMessages)

@@ -2,6 +2,7 @@
 
 #include "relay/protocol/messages.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -27,9 +28,17 @@ struct AdmissionPolicy
 
 struct AdmissionContext
 {
+  static constexpr std::size_t kMaxWorkers = 8uz;
+
+  struct ActiveLane
+  {
+    std::uint64_t generation{};
+    std::uint64_t remaining_nfe{};
+  };
+
   std::uint64_t now_ns{};
-  std::uint64_t active_generation{};
-  std::uint64_t active_remaining_nfe{};
+  std::size_t worker_count{1uz};
+  std::array<ActiveLane, kMaxWorkers> active{};
 };
 
 struct SchedulerStats
@@ -65,8 +74,7 @@ private:
                                   const ConditionMessage& right) noexcept;
   [[nodiscard]] static bool earlier(const ConditionMessage& left,
                                     const ConditionMessage& right) noexcept;
-  [[nodiscard]] bool admissible(const ConditionMessage& message,
-                                AdmissionContext context) const noexcept;
+  [[nodiscard]] bool admissible(const ConditionMessage& message, AdmissionContext context) noexcept;
   void copy_into(std::size_t slot, const ConditionMessage& message) noexcept;
   void release_borrowed() noexcept;
   void rebuild() noexcept;
@@ -77,6 +85,7 @@ private:
   std::vector<ConditionMessage> storage_{};
   std::vector<std::size_t> heap_{};
   std::vector<std::size_t> free_slots_{};
+  std::vector<const ConditionMessage*> admission_jobs_{};
   std::optional<std::size_t> borrowed_{};
   SchedulerStats stats_{};
 };

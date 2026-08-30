@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relay/scheduler/edf_scheduler.h"
 #include "relay/worker/head_worker.h"
 #include "relay/worker/worker_topology.h"
 
@@ -38,8 +39,7 @@ public:
   [[nodiscard]] std::size_t busy_count() const noexcept;
   [[nodiscard]] std::uint64_t failure_count() const noexcept { return failure_count_; }
   [[nodiscard]] bool has_idle() const noexcept;
-  [[nodiscard]] std::uint64_t active_remaining_nfe_at_or_after(
-      std::uint64_t generation) const noexcept;
+  [[nodiscard]] AdmissionContext admission_context(std::uint64_t now_ns) const noexcept;
   [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
 
   [[nodiscard]] bool try_dispatch(const ConditionMessage& request) noexcept;

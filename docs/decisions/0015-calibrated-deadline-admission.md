@@ -25,6 +25,9 @@ advancing the freshness generation or pruning feasible queued work when any affe
 fit before its deadline. A newer accepted generation excludes older work because that work will be
 cancelled before another complete solver step.
 
+ADR 0018 preserves this calibrated safety contract while replacing the original single-lane prefix
+sum with an explicit multi-worker EDF lane simulation.
+
 Return valid, model-compatible `ActionMessage` outcomes for observable scheduling failures. The
 envelope action code distinguishes `rejected_stale`, `rejected_deadline`, `rejected_capacity`, and
 `expired` from an inference action. Rejection metadata retains the request sequence, session,

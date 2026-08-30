@@ -183,21 +183,21 @@ bool HeadWorkerPool::has_idle() const noexcept
   });
 }
 
-std::uint64_t HeadWorkerPool::active_remaining_nfe_at_or_after(
-    std::uint64_t generation) const noexcept
+AdmissionContext HeadWorkerPool::admission_context(std::uint64_t now_ns) const noexcept
 {
-  std::uint64_t total{};
-  for (const auto& slot : slots_) {
-    const SlotState state = slot->state.load(std::memory_order_acquire);
-    if ((state != SlotState::kRequested && state != SlotState::kRunning) ||
-        slot->generation.load(std::memory_order_acquire) < generation)
+  AdmissionContext context{.now_ns = now_ns,
+                           .worker_count = std::min(slots_.size(), AdmissionContext::kMaxWorkers)};
+  for (std::size_t index{}; index < context.worker_count; ++index) {
+    const Slot& slot = *slots_[index];
+    const SlotState state = slot.state.load(std::memory_order_acquire);
+    if (state != SlotState::kRequested && state != SlotState::kRunning)
       continue;
-    const std::uint64_t remaining = slot->remaining_nfe.load(std::memory_order_acquire);
-    total = remaining > std::numeric_limits<std::uint64_t>::max() - total
-                ? std::numeric_limits<std::uint64_t>::max()
-                : total + remaining;
+    context.active[index] =
+        AdmissionContext::ActiveLane{.generation = slot.generation.load(std::memory_order_acquire),
+                                     .remaining_nfe =
+                                         slot.remaining_nfe.load(std::memory_order_acquire)};
   }
-  return total;
+  return context;
 }
 
 bool HeadWorkerPool::try_dispatch(const ConditionMessage& request) noexcept
