@@ -11,6 +11,7 @@ import numpy as np, flowedge
 
 e = flowedge.Engine("models/mamba_flow.safetensors")
 print(e.action_dim, e.condition_dim, e.d_model, e.thread_count)
+print(e.model_metadata)  # architecture, precision, dimensions, digest, snapshot size
 
 tokens = np.array([1, 2, 3, 4], dtype=np.int32)
 hidden = e.run(tokens)
@@ -60,18 +61,23 @@ e.sample_condition(condition, noise, action, 8, "heun")
 The same solve can be split across scheduler quanta without changing its result:
 
 ```python
-e.flow_begin(condition, noise, 8, "heun")
+e.flow_begin(condition, noise, 8, "heun", generation=42,
+             timestamp_ns=observation_time, deadline_ns=control_deadline)
 remaining = e.flow_advance(action, 2)
 while remaining:
     remaining = e.flow_advance(action, 1)
 ```
 
 Only publish `action` as final when `remaining == 0`. One engine owns one resumable solve.
+`e.flow_metadata` reports the generation, original timestamp/deadline, status, model digest, and
+remaining NFE. A scheduler can call `e.cancel_before(43)` concurrently; the older solve stops at
+the next complete solver-step boundary and raises `RuntimeError` from `flow_advance`.
 
 ## Streaming state
 
 `step(token)` advances the Mamba recurrence, `reset()` starts a fresh stream, and
 `decode_state()` / `restore_decode_state(bytes)` create deterministic branches. Snapshots are
-valid only for an engine loaded from the same checkpoint.
+versioned and checksummed; restore rejects a different model digest, architecture, precision,
+dimensions, truncated payload, or corruption before changing state.
 
 Source: `python/flowedge_ext.cc`.

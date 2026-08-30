@@ -31,17 +31,25 @@ int main(int argc, char** argv)
   constexpr std::size_t k_steps = 6uz;
   int rc = fe_engine_sample_condition(engine, condition.data(), noise.data(), k_steps,
                                       FE_SOLVER_HEUN, direct.data());
+  fe_condition_metadata request{};
   if (rc == 0)
-    rc = fe_engine_flow_begin(engine, condition.data(), noise.data(), k_steps, FE_SOLVER_HEUN);
+    rc = fe_engine_make_condition_metadata(engine, 1u, 2u, 7u, k_steps, FE_SOLVER_HEUN, &request);
+  if (rc == 0)
+    rc = fe_engine_flow_begin_request(engine, condition.data(), noise.data(), &request);
   std::size_t remaining{k_steps};
   if (rc == 0)
     rc = fe_engine_flow_advance(engine, 2uz, resumed.data(), &remaining);
   if (rc == 0)
     rc = fe_engine_flow_advance(engine, k_steps, resumed.data(), &remaining);
+  fe_action_metadata result{};
+  if (rc == 0)
+    rc = fe_engine_flow_action_metadata(engine, &result);
 
-  const bool exact = rc == 0 && remaining == 0uz &&
+  const bool exact = rc == 0 && remaining == 0uz && result.status == FE_ACTION_COMPLETE &&
+                     result.remaining_nfe == 0u &&
                      std::ranges::equal(direct, resumed, [](float a, float b) { return a == b; });
   std::cout << "condition_dim=" << condition_dim << " action_dim=" << action_dim
+            << " generation=" << result.generation
             << " resumable_exact=" << (exact ? "true" : "false") << '\n';
   if (rc != 0)
     std::cerr << "sample failed: " << fe_engine_last_error() << '\n';

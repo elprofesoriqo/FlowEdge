@@ -41,8 +41,8 @@ The implementation should be a new `models/mamba3/` module rather than condition
 
 1. Add scalar reference kernels for SISO recurrence and step decode.
 2. Add AVX2/NEON state-major kernels, keeping angle and recurrent state caller-owned.
-3. Extend snapshots with an internal layout version and checkpoint digest before exposing migration
-   across processes.
+3. Define the Mamba-3 state payload and architecture identifier inside the existing versioned,
+   checksummed snapshot envelope.
 4. Add embedding, normalization, and LM output projection, with top-k/top-p sampling outside the
    deterministic backbone call.
 5. Validate token-by-token output and state against the official implementation before optimizing

@@ -1,5 +1,8 @@
 #include "runtime/engine_runtime.h"
 
+#include "protocol/contracts.h"
+#include "protocol/snapshot.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -70,6 +73,26 @@ EngineRuntime::EngineRuntime(std::string_view path, std::size_t slab_bytes, unsi
       model_{std::span<const TensorView>{views_.data(), tensor_count_}, arena_},
       flow_{std::span<const TensorView>{views_.data(), tensor_count_}, arena_}
 {
+  const std::span<const TensorView> tensors{views_.data(), tensor_count_};
+  identity_.digest = fingerprint_tensors(tensors);
+  identity_.precision = checkpoint_precision(tensors);
+  identity_.architecture = model_.valid() && flow_.valid() ? FE_ARCH_MAMBA_FLOW
+                           : model_.valid()                ? FE_ARCH_MAMBA
+                           : flow_.valid()                 ? FE_ARCH_FLOW_HEAD
+                                                           : FE_ARCH_UNKNOWN;
+  if (model_.valid()) {
+    const MambaConfig& config = model_.config();
+    identity_.d_model = config.d_model;
+    identity_.n_layers = config.n_layers;
+    identity_.d_inner = config.d_inner;
+    identity_.d_state = config.d_state;
+    identity_.d_conv = config.d_conv;
+  }
+  if (flow_.valid()) {
+    identity_.action_dim = flow_.config().action_dim;
+    identity_.condition_dim = flow_.config().cond_dim;
+  }
+
   if (worker_threads > 0u) {
     auto* ring = arena_.alloc_array<Task, kSimdAlign>(kThreadRingSlots);
     auto* sequence = arena_.alloc_array<std::size_t, kSimdAlign>(kThreadRingSlots);
@@ -114,6 +137,31 @@ bool EngineRuntime::has_compatible_flow_head() const noexcept
 unsigned EngineRuntime::thread_count() const noexcept
 {
   return pool_ != nullptr ? pool_->nthreads() : 0u;
+}
+
+std::size_t EngineRuntime::decode_state_bytes() const noexcept
+{
+  return decode_state_.empty() ? 0uz : decode_snapshot_bytes(decode_state_.size_bytes());
+}
+
+std::uint32_t EngineRuntime::flow_action_status() const noexcept
+{
+  if (flow_state_.cancelled)
+    return FE_ACTION_CANCELLED;
+  if (!flow_state_.active)
+    return FE_ACTION_FAILED;
+  return flow_state_.remaining() == 0uz ? FE_ACTION_COMPLETE : FE_ACTION_RUNNING;
+}
+
+std::uint64_t EngineRuntime::flow_remaining_nfe() const noexcept
+{
+  const std::uint64_t evaluations = flow_state_.method == FlowHead::kRK4    ? 4u
+                                    : flow_state_.method == FlowHead::kHeun ? 2u
+                                                                            : 1u;
+  const std::uint64_t remaining = flow_state_.remaining();
+  return remaining > (std::numeric_limits<std::uint64_t>::max() / evaluations)
+             ? std::numeric_limits<std::uint64_t>::max()
+             : remaining * evaluations;
 }
 
 std::size_t EngineRuntime::action_dim() const noexcept
@@ -227,6 +275,14 @@ int EngineRuntime::sample_condition(const float* condition, const float* noise, 
 int EngineRuntime::flow_begin(const float* condition, const float* noise, std::size_t steps,
                               FlowHead::Method method, const char*& error) noexcept
 {
+  return flow_begin_request(condition, noise, FlowRequestMetadata{.steps = steps, .method = method},
+                            error);
+}
+
+int EngineRuntime::flow_begin_request(const float* condition, const float* noise,
+                                      const FlowRequestMetadata& metadata,
+                                      const char*& error) noexcept
+{
   if (!flow_.valid()) {
     error = "Model has no flow head to sample from";
     return 4;
@@ -235,8 +291,19 @@ int EngineRuntime::flow_begin(const float* condition, const float* noise, std::s
     error = "Flow sampler workspace is unavailable";
     return 2;
   }
+  flow_request_ = metadata;
+  if (metadata.generation_tracking) {
+    std::uint64_t observed = latest_generation_.load(std::memory_order_relaxed);
+    while (observed < metadata.generation &&
+           !latest_generation_.compare_exchange_weak(observed, metadata.generation,
+                                                     std::memory_order_release,
+                                                     std::memory_order_relaxed)) {
+    }
+  }
+  const auto* cancellation = metadata.generation_tracking ? &latest_generation_ : nullptr;
   if (!flow_.sampler_begin({condition, flow_.config().cond_dim}, {noise, flow_.config().action_dim},
-                           steps, method, flow_workspace_, flow_state_)) [[unlikely]] {
+                           metadata.steps, metadata.method, flow_workspace_, flow_state_,
+                           cancellation, metadata.generation)) [[unlikely]] {
     error = "Failed to initialize resumable flow sampler";
     return 2;
   }
@@ -246,6 +313,11 @@ int EngineRuntime::flow_begin(const float* condition, const float* noise, std::s
 int EngineRuntime::flow_advance(std::size_t step_budget, float* action,
                                 std::size_t& steps_remaining, const char*& error) noexcept
 {
+  if (flow_state_.cancelled) {
+    error = "Flow solve was cancelled by a newer generation";
+    steps_remaining = flow_state_.remaining();
+    return 8;
+  }
   if (!flow_state_.active) {
     error = "No resumable flow sample is active";
     return 6;
@@ -253,7 +325,20 @@ int EngineRuntime::flow_advance(std::size_t step_budget, float* action,
   static_cast<void>(
       flow_.sampler_advance(flow_state_, step_budget, {action, flow_.config().action_dim}));
   steps_remaining = flow_state_.remaining();
+  if (flow_state_.cancelled) {
+    error = "Flow solve was cancelled by a newer generation";
+    return 8;
+  }
   return 0;
+}
+
+void EngineRuntime::cancel_before(std::uint64_t generation) noexcept
+{
+  std::uint64_t observed = latest_generation_.load(std::memory_order_relaxed);
+  while (observed < generation &&
+         !latest_generation_.compare_exchange_weak(observed, generation, std::memory_order_release,
+                                                   std::memory_order_relaxed)) {
+  }
 }
 
 int EngineRuntime::export_decode_state(std::span<std::byte> destination,
@@ -264,11 +349,11 @@ int EngineRuntime::export_decode_state(std::span<std::byte> destination,
     error = "Model has no streaming decode state";
     return 7;
   }
-  if (destination.size() < state.size()) {
-    error = "Decode state destination is too small";
-    return 1;
+  const auto result = export_decode_snapshot(identity_, state, destination);
+  if (!result) {
+    error = result.error().message;
+    return result.error().code;
   }
-  std::ranges::copy(state, destination.begin());
   return 0;
 }
 
@@ -280,11 +365,11 @@ int EngineRuntime::import_decode_state(std::span<const std::byte> source,
     error = "Model has no streaming decode state";
     return 7;
   }
-  if (source.size() != state.size()) {
-    error = "Decode state snapshot has the wrong size";
-    return 1;
+  const auto result = import_decode_snapshot(identity_, source, state);
+  if (!result) {
+    error = result.error().message;
+    return result.error().code;
   }
-  std::ranges::copy(source, state.begin());
   return 0;
 }
 

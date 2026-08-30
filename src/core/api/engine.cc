@@ -2,13 +2,16 @@
 
 #include "runtime/engine_runtime.h"
 
+#include <algorithm>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <limits>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <string_view>
 
 namespace {
@@ -27,6 +30,27 @@ const char*& last_error()
            : (method == FE_SOLVER_HEUN) ? fe::FlowHead::kHeun
                                         : fe::FlowHead::kEuler;
   return true;
+}
+
+[[nodiscard]] std::uint64_t nfe_for(std::size_t steps, fe::FlowHead::Method method) noexcept
+{
+  const std::uint64_t per_step = method == fe::FlowHead::kRK4    ? 4u
+                                 : method == fe::FlowHead::kHeun ? 2u
+                                                                 : 1u;
+  return steps > (std::numeric_limits<std::uint64_t>::max() / per_step)
+             ? std::numeric_limits<std::uint64_t>::max()
+             : static_cast<std::uint64_t>(steps) * per_step;
+}
+
+void copy_digest(fe_model_digest& destination, const fe::ModelDigest& source) noexcept
+{
+  std::ranges::copy(source, destination.bytes);
+}
+
+[[nodiscard]] bool same_digest(const fe_model_digest& supplied,
+                               const fe::ModelDigest& expected) noexcept
+{
+  return std::ranges::equal(supplied.bytes, expected);
 }
 
 [[nodiscard]] std::optional<unsigned> environment_thread_count(const char*& error) noexcept
@@ -126,6 +150,32 @@ void fe_engine_dims(const fe_engine* engine, std::size_t* d_model, std::size_t* 
 unsigned fe_engine_thread_count(const fe_engine* engine)
 {
   return engine != nullptr ? engine->runtime.thread_count() : 0u;
+}
+
+int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadata)
+{
+  last_error() = "";
+  if (engine == nullptr || metadata == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_model_metadata";
+    return 1;
+  }
+  const fe::ModelIdentity& identity = engine->runtime.identity();
+  fe_model_metadata result{};
+  result.struct_size = sizeof(result);
+  result.protocol_version = FE_PROTOCOL_VERSION;
+  result.architecture = identity.architecture;
+  result.precision = identity.precision;
+  copy_digest(result.model_digest, identity.digest);
+  result.d_model = identity.d_model;
+  result.n_layers = identity.n_layers;
+  result.d_inner = identity.d_inner;
+  result.d_state = identity.d_state;
+  result.d_conv = identity.d_conv;
+  result.action_dim = identity.action_dim;
+  result.condition_dim = identity.condition_dim;
+  result.decode_snapshot_bytes = engine->runtime.decode_state_bytes();
+  *metadata = result;
+  return 0;
 }
 
 #if defined(__MINGW32__) && defined(__AVX2__)
@@ -229,6 +279,82 @@ int fe_engine_flow_begin(fe_engine* engine, const float* condition, const float*
   return engine->runtime.flow_begin(condition, noise, steps, solver, last_error());
 }
 
+int fe_engine_make_condition_metadata(const fe_engine* engine, std::uint64_t timestamp_ns,
+                                      std::uint64_t deadline_ns, std::uint64_t generation,
+                                      std::size_t steps, int method,
+                                      fe_condition_metadata* metadata)
+{
+  last_error() = "";
+  if (engine == nullptr || metadata == nullptr || steps == 0uz ||
+      (deadline_ns != 0u && deadline_ns < timestamp_ns)) {
+    last_error() = "Invalid arguments to fe_engine_make_condition_metadata";
+    return 1;
+  }
+  fe::FlowHead::Method solver{};
+  if (!solver_method(method, solver)) {
+    last_error() = "Invalid solver method";
+    return 5;
+  }
+  const fe::ModelIdentity& identity = engine->runtime.identity();
+  fe_condition_metadata result{};
+  result.struct_size = sizeof(result);
+  result.protocol_version = FE_PROTOCOL_VERSION;
+  result.solver = static_cast<std::uint32_t>(method);
+  copy_digest(result.model_digest, identity.digest);
+  result.timestamp_ns = timestamp_ns;
+  result.deadline_ns = deadline_ns;
+  result.generation = generation;
+  result.condition_dim = identity.condition_dim;
+  result.action_dim = identity.action_dim;
+  result.solver_steps = steps;
+  result.remaining_nfe = nfe_for(steps, solver);
+  *metadata = result;
+  return 0;
+}
+
+int fe_engine_flow_begin_request(fe_engine* engine, const float* condition, const float* noise,
+                                 const fe_condition_metadata* metadata)
+{
+  last_error() = "";
+  if (engine == nullptr || condition == nullptr || noise == nullptr || metadata == nullptr ||
+      metadata->struct_size < sizeof(*metadata) ||
+      metadata->protocol_version != FE_PROTOCOL_VERSION || metadata->reserved != 0u ||
+      metadata->solver_steps == 0u ||
+      metadata->solver_steps > std::numeric_limits<std::size_t>::max()) {
+    last_error() = "Invalid versioned flow request metadata";
+    return 1;
+  }
+  fe::FlowHead::Method solver{};
+  if (!solver_method(static_cast<int>(metadata->solver), solver)) {
+    last_error() = "Invalid solver method in flow request metadata";
+    return 5;
+  }
+  const fe::ModelIdentity& identity = engine->runtime.identity();
+  if (!same_digest(metadata->model_digest, identity.digest) ||
+      metadata->condition_dim != identity.condition_dim ||
+      metadata->action_dim != identity.action_dim ||
+      metadata->remaining_nfe != nfe_for(metadata->solver_steps, solver) ||
+      (metadata->deadline_ns != 0u && metadata->deadline_ns < metadata->timestamp_ns)) {
+    last_error() = "Flow request metadata is incompatible with this model";
+    return 9;
+  }
+  return engine->runtime.flow_begin_request(
+      condition, noise,
+      fe::FlowRequestMetadata{.timestamp_ns = metadata->timestamp_ns,
+                              .deadline_ns = metadata->deadline_ns,
+                              .generation = metadata->generation,
+                              .steps = static_cast<std::size_t>(metadata->solver_steps),
+                              .method = solver,
+                              .generation_tracking = true},
+      last_error());
+}
+
+void fe_engine_cancel_before(fe_engine* engine, std::uint64_t generation)
+{
+  if (engine != nullptr)
+    engine->runtime.cancel_before(generation);
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif
@@ -242,9 +368,34 @@ int fe_engine_flow_advance(fe_engine* engine, std::size_t step_budget, float* ac
   }
   std::size_t remaining{0uz};
   const int rc = engine->runtime.flow_advance(step_budget, action, remaining, last_error());
-  if (rc == 0 && steps_remaining != nullptr)
+  if ((rc == 0 || rc == 8) && steps_remaining != nullptr)
     *steps_remaining = remaining;
   return rc;
+}
+
+int fe_engine_flow_action_metadata(const fe_engine* engine, fe_action_metadata* metadata)
+{
+  last_error() = "";
+  if (engine == nullptr || metadata == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_flow_action_metadata";
+    return 1;
+  }
+  const fe::ModelIdentity& identity = engine->runtime.identity();
+  const fe::FlowRequestMetadata& request = engine->runtime.flow_request_metadata();
+  fe_action_metadata result{};
+  result.struct_size = sizeof(result);
+  result.protocol_version = FE_PROTOCOL_VERSION;
+  result.solver = static_cast<std::uint32_t>(request.method);
+  result.status = engine->runtime.flow_action_status();
+  copy_digest(result.model_digest, identity.digest);
+  result.timestamp_ns = request.timestamp_ns;
+  result.deadline_ns = request.deadline_ns;
+  result.generation = request.generation;
+  result.condition_dim = identity.condition_dim;
+  result.action_dim = identity.action_dim;
+  result.remaining_nfe = engine->runtime.flow_remaining_nfe();
+  *metadata = result;
+  return 0;
 }
 
 std::size_t fe_engine_decode_state_bytes(const fe_engine* engine)

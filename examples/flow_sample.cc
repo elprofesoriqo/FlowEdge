@@ -50,7 +50,10 @@ int main(int argc, char** argv)
                        : (method == FE_SOLVER_HEUN) ? "heun"
                                                     : "euler";
   if (rc == 0) {
-    std::cout << "action_dim=" << a << "  solver=" << solver << "  NFE=" << steps
+    const std::size_t nfe = steps * (method == FE_SOLVER_RK4    ? 4uz
+                                     : method == FE_SOLVER_HEUN ? 2uz
+                                                                : 1uz);
+    std::cout << "action_dim=" << a << "  solver=" << solver << "  NFE=" << nfe
               << "  action[0..2]=" << action[0] << ", " << action[1 % a] << ", " << action[2 % a]
               << '\n';
   } else {
