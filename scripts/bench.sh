@@ -24,10 +24,12 @@ PY="${PYTHON:-$(command -v python3 || command -v python || command -v py)}"
 exe_l="$BENCH/flowedge_latency_bench"
 exe_k="$BENCH/flowedge_kernels_bench"
 exe_m="$BENCH/flowedge_model_latency_bench"
+exe_t="$BENCH/flowedge_threaded_matmul_bench"
 if [[ -f "$BENCH/flowedge_latency_bench.exe" ]]; then
     exe_l="$BENCH/flowedge_latency_bench.exe"
     exe_k="$BENCH/flowedge_kernels_bench.exe"
     exe_m="$BENCH/flowedge_model_latency_bench.exe"
+    exe_t="$BENCH/flowedge_threaded_matmul_bench.exe"
 fi
 
 echo "== Action-head Real-time Latency (us) [Euler, N=10] =="
@@ -39,6 +41,10 @@ echo "--------------------------------------------------------------------------
 echo ""
 echo "== kernel microbenchmarks =="
 "$exe_k" --benchmark_counters_tabular=true --benchmark_color=true --benchmark_out="$BENCH/kernels.json" --benchmark_out_format=json
+
+echo ""
+echo "== threaded matmul scaling =="
+"$exe_t" --benchmark_counters_tabular=true --benchmark_color=true
 
 [[ -f "$MODEL" ]] || { echo "note: $MODEL absent — skipping end-to-end vs-PyTorch"; exit 0; }
 

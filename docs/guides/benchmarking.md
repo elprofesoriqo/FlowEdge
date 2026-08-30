@@ -1,6 +1,6 @@
 # Benchmarking and regression review
 
-FlowEdge has four distinct performance tools. Use the latency benchmark to validate a control-loop
+FlowEdge has several distinct performance tools. Use the latency benchmark to validate a control-loop
 deadline, the kernel benchmark to isolate CPU-kernel changes, and the engine benchmark to measure a
 real checkpoint's backbone forward pass. When Relay is enabled, its benchmark measures the full
 producer-to-consumer local inference path. They answer different questions and should not be combined
@@ -17,6 +17,9 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BENCH=ON
 cmake --build build --config Release -j
 ./build/flowedge_kernels_bench --benchmark_out=build/kernels.json --benchmark_out_format=json
 ```
+
+`scripts/bench.sh` also runs the threaded-matmul worker scaling sweep and the matched FP32/BF16 model
+latency benchmark when both checkpoints are available.
 
 For the optional Relay path:
 
@@ -72,6 +75,12 @@ mean CPU time increases by more than the threshold. Restrict a run when investig
 ```bash
 ./scripts/ab_bench.sh --filter 'BM_matmul_(in|out)_proj' --runs 15 --threshold 3
 ```
+
+For an offline run, point `FLOWEDGE_FETCHCONTENT_SOURCE_ROOT` at an existing CMake `_deps` directory
+that contains `mdspan-src` and `googlebenchmark-src`; both temporary builds then reuse those sources.
+On Windows Git Bash, the report step falls back to WSL `python3` when no runnable native Python is available;
+the benchmark executables themselves still build and run natively on Windows. The script launches
+them through a clean PowerShell process so MSYS file descriptors cannot affect benchmark aggregation.
 
 ## Interpreting a result
 

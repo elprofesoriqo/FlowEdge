@@ -63,6 +63,22 @@ exercise the threaded pool rather than a test-only executor.
 generation gate and the output-backpressure race where a newer generation arrives while an older
 result is borrowed by the transport loop.
 
+## Installed package consumer
+
+Validate the exported targets with a real downstream C++ configure, link, and run rather than
+`cmake --find-package`, whose probe mode does not enable a language for `Threads` discovery:
+
+```bash
+cmake --install build-relay --prefix build-relay/install-check
+cmake -S test/install_consumer -B build-relay/install-consumer \
+  -DCMAKE_PREFIX_PATH="$PWD/build-relay/install-check"
+cmake --build build-relay/install-consumer -j
+./build-relay/install-consumer/flowedge_install_consumer
+```
+
+The consumer imports and links both `FlowEdge::Core` and `FlowEdge::Relay` using only installed
+headers, archives, transitive dependencies, and generated package metadata.
+
 ## External-head and streaming smoke test
 
 `scripts/verify_external_head.py` generates two small checkpoints without downloading model data.

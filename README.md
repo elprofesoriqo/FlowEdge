@@ -18,13 +18,15 @@ FlowEdge is a custom C++ inference engine designed to execute flow-matching acti
 - decoupled compute backends
 - native `.safetensors` loading, plus a torch/HF checkpoint converter
 - C API and Python bindings
+- an optional deadline-aware shared-memory Relay for cross-process inference
 - verification against PyTorch
 
 It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused on edge robotics with hard real-time latency constraints and zero dynamic allocations.
 
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
-`FlowEdge::Core`. A future optional Relay systems layer will live in `src/relay/` and depend on Core;
-Core will not depend on transport, telemetry, ROS, or daemon libraries.
+`FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
+typed client, EDF admission, portable traces, and preallocated parallel head workers. Core does not
+depend on transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
 
@@ -84,6 +86,10 @@ FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench
 ```
 
 On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
+
+Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its allocation-checked
+single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
+`--threads` setting; begin with `--workers 2 --threads 0` and measure on the deployment CPU.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>
