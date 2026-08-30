@@ -109,5 +109,5 @@ guides/benchmarking
 :caption: Reference
 roadmap
 product-direction
-ecosystem/relay-proposal
+FlowEdge Relay <ecosystem/relay-proposal>
 ```

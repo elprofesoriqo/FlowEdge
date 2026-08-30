@@ -1,8 +1,9 @@
 # Benchmarking and regression review
 
-FlowEdge has three distinct performance tools. Use the latency benchmark to validate a control-loop
+FlowEdge has four distinct performance tools. Use the latency benchmark to validate a control-loop
 deadline, the kernel benchmark to isolate CPU-kernel changes, and the engine benchmark to measure a
-real checkpoint's backbone forward pass. They answer different questions and should not be combined
+real checkpoint's backbone forward pass. When Relay is enabled, its benchmark measures the full
+producer-to-consumer local inference path. They answer different questions and should not be combined
 into one headline number.
 
 ## Establishing a baseline
@@ -16,6 +17,15 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BENCH=ON
 cmake --build build --config Release -j
 ./build/flowedge_kernels_bench --benchmark_out=build/kernels.json --benchmark_out_format=json
 ```
+
+For the optional Relay path:
+
+```bash
+FLOWEDGE_RELAY_BENCH_ITERS=500 ./scripts/relay_bench.sh models/mamba_flow.safetensors
+```
+
+Set `FLOWEDGE_THREADS=0..8` to pin the Core worker count. Otherwise the Relay benchmark uses Core's
+bandwidth-aware automatic choice.
 
 On Windows, use the `.exe` names from PowerShell. In WSL or Git Bash, the repository's Bash wrappers
 are available as well.

@@ -12,6 +12,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(FLOWEDGE_TESTS "Build the GoogleTest suite (dev/CI-only)" OFF)
 option(FLOWEDGE_BENCH "Build the Google Benchmark microbenchmarks (dev-only)" OFF)
 option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF)
+option(FLOWEDGE_RELAY "Build the local real-time inference relay" OFF)
+set(FLOWEDGE_RELAY_MAX_CONDITION_DIM "4096" CACHE STRING
+    "Maximum condition width stored in a Relay message")
+set(FLOWEDGE_RELAY_MAX_ACTION_DIM "1024" CACHE STRING
+    "Maximum action width stored in a Relay message")
 
 # Core compute kernels. CPU auto-selects the host ISA; scalar is also explicit
 # for compatibility testing and targets where deploying AVX2 is undesirable.
@@ -20,6 +25,9 @@ set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512 scalar)
 
 # CORE
 add_subdirectory(src/core)
+if(FLOWEDGE_RELAY)
+  add_subdirectory(src/relay)
+endif()
 
 # EXAMPLES
 foreach(ex flow_sample mamba_forward external_flow_sample)
@@ -61,6 +69,11 @@ if(FLOWEDGE_BENCH)
 
   add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
   target_link_libraries(flowedge_threaded_matmul_bench PRIVATE FlowEdge::Core benchmark::benchmark_main Threads::Threads)
+
+  if(FLOWEDGE_RELAY)
+    add_executable(flowedge_relay_bench bench/relay_bench.cc)
+    target_link_libraries(flowedge_relay_bench PRIVATE FlowEdge::Relay)
+  endif()
 endif()
 
 # TESTS
@@ -80,9 +93,19 @@ if(FLOWEDGE_TESTS)
   find_package(Threads REQUIRED)
   add_executable(flowedge_tests test/tests.cc)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
+
+  if(FLOWEDGE_RELAY)
+    add_executable(flowedge_relay_tests test/relay_tests.cc)
+    target_link_libraries(flowedge_relay_tests PRIVATE FlowEdge::Relay GTest::gtest_main)
+    target_compile_definitions(flowedge_relay_tests PRIVATE
+      FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
   
   include(GoogleTest)
   gtest_discover_tests(flowedge_tests)
+  if(FLOWEDGE_RELAY)
+    gtest_discover_tests(flowedge_relay_tests)
+  endif()
 endif()
 
 # PYTHON (Pybind11)
@@ -121,7 +144,11 @@ endif()
 
 if(NOT SKBUILD)
 include(GNUInstallDirs)
-install(TARGETS flowedge_core flowedge_engine
+set(FLOWEDGE_INSTALL_TARGETS flowedge_core flowedge_engine)
+if(TARGET flowedge_relay)
+  list(APPEND FLOWEDGE_INSTALL_TARGETS flowedge_relay)
+endif()
+install(TARGETS ${FLOWEDGE_INSTALL_TARGETS}
         EXPORT FlowEdgeTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -130,6 +157,11 @@ install(TARGETS flowedge_core flowedge_engine
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/core/
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
         FILES_MATCHING PATTERN "*.h")
+if(TARGET flowedge_relay)
+  install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/relay/
+          DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/relay
+          FILES_MATCHING PATTERN "*.h")
+endif()
 
 set(FLOWEDGE_CMAKEDIR ${CMAKE_INSTALL_LIBDIR}/cmake/FlowEdge)
 install(EXPORT FlowEdgeTargets
