@@ -45,6 +45,7 @@ The current MVP provides:
 - optional calibrated EDF-prefix schedulability checks that include active and queued NFE demand;
 - stale-request pruning and cancellation between complete solver steps;
 - typed stale, unreachable-deadline, capacity, and expiry outcomes returned on the action ring;
+- a preallocated 1..8 worker pool with one independent Core engine and outer thread per slot;
 - portable little-endian condition/action traces with checksum validation and v1 read compatibility;
 - `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints;
 - `RelayClient`, a typed SPSC producer/action-consumer endpoint for external C++ services;
@@ -52,7 +53,7 @@ The current MVP provides:
 - `flowedge-relay-trace`, which inspects traces as text/JSONL or replays actions against a model;
 - a Windows/POSIX integration test that crosses a real process and shared-memory boundary.
 
-Action overlap policies, state-capsule migration, long-term metrics export, worker pools, and adapters
+Action overlap policies, state-capsule migration, long-term metrics export, weight sharing, and adapters
 for training/serving runtimes remain later milestones. They should be justified by real traces rather
 than expanding the hot-path dependency footprint speculatively.
 
@@ -133,6 +134,20 @@ Passing `--nfe-ns 0` (the default) disables calibrated rejection while expiry-at
 active. A producer receives a normal, model-compatible action record with `status=failed` and an
 outcome code such as `rejected_deadline`; `RelayClient::try_receive` therefore remains one typed path
 for inference and scheduling results.
+
+Parallel model workers are explicit:
+
+```bash
+./build/src/relay/flowedge-relayd --model models/mamba_flow.safetensors --create \
+  --workers 2 --threads 0
+./build/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 2 0
+```
+
+`--workers` creates independent engines and dedicated outer threads; `--threads` configures the Core
+background thread pool inside each engine. Start with caller-only engines when using multiple outer
+workers, then measure alternatives. Each slot keeps a completed action until the ring consumer makes
+space, while the other slots and the transport loop continue. The current implementation duplicates
+model weights per slot, making two workers a throughput/memory tradeoff rather than a free default.
 
 ## Reuse outside robotics
 

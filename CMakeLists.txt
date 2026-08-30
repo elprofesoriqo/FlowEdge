@@ -73,6 +73,9 @@ if(FLOWEDGE_BENCH)
   if(FLOWEDGE_RELAY)
     add_executable(flowedge_relay_bench bench/relay_bench.cc)
     target_link_libraries(flowedge_relay_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_relay_pool_bench bench/relay_pool_bench.cc)
+    target_link_libraries(flowedge_relay_pool_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 

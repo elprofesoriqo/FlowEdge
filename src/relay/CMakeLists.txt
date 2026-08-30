@@ -4,6 +4,7 @@ add_library(flowedge_relay STATIC
   shared_memory/shared_memory_ring.cc
   scheduler/edf_scheduler.cc
   worker/head_worker.cc
+  worker/head_worker_pool.cc
 )
 add_library(FlowEdge::Relay ALIAS flowedge_relay)
 
@@ -13,7 +14,7 @@ set_target_properties(flowedge_relay PROPERTIES
   POSITION_INDEPENDENT_CODE ON
 )
 
-target_link_libraries(flowedge_relay PUBLIC FlowEdge::Core)
+target_link_libraries(flowedge_relay PUBLIC FlowEdge::Core Threads::Threads)
 target_include_directories(flowedge_relay PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>
   $<INSTALL_INTERFACE:include>

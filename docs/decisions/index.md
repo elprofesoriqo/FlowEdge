@@ -21,4 +21,5 @@ A pull request that makes an architectural choice adds an ADR.
 0013-relay-client-lifecycle
 0014-portable-relay-traces
 0015-calibrated-deadline-admission
+0016-preallocated-head-worker-pool
 ```

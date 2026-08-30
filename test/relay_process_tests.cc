@@ -75,7 +75,7 @@ public:
     std::wstring command = quote(executable.wstring()) + L" --model " + quote(model.wstring()) +
                            L" --condition-shm " + quote(widen_ascii(condition_name)) +
                            L" --action-shm " + quote(widen_ascii(action_name)) +
-                           L" --capacity 8 --threads 0 --nfe-ns 1000000000 --create";
+                           L" --capacity 8 --workers 2 --threads 0 --nfe-ns 1000000000 --create";
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
@@ -91,7 +91,8 @@ public:
     if (process == 0) {
       execl(executable.c_str(), executable.c_str(), "--model", model.c_str(), "--condition-shm",
             condition_name.c_str(), "--action-shm", action_name.c_str(), "--capacity", "8",
-            "--threads", "0", "--nfe-ns", "1000000000", "--create", static_cast<char*>(nullptr));
+            "--workers", "2", "--threads", "0", "--nfe-ns", "1000000000", "--create",
+            static_cast<char*>(nullptr));
       _exit(127);
     }
     return ChildDaemon{process};

@@ -33,6 +33,25 @@ portable constant. Re-measure with the production checkpoint, thread count, affi
 and sustained thermal load. Add `--admission-reserve-ns` for transport/controller jitter, then verify
 rejection rates against captured traces before enforcing the policy in a physical control loop.
 
+`flowedge_relay_pool_bench` keeps a bounded EDF backlog and measures the independent worker threads
+under concurrent load. Compare one and two workers with caller-only Core engines before changing the
+daemon configuration:
+
+```bash
+./build/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 1 0
+./build/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 2 0
+```
+
+The last two arguments are outer model workers and Core background threads per worker. The benchmark
+reports throughput, queue-inclusive latency, and hot allocations. `scripts/relay_bench.sh` runs both
+the single-request transport benchmark and this pool benchmark; override its pool case with
+`FLOWEDGE_RELAY_POOL_WORKERS` and `FLOWEDGE_RELAY_POOL_THREADS`.
+
+More workers are useful only while throughput rises without violating tail latency, memory, or CPU
+budgets. Every current slot owns a complete checkpoint arena. Record resident memory as well as
+requests/second, and avoid multiplying outer workers by large inner Core thread pools without an
+explicit oversubscription experiment.
+
 On Windows, use the `.exe` names from PowerShell. In WSL or Git Bash, the repository's Bash wrappers
 are available as well.
 

@@ -55,6 +55,14 @@ that one feasible request executes and a tighter request returns a valid `reject
 Scheduler unit tests cover affected-prefix demand, active remaining work, saturated generation
 replacement, capacity displacement feedback, and expiry feedback independently of wall-clock timing.
 
+`HeadWorkerPool.RunsTwoRequestsOnPreallocatedWorkerThreads` dispatches two requests before consuming
+either result, validates both actions, and verifies that both fixed slots return to idle. The process
+test starts `flowedge-relayd --workers 2`, so lifecycle, admission feedback, and clean shutdown also
+exercise the threaded pool rather than a test-only executor.
+`HeadWorkerPool.CancelsDispatchedWorkAndInvalidatesBorrowedStaleResults` covers the cross-thread
+generation gate and the output-backpressure race where a newer generation arrives while an older
+result is borrowed by the transport loop.
+
 ## External-head and streaming smoke test
 
 `scripts/verify_external_head.py` generates two small checkpoints without downloading model data.

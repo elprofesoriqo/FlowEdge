@@ -25,3 +25,9 @@ if [[ -n "${FLOWEDGE_THREADS:-}" ]]; then
 else
     "$EXE" "$MODEL" "$ITERS"
 fi
+
+POOL_EXE="$BUILD_DIR/flowedge_relay_pool_bench"
+[[ -f "$POOL_EXE.exe" ]] && POOL_EXE="$POOL_EXE.exe"
+POOL_WORKERS="${FLOWEDGE_RELAY_POOL_WORKERS:-2}"
+POOL_THREADS="${FLOWEDGE_RELAY_POOL_THREADS:-0}"
+"$POOL_EXE" "$MODEL" "$ITERS" "$POOL_WORKERS" "$POOL_THREADS"

@@ -1,7 +1,7 @@
 #include "relay/protocol/trace.h"
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/shared_memory/shared_memory_ring.h"
-#include "relay/worker/head_worker.h"
+#include "relay/worker/head_worker_pool.h"
 
 #include <atomic>
 #include <charconv>
@@ -28,7 +28,7 @@ using fe::relay::AdmissionPolicy;
 using fe::relay::ConditionMessage;
 using fe::relay::ControlMessage;
 using fe::relay::EdfScheduler;
-using fe::relay::HeadWorker;
+using fe::relay::HeadWorkerPool;
 using fe::relay::MessageEnvelope;
 using fe::relay::MessageKind;
 using fe::relay::RelayActionCode;
@@ -37,7 +37,6 @@ using fe::relay::RingResult;
 using fe::relay::SharedMemoryRing;
 using fe::relay::SubmitResult;
 using fe::relay::TraceWriter;
-using fe::relay::WorkerStep;
 
 struct Options
 {
@@ -46,6 +45,7 @@ struct Options
   std::string action_shm{"flowedge-relay-actions"};
   std::string trace{};
   std::uint32_t capacity{32u};
+  std::size_t workers{1uz};
   std::uint64_t nanoseconds_per_nfe{};
   std::uint64_t admission_reserve_ns{};
   std::optional<unsigned> threads{};
@@ -82,7 +82,8 @@ void usage(std::ostream& output)
             "  --condition-shm NAME  input shared-memory ring name\n"
             "  --action-shm NAME     output shared-memory ring name\n"
             "  --capacity N          power-of-two ring/scheduler capacity (default 32)\n"
-            "  --threads N           exact Core worker count, 0..8\n"
+            "  --workers N           independent model workers, 1..8 (default 1)\n"
+            "  --threads N           Core background threads per model worker, 0..8\n"
             "  --nfe-ns N            measured upper-bound nanoseconds per function evaluation\n"
             "  --admission-reserve-ns N  fixed deadline safety reserve\n"
             "  --trace FILE          record accepted conditions and emitted actions\n"
@@ -127,6 +128,10 @@ void usage(std::ostream& output)
     } else if (argument == "--capacity") {
       if (!parse_integer(*value, options.capacity))
         return std::unexpected("Invalid --capacity value");
+    } else if (argument == "--workers") {
+      if (!parse_integer(*value, options.workers) || options.workers == 0uz ||
+          options.workers > 8uz)
+        return std::unexpected("Invalid --workers value; expected 1..8");
     } else if (argument == "--threads") {
       unsigned threads{};
       if (!parse_integer(*value, threads) || threads > 8u)
@@ -186,12 +191,12 @@ try {
   // In daemon-owned mode, publishing the mappings is the readiness signal.
   // Finish checkpoint loading first so a client cannot spend its deadline
   // waiting for startup work after it successfully connects.
-  auto worker_result = HeadWorker::open(options.model, options.threads);
-  if (!worker_result) {
-    std::cerr << "flowedge-relayd: " << worker_result.error() << '\n';
+  auto pool_result = HeadWorkerPool::open(options.model, options.workers, options.threads);
+  if (!pool_result) {
+    std::cerr << "flowedge-relayd: " << pool_result.error() << '\n';
     return 1;
   }
-  HeadWorker worker = std::move(*worker_result);
+  HeadWorkerPool pool = std::move(*pool_result);
 
   auto conditions_result =
       options.create ? SharedMemoryRing::create(options.condition_shm,
@@ -232,9 +237,7 @@ try {
   std::signal(SIGTERM, request_stop);
 
   auto incoming = std::make_unique<ConditionMessage>();
-  ActionMessage action{};
   ActionMessage rejection{};
-  bool action_pending{false};
   std::uint64_t rejection_outputs_dropped{};
   const auto publish_rejection = [&](const ActionMessage& outcome) {
     const RingResult pushed = actions.try_push(wire_bytes(outcome));
@@ -276,21 +279,20 @@ try {
       }
       if (bytes_read != wire_size(*incoming))
         continue;
-      if (!fe::relay::compatible(*incoming, worker.model_metadata()))
+      if (!fe::relay::compatible(*incoming, pool.model_metadata()))
         continue;
       const std::uint64_t submitted_at = monotonic_ns();
       rejection = {};
       const SubmitResult submitted =
           scheduler.submit(*incoming,
                            AdmissionContext{.now_ns = submitted_at,
-                                            .active_generation = worker.generation(),
+                                            .active_generation = incoming->metadata.generation,
                                             .active_remaining_nfe =
-                                                worker.busy() ? worker.remaining_nfe() : 0u},
+                                                pool.active_remaining_nfe_at_or_after(
+                                                    incoming->metadata.generation)},
                            &rejection);
       if (accepted(submitted)) {
-        worker.cancel_before(scheduler.newest_generation());
-        if (action_pending && action.metadata.generation < scheduler.newest_generation())
-          action_pending = false;
+        pool.cancel_before(scheduler.newest_generation());
         if (trace) {
           const auto written = trace->append(*incoming);
           if (!written)
@@ -304,44 +306,48 @@ try {
       }
     }
 
-    if (action_pending) {
-      const RingResult pushed = actions.try_push(wire_bytes(action));
+    const std::size_t output_budget = pool.worker_count();
+    for (std::size_t published{0uz}; published < output_budget; ++published) {
+      const std::uint64_t failures_before = pool.failure_count();
+      const ActionMessage* const action = pool.ready_action();
+      if (pool.failure_count() != failures_before) {
+        std::cerr << "flowedge-relayd: worker error: " << pool.last_error() << '\n';
+        progressed = true;
+      }
+      if (action == nullptr)
+        break;
+      const RingResult pushed = actions.try_push(wire_bytes(*action));
       if (pushed == RingResult::kSuccess) {
         if (trace) {
-          const auto written = trace->append(action);
+          const auto written = trace->append(*action);
           if (!written)
             std::cerr << "flowedge-relayd: " << written.error() << '\n';
         }
-        action_pending = false;
+        pool.release_ready_action();
         progressed = true;
-      } else if (pushed != RingResult::kFull) {
+      } else if (pushed == RingResult::kFull) {
+        break;
+      } else {
         std::cerr << "flowedge-relayd: action message exceeds output ring slot\n";
         return 1;
       }
     }
 
-    if (!action_pending && !worker.busy()) {
+    const std::size_t dispatch_budget = pool.worker_count();
+    for (std::size_t dispatched{0uz}; dispatched < dispatch_budget && pool.has_idle();) {
       rejection = {};
       const std::uint64_t dispatch_at = monotonic_ns();
       if (const ConditionMessage* request = scheduler.pop(dispatch_at, &rejection)) {
-        if (!worker.begin(*request))
-          std::cerr << "flowedge-relayd: rejected scheduled request: " << worker.last_error()
-                    << '\n';
+        if (!pool.try_dispatch(*request))
+          std::cerr << "flowedge-relayd: rejected scheduled request: " << pool.last_error() << '\n';
+        ++dispatched;
         progressed = true;
       } else if (rejection.envelope.struct_size != 0u) {
         publish_rejection(rejection);
         progressed = true;
+      } else {
+        break;
       }
-    }
-
-    if (!action_pending && worker.busy()) {
-      const WorkerStep step = worker.advance(action);
-      if (step == WorkerStep::kComplete || step == WorkerStep::kCancelled) {
-        action_pending = true;
-      } else if (step == WorkerStep::kError) {
-        std::cerr << "flowedge-relayd: worker error: " << worker.last_error() << '\n';
-      }
-      progressed = true;
     }
 
     if (!progressed)
@@ -354,6 +360,7 @@ try {
   std::cout << "flowedge-relayd stopped: accepted=" << stats.accepted << " stale=" << stats.stale
             << " unreachable=" << stats.unreachable << " expired=" << stats.expired
             << " evicted=" << stats.evicted << " full=" << stats.full
+            << " worker_failures=" << pool.failure_count()
             << " rejection_outputs_dropped=" << rejection_outputs_dropped << '\n';
   return 0;
 } catch (const std::exception& error) {

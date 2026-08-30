@@ -3,6 +3,7 @@
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/shared_memory/shared_memory_ring.h"
 #include "relay/worker/head_worker.h"
+#include "relay/worker/head_worker_pool.h"
 
 #include <array>
 #include <chrono>
@@ -16,6 +17,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -315,6 +317,92 @@ TEST(HeadWorker, RunsAndCancelsGenerationTrackedRequests)
   EXPECT_EQ(worker.advance(action), WorkerStep::kCancelled);
   EXPECT_EQ(action.metadata.status, FE_ACTION_CANCELLED);
   EXPECT_EQ(action.metadata.generation, 6u);
+}
+
+TEST(HeadWorkerPool, RunsTwoRequestsOnPreallocatedWorkerThreads)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+  auto opened = HeadWorkerPool::open(model.string(), 2uz, 0u);
+  ASSERT_TRUE(opened) << opened.error();
+  HeadWorkerPool pool = std::move(*opened);
+  const auto& metadata = pool.model_metadata();
+  std::vector<float> condition(metadata.condition_dim, 0.125f);
+  std::vector<float> noise(metadata.action_dim, -0.25f);
+
+  ConditionMessage first{};
+  ConditionMessage second{};
+  ASSERT_EQ(make_condition_message(first, metadata, 101u, 9u, 100u, 0u, 7u, 20uz, FE_SOLVER_HEUN,
+                                   condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(make_condition_message(second, metadata, 102u, 9u, 100u, 0u, 7u, 20uz, FE_SOLVER_HEUN,
+                                   condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_TRUE(pool.try_dispatch(first)) << pool.last_error();
+  ASSERT_TRUE(pool.try_dispatch(second)) << pool.last_error();
+  EXPECT_FALSE(pool.try_dispatch(first));
+
+  std::array<bool, 2> received{};
+  std::size_t completed{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (completed < received.size() && std::chrono::steady_clock::now() < timeout) {
+    const ActionMessage* const action = pool.ready_action();
+    if (action == nullptr) {
+      std::this_thread::yield();
+      continue;
+    }
+    ASSERT_EQ(validate(*action), ProtocolResult::kSuccess);
+    ASSERT_EQ(action->metadata.status, FE_ACTION_COMPLETE);
+    ASSERT_GE(action->envelope.sequence, 101u);
+    ASSERT_LE(action->envelope.sequence, 102u);
+    const std::size_t index = static_cast<std::size_t>(action->envelope.sequence - 101u);
+    EXPECT_FALSE(received[index]);
+    received[index] = true;
+    ++completed;
+    pool.release_ready_action();
+  }
+  EXPECT_EQ(completed, received.size());
+  EXPECT_EQ(pool.busy_count(), 0uz);
+  EXPECT_TRUE(pool.has_idle());
+}
+
+TEST(HeadWorkerPool, CancelsDispatchedWorkAndInvalidatesBorrowedStaleResults)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+  auto opened = HeadWorkerPool::open(model.string(), 1uz, 0u);
+  ASSERT_TRUE(opened) << opened.error();
+  HeadWorkerPool pool = std::move(*opened);
+  const auto& metadata = pool.model_metadata();
+  std::vector<float> condition(metadata.condition_dim, 0.125f);
+  std::vector<float> noise(metadata.action_dim, -0.25f);
+
+  ConditionMessage request{};
+  ASSERT_EQ(make_condition_message(request, metadata, 201u, 10u, 100u, 0u, 5u, 1'000uz,
+                                   FE_SOLVER_HEUN, condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_TRUE(pool.try_dispatch(request)) << pool.last_error();
+  pool.cancel_before(6u);
+
+  const ActionMessage* action{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (action == nullptr && std::chrono::steady_clock::now() < timeout) {
+    action = pool.ready_action();
+    if (action == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(action, nullptr);
+  ASSERT_EQ(validate(*action), ProtocolResult::kSuccess);
+  EXPECT_EQ(action->metadata.status, FE_ACTION_CANCELLED);
+  EXPECT_EQ(action->metadata.generation, 5u);
+
+  pool.cancel_before(6u);
+  EXPECT_EQ(pool.ready_action(), nullptr);
+  EXPECT_TRUE(pool.has_idle());
 }
 
 } // namespace
