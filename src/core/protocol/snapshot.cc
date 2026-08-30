@@ -21,7 +21,8 @@ void write_le(std::span<std::byte> destination, std::size_t offset, Integer valu
   using Unsigned = std::make_unsigned_t<Integer>;
   const auto bits = static_cast<Unsigned>(value);
   for (std::size_t i{0uz}; i < sizeof(Integer); ++i)
-    destination[offset + i] = static_cast<std::byte>((bits >> (8uz * i)) & Unsigned{0xffu});
+    destination[offset + i] = static_cast<std::byte>(
+        (bits >> (8uz * i)) & Unsigned{0xffu}); // NOLINT(bugprone-signed-bitwise)
 }
 
 template<typename Integer>
@@ -29,8 +30,10 @@ template<typename Integer>
 {
   using Unsigned = std::make_unsigned_t<Integer>;
   Unsigned value{};
-  for (std::size_t i{0uz}; i < sizeof(Integer); ++i)
+  for (std::size_t i{0uz}; i < sizeof(Integer); ++i) {
+    // NOLINTNEXTLINE(bugprone-signed-bitwise): Integer is converted to its unsigned type.
     value |= static_cast<Unsigned>(std::to_integer<std::uint8_t>(source[offset + i])) << (8uz * i);
+  }
   return static_cast<Integer>(value);
 }
 
@@ -51,7 +54,8 @@ std::expected<void, SnapshotError> export_decode_snapshot(const ModelIdentity& i
 {
   const std::size_t required = decode_snapshot_bytes(payload.size());
   if (required == 0uz || destination.size() < required)
-    return std::unexpected(SnapshotError{1, "Decode snapshot destination is too small"});
+    return std::unexpected(
+        SnapshotError{.code = 1, .message = "Decode snapshot destination is too small"});
 
   std::ranges::fill(destination.first(required), std::byte{0});
   std::ranges::copy(kMagic, destination.begin());
@@ -78,19 +82,23 @@ std::expected<void, SnapshotError> import_decode_snapshot(const ModelIdentity& e
                                                           std::span<std::byte> payload) noexcept
 {
   if (source.size() < kDecodeSnapshotHeaderBytes)
-    return std::unexpected(SnapshotError{1, "Decode snapshot is truncated"});
+    return std::unexpected(SnapshotError{.code = 1, .message = "Decode snapshot is truncated"});
   if (!std::ranges::equal(kMagic, source.first(kMagic.size())))
-    return std::unexpected(SnapshotError{10, "Decode snapshot magic is invalid"});
+    return std::unexpected(
+        SnapshotError{.code = 10, .message = "Decode snapshot magic is invalid"});
   if (read_le<std::uint16_t>(source, 8uz) != kVersion ||
       read_le<std::uint16_t>(source, 10uz) != kDecodeSnapshotHeaderBytes)
-    return std::unexpected(SnapshotError{9, "Decode snapshot version is unsupported"});
+    return std::unexpected(
+        SnapshotError{.code = 9, .message = "Decode snapshot version is unsupported"});
   if (read_le<std::uint32_t>(source, 12uz) != 0u)
-    return std::unexpected(SnapshotError{10, "Decode snapshot header flags are invalid"});
+    return std::unexpected(
+        SnapshotError{.code = 10, .message = "Decode snapshot header flags are invalid"});
 
-  const std::uint64_t state_bytes = read_le<std::uint64_t>(source, 80uz);
+  const auto state_bytes = read_le<std::uint64_t>(source, 80uz);
   if (state_bytes != payload.size() || state_bytes > source.size() - kDecodeSnapshotHeaderBytes ||
       source.size() != kDecodeSnapshotHeaderBytes + state_bytes)
-    return std::unexpected(SnapshotError{1, "Decode snapshot size is incompatible or truncated"});
+    return std::unexpected(
+        SnapshotError{.code = 1, .message = "Decode snapshot size is incompatible or truncated"});
 
   ModelDigest digest{};
   for (std::size_t i{0uz}; i < digest.size(); ++i)
@@ -104,11 +112,13 @@ std::expected<void, SnapshotError> import_decode_snapshot(const ModelIdentity& e
                           read_le<std::uint64_t>(source, 64uz) == expected.d_state &&
                           read_le<std::uint64_t>(source, 72uz) == expected.d_conv;
   if (!compatible)
-    return std::unexpected(SnapshotError{9, "Decode snapshot belongs to an incompatible model"});
+    return std::unexpected(
+        SnapshotError{.code = 9, .message = "Decode snapshot belongs to an incompatible model"});
 
   const auto encoded_payload = source.subspan(kDecodeSnapshotHeaderBytes);
   if (read_le<std::uint64_t>(source, 88uz) != payload_checksum(encoded_payload))
-    return std::unexpected(SnapshotError{10, "Decode snapshot checksum mismatch"});
+    return std::unexpected(
+        SnapshotError{.code = 10, .message = "Decode snapshot checksum mismatch"});
   std::ranges::copy(encoded_payload, payload.begin());
   return {};
 }

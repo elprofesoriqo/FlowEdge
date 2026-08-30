@@ -60,13 +60,13 @@ constexpr std::uint64_t kPrime5 = 2870177450012600261ULL;
     std::uint64_t lane3 = seed;
     std::uint64_t lane4 = seed - kPrime1;
     const std::byte* const block_end = end - 32uz;
-    do {
+    while (cursor <= block_end) {
       lane1 = round(lane1, read_u64(cursor));
       lane2 = round(lane2, read_u64(cursor + 8uz));
       lane3 = round(lane3, read_u64(cursor + 16uz));
       lane4 = round(lane4, read_u64(cursor + 24uz));
       cursor += 32uz;
-    } while (cursor <= block_end);
+    }
     hash = std::rotl(lane1, 1) + std::rotl(lane2, 7) + std::rotl(lane3, 12) + std::rotl(lane4, 18);
     for (const std::uint64_t lane : {lane1, lane2, lane3, lane4}) {
       hash ^= round(0u, lane);

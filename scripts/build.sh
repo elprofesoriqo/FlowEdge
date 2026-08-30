@@ -40,4 +40,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 cmake --log-level=WARNING "${ARGS[@]}"
-cmake --build "$BUILD_DIR" -j "$(nproc 2>/dev/null || echo 4)"
+
+if [[ -n "${FLOWEDGE_BUILD_JOBS:-}" ]]; then
+  JOBS="$FLOWEDGE_BUILD_JOBS"
+else
+  JOBS="$(nproc 2>/dev/null || echo 4)"
+  case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) JOBS=1 ;;
+    *) if [[ "$JOBS" -gt 8 ]]; then JOBS=8; fi ;;
+  esac
+fi
+[[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "FLOWEDGE_BUILD_JOBS must be a positive integer"; exit 2; }
+cmake --build "$BUILD_DIR" -j "$JOBS"

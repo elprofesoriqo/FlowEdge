@@ -55,7 +55,8 @@ void copy_digest(fe_model_digest& destination, const fe::ModelDigest& source) no
 
 [[nodiscard]] std::optional<unsigned> environment_thread_count(const char*& error) noexcept
 {
-  const char* const value = std::getenv("FLOWEDGE_THREADS");
+  // Environment mutation is a process-startup concern; engine loading only reads it.
+  const char* const value = std::getenv("FLOWEDGE_THREADS"); // NOLINT(concurrency-mt-unsafe)
   if (value == nullptr || value[0] == '\0')
     return fe::EngineRuntime::recommended_thread_count();
   const std::string_view text{value};
