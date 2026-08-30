@@ -19,17 +19,18 @@ constexpr std::size_t k_max_decode_seq = 512uz; // scratch is sized for prefills
 
 } // namespace
 
-std::size_t EngineRuntime::required_slab_bytes(std::string_view path) noexcept
+std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noexcept
 {
-  const std::size_t weights = safetensors_weight_bytes(path);
-  if (weights == 0uz)
-    return 0uz;
-
-  const auto emb = safetensors_tensor_shape(path, "backbone.embeddings.weight");
-  const auto a_log = safetensors_tensor_shape(path, "backbone.layers.0.mixer.A_log");
-  const auto conv = safetensors_tensor_shape(path, "backbone.layers.0.mixer.conv1d.weight");
-  const auto flow_in = safetensors_tensor_shape(path, "flow.in_proj.weight");
-  const auto time_proj = safetensors_tensor_shape(path, "flow.time_proj.weight");
+  const std::span<const TensorView> tensors = weights.tensors();
+  const auto shape = [tensors](std::string_view name) noexcept {
+    const TensorView* const tensor = find_tensor(tensors, name);
+    return tensor != nullptr ? tensor->shape : std::array<std::size_t, 4>{};
+  };
+  const auto emb = shape("backbone.embeddings.weight");
+  const auto a_log = shape("backbone.layers.0.mixer.A_log");
+  const auto conv = shape("backbone.layers.0.mixer.conv1d.weight");
+  const auto flow_in = shape("flow.in_proj.weight");
+  const auto time_proj = shape("flow.time_proj.weight");
   const std::size_t d_model = emb[1];
   const std::size_t d_inner = a_log[0];
   const std::size_t d_state = a_log[1];
@@ -52,7 +53,7 @@ std::size_t EngineRuntime::required_slab_bytes(std::string_view path) noexcept
                               (kThreadRingSlots * sizeof(std::size_t)) +
                               (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
                               (flow_floats * sizeof(float)) + persistent_state + 4096uz;
-  return weights + (k_max_decode_seq * per_token * sizeof(float)) + runtime;
+  return (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
 unsigned EngineRuntime::recommended_thread_count() noexcept
@@ -66,14 +67,18 @@ unsigned EngineRuntime::recommended_thread_count() noexcept
   return std::min(std::max(hardware_threads / 2u, 2u), 4u);
 }
 
-EngineRuntime::EngineRuntime(std::string_view path, std::size_t slab_bytes, unsigned worker_threads,
-                             const char*& error)
-    : slab_{slab_bytes}, arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
-      tensor_count_{load_views(path, error)},
-      model_{std::span<const TensorView>{views_.data(), tensor_count_}, arena_},
-      flow_{std::span<const TensorView>{views_.data(), tensor_count_}, arena_}
+EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::size_t slab_bytes,
+                             unsigned worker_threads, const char*& error)
+    : weights_{std::move(weights)}, slab_{slab_bytes},
+      arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
+      model_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
+      flow_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_}
 {
-  const std::span<const TensorView> tensors{views_.data(), tensor_count_};
+  if (!weights_) {
+    error = "Immutable model weights are unavailable";
+    return;
+  }
+  const std::span<const TensorView> tensors = weights_->tensors();
   identity_.digest = fingerprint_tensors(tensors);
   identity_.precision = checkpoint_precision(tensors);
   identity_.architecture = model_.valid() && flow_.valid() ? FE_ARCH_MAMBA_FLOW
@@ -371,17 +376,6 @@ int EngineRuntime::import_decode_state(std::span<const std::byte> source,
     return result.error().code;
   }
   return 0;
-}
-
-std::size_t EngineRuntime::load_views(std::string_view path, const char*& error) noexcept
-{
-  std::size_t count{0uz};
-  auto result = load_safetensors(path, arena_, views_, count);
-  if (!result) {
-    error = result.error();
-    return 0uz;
-  }
-  return count;
 }
 
 int EngineRuntime::run_backbone(const std::int32_t* tokens, std::size_t seq_len, float* hidden,

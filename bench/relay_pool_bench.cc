@@ -175,6 +175,7 @@ int main(int argc, char** argv)
             << "FlowEdge Relay preallocated worker-pool scheduler\n"
             << "requests=" << iterations << " workers=" << workers
             << " core_threads_per_worker=" << threads << " steps=6 solver=heun\n"
+            << "shared_weight_bytes=" << pool.shared_weight_bytes() << '\n'
             << "mean_us=" << (sum / static_cast<double>(iterations))
             << " p50_us=" << percentile(latencies_us, 0.50)
             << " p99_us=" << percentile(latencies_us, 0.99) << '\n'

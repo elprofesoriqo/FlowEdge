@@ -23,6 +23,8 @@ class HeadWorker
 public:
   [[nodiscard]] static std::expected<HeadWorker, std::string> open(
       std::string_view model_path, std::optional<unsigned> threads = std::nullopt) noexcept;
+  [[nodiscard]] static std::expected<HeadWorker, std::string> open(
+      const fe_weights* weights, std::optional<unsigned> threads = std::nullopt) noexcept;
 
   ~HeadWorker();
   HeadWorker(const HeadWorker&) = delete;

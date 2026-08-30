@@ -12,12 +12,13 @@
 - Cooperative/resumable inference and portable streaming-state snapshots.
 - FlowEdge Relay: typed shared-memory client, EDF admission, cancellation, portable traces, and a
   preallocated multi-worker pool.
+- Shared immutable checkpoint weights and compact/spread NUMA-aware Relay worker placement.
 
 ## Next
 
 - Heads: Diffusion Policy, ACT, VQ-BeT, pi0.
 - Backbone: Transformer. Unlocks the transformer heads.
-- Weight traffic: shared immutable worker weights, NUMA placement, then INT8. See
+- Weight traffic: per-node replication experiments and INT8. See
   [ADR 0007](decisions/0007-roofline).
 - Relay: worker-aware admission, production metrics, action overlap, and portable state migration.
 - Cooperative adapters for iterative diffusion, streaming SSM/LLM decode, and speculative branches.

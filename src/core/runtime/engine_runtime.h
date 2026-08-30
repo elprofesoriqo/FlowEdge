@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <thread>
@@ -34,11 +35,11 @@ class EngineRuntime
 public:
   static constexpr unsigned kMaxPoolThreads = 8u;
 
-  [[nodiscard]] static std::size_t required_slab_bytes(std::string_view path) noexcept;
+  [[nodiscard]] static std::size_t required_slab_bytes(const ModelWeights& weights) noexcept;
   [[nodiscard]] static unsigned recommended_thread_count() noexcept;
 
-  EngineRuntime(std::string_view path, std::size_t slab_bytes, unsigned worker_threads,
-                const char*& error);
+  EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::size_t slab_bytes,
+                unsigned worker_threads, const char*& error);
   ~EngineRuntime();
 
   EngineRuntime(const EngineRuntime&) = delete;
@@ -79,17 +80,14 @@ public:
   int import_decode_state(std::span<const std::byte> source, const char*& error) noexcept;
 
 private:
-  static constexpr std::size_t kMaxTensors = 1024uz;
   static constexpr std::size_t kThreadRingSlots = 128uz;
 
-  [[nodiscard]] std::size_t load_views(std::string_view path, const char*& error) noexcept;
   int run_backbone(const std::int32_t* tokens, std::size_t seq_len, float* hidden,
                    const char*& error) noexcept;
 
+  std::shared_ptr<const ModelWeights> weights_{};
   std::vector<std::byte> slab_;
   Arena arena_;
-  std::array<TensorView, kMaxTensors> views_{};
-  std::size_t tensor_count_{};
   Mamba model_;
   FlowHead flow_;
   ModelIdentity identity_{};

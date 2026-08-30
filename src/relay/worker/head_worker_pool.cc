@@ -45,9 +45,15 @@ void update_max(std::atomic<std::uint64_t>& value, std::uint64_t candidate) noex
 
 struct HeadWorkerPool::Slot
 {
-  explicit Slot(HeadWorker source) noexcept : worker{std::move(source)} {}
+  explicit Slot(HeadWorker source, std::size_t source_index,
+                WorkerPlacement source_placement) noexcept
+      : worker{std::move(source)}, index{source_index}, placement{source_placement}
+  {
+  }
 
   HeadWorker worker;
+  std::size_t index{};
+  WorkerPlacement placement{WorkerPlacement::kNone};
   ConditionMessage request{};
   ActionMessage result{};
   std::atomic<SlotState> state{SlotState::kIdle};
@@ -55,12 +61,19 @@ struct HeadWorkerPool::Slot
   std::atomic<std::uint64_t> generation{};
   std::atomic<std::uint64_t> remaining_nfe{};
   std::atomic<std::uint64_t> cancel_generation{};
+  std::atomic<std::uint32_t> numa_node{};
+  std::atomic<std::uint32_t> logical_cpu{};
+  std::atomic_bool bound{false};
   bool execution_failed{};
   std::thread thread{};
 };
 
 void HeadWorkerPool::run_slot(Slot& slot) noexcept
 {
+  const WorkerBinding binding = bind_current_worker(slot.index, slot.placement);
+  slot.numa_node.store(binding.numa_node, std::memory_order_relaxed);
+  slot.logical_cpu.store(binding.logical_cpu, std::memory_order_relaxed);
+  slot.bound.store(binding.bound, std::memory_order_release);
   while (!slot.stop_requested.load(std::memory_order_acquire)) {
     SlotState state = slot.state.load(std::memory_order_acquire);
     if (state != SlotState::kRequested) {
@@ -99,22 +112,27 @@ void HeadWorkerPool::run_slot(Slot& slot) noexcept
 
 std::expected<HeadWorkerPool, std::string> HeadWorkerPool::open(
     std::string_view model_path, std::size_t worker_count,
-    std::optional<unsigned> threads_per_worker) noexcept
+    std::optional<unsigned> threads_per_worker, WorkerPlacement placement) noexcept
 {
   if (worker_count == 0uz || worker_count > 8uz)
     return std::unexpected("Relay worker count must be in the range 1..8");
   try {
     HeadWorkerPool pool{};
+    std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{
+        fe_weights_load(std::string{model_path}.c_str()), fe_weights_free};
+    if (!weights)
+      return std::unexpected(fe_engine_last_error());
+    pool.shared_weight_bytes_ = fe_weights_size_bytes(weights.get());
     pool.slots_.reserve(worker_count);
     for (std::size_t i{0uz}; i < worker_count; ++i) {
-      auto opened = HeadWorker::open(model_path, threads_per_worker);
+      auto opened = HeadWorker::open(weights.get(), threads_per_worker);
       if (!opened)
         return std::unexpected(opened.error());
       if (i == 0uz)
         pool.metadata_ = opened->model_metadata();
       else if (!same_model(pool.metadata_, opened->model_metadata()))
         return std::unexpected("Relay worker pool loaded inconsistent model identities");
-      pool.slots_.push_back(std::make_unique<Slot>(std::move(*opened)));
+      pool.slots_.push_back(std::make_unique<Slot>(std::move(*opened), i, placement));
     }
     for (const auto& slot : pool.slots_)
       slot->thread = std::thread{HeadWorkerPool::run_slot, std::ref(*slot)};
@@ -134,7 +152,8 @@ HeadWorkerPool::~HeadWorkerPool()
 HeadWorkerPool::HeadWorkerPool(HeadWorkerPool&& other) noexcept
     : slots_{std::move(other.slots_)}, metadata_{other.metadata_}, ready_index_{other.ready_index_},
       dispatch_cursor_{other.dispatch_cursor_}, ready_cursor_{other.ready_cursor_},
-      failure_count_{other.failure_count_}, last_error_{std::move(other.last_error_)}
+      shared_weight_bytes_{other.shared_weight_bytes_}, failure_count_{other.failure_count_},
+      last_error_{std::move(other.last_error_)}
 {
   other.ready_index_.reset();
 }
@@ -145,6 +164,16 @@ std::size_t HeadWorkerPool::busy_count() const noexcept
     const SlotState state = slot->state.load(std::memory_order_acquire);
     return state == SlotState::kRequested || state == SlotState::kRunning;
   }));
+}
+
+WorkerBinding HeadWorkerPool::worker_binding(std::size_t index) const noexcept
+{
+  if (index >= slots_.size())
+    return {};
+  const Slot& slot = *slots_[index];
+  return WorkerBinding{.numa_node = slot.numa_node.load(std::memory_order_relaxed),
+                       .logical_cpu = slot.logical_cpu.load(std::memory_order_relaxed),
+                       .bound = slot.bound.load(std::memory_order_acquire)};
 }
 
 bool HeadWorkerPool::has_idle() const noexcept

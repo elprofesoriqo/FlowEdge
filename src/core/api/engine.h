@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 typedef struct FeEngine fe_engine;
+typedef struct FeWeights fe_weights;
 
 enum
 {
@@ -41,6 +42,21 @@ fe_engine* fe_engine_load(const char* path);
  * bandwidth-aware automatic default.
  */
 fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads);
+
+/** Load one immutable checkpoint store that can be shared by multiple engines. */
+fe_weights* fe_weights_load(const char* path);
+
+/** Return the checkpoint tensor bytes retained by an immutable weight store. */
+size_t fe_weights_size_bytes(const fe_weights* weights);
+
+/** Release a weight handle. Engines created from it retain their own shared reference. */
+void fe_weights_free(fe_weights* weights);
+
+/** Create an engine with private state and a shared reference to immutable weights. */
+fe_engine* fe_engine_create_from_weights(const fe_weights* weights, unsigned worker_threads);
+
+/** Create a shared-weight engine using FLOWEDGE_THREADS or the automatic default. */
+fe_engine* fe_engine_create_from_weights_auto(const fe_weights* weights);
 
 /**
  * @brief Get the underlying backbone model dimensions.

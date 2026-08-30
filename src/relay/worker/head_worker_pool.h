@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relay/worker/head_worker.h"
+#include "relay/worker/worker_topology.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +22,8 @@ class HeadWorkerPool
 public:
   [[nodiscard]] static std::expected<HeadWorkerPool, std::string> open(
       std::string_view model_path, std::size_t worker_count,
-      std::optional<unsigned> threads_per_worker = std::nullopt) noexcept;
+      std::optional<unsigned> threads_per_worker = std::nullopt,
+      WorkerPlacement placement = WorkerPlacement::kNone) noexcept;
 
   ~HeadWorkerPool();
   HeadWorkerPool(const HeadWorkerPool&) = delete;
@@ -31,6 +33,8 @@ public:
 
   [[nodiscard]] const fe_model_metadata& model_metadata() const noexcept { return metadata_; }
   [[nodiscard]] std::size_t worker_count() const noexcept { return slots_.size(); }
+  [[nodiscard]] std::size_t shared_weight_bytes() const noexcept { return shared_weight_bytes_; }
+  [[nodiscard]] WorkerBinding worker_binding(std::size_t index) const noexcept;
   [[nodiscard]] std::size_t busy_count() const noexcept;
   [[nodiscard]] std::uint64_t failure_count() const noexcept { return failure_count_; }
   [[nodiscard]] bool has_idle() const noexcept;
@@ -57,6 +61,7 @@ private:
   std::optional<std::size_t> ready_index_{};
   std::size_t dispatch_cursor_{};
   std::size_t ready_cursor_{};
+  std::size_t shared_weight_bytes_{};
   std::uint64_t failure_count_{};
   std::string last_error_{};
 };

@@ -40,6 +40,6 @@ several Core thread pools simultaneously must be justified by measurement to avo
   waiting under output backpressure.
 - Deadline admission conservatively counts aggregate active NFE as single-lane work. This cannot
   overpromise a deadline, although it may under-admit when several workers are available.
-- Each worker currently loads a complete model and arena. Memory grows approximately linearly with
-  `--workers`; immutable weight sharing and NUMA placement require a later Core ownership change.
+- This first implementation loaded a complete model and arena per worker. ADR 0017 supersedes that
+  ownership detail with one shared immutable checkpoint store plus private mutable worker arenas.
 - Worker failures are counted and reported without terminating healthy slots or growing an error queue.

@@ -5,6 +5,7 @@ add_library(flowedge_relay STATIC
   scheduler/edf_scheduler.cc
   worker/head_worker.cc
   worker/head_worker_pool.cc
+  worker/worker_topology.cc
 )
 add_library(FlowEdge::Relay ALIAS flowedge_relay)
 

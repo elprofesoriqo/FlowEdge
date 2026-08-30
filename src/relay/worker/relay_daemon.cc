@@ -37,6 +37,7 @@ using fe::relay::RingResult;
 using fe::relay::SharedMemoryRing;
 using fe::relay::SubmitResult;
 using fe::relay::TraceWriter;
+using fe::relay::WorkerPlacement;
 
 struct Options
 {
@@ -49,6 +50,7 @@ struct Options
   std::uint64_t nanoseconds_per_nfe{};
   std::uint64_t admission_reserve_ns{};
   std::optional<unsigned> threads{};
+  WorkerPlacement placement{WorkerPlacement::kNone};
   bool create{false};
   bool help{false};
 };
@@ -84,6 +86,7 @@ void usage(std::ostream& output)
             "  --capacity N          power-of-two ring/scheduler capacity (default 32)\n"
             "  --workers N           independent model workers, 1..8 (default 1)\n"
             "  --threads N           Core background threads per model worker, 0..8\n"
+            "  --placement POLICY    worker affinity: none, compact, or spread\n"
             "  --nfe-ns N            measured upper-bound nanoseconds per function evaluation\n"
             "  --admission-reserve-ns N  fixed deadline safety reserve\n"
             "  --trace FILE          record accepted conditions and emitted actions\n"
@@ -119,7 +122,12 @@ void usage(std::ostream& output)
       options.action_shm = *value;
     else if (argument == "--trace")
       options.trace = *value;
-    else if (argument == "--nfe-ns") {
+    else if (argument == "--placement") {
+      const auto placement = fe::relay::parse_worker_placement(*value);
+      if (!placement)
+        return std::unexpected(std::string{placement.error()});
+      options.placement = *placement;
+    } else if (argument == "--nfe-ns") {
       if (!parse_integer(*value, options.nanoseconds_per_nfe))
         return std::unexpected("Invalid --nfe-ns value");
     } else if (argument == "--admission-reserve-ns") {
@@ -191,7 +199,8 @@ try {
   // In daemon-owned mode, publishing the mappings is the readiness signal.
   // Finish checkpoint loading first so a client cannot spend its deadline
   // waiting for startup work after it successfully connects.
-  auto pool_result = HeadWorkerPool::open(options.model, options.workers, options.threads);
+  auto pool_result =
+      HeadWorkerPool::open(options.model, options.workers, options.threads, options.placement);
   if (!pool_result) {
     std::cerr << "flowedge-relayd: " << pool_result.error() << '\n';
     return 1;
@@ -361,7 +370,10 @@ try {
             << " unreachable=" << stats.unreachable << " expired=" << stats.expired
             << " evicted=" << stats.evicted << " full=" << stats.full
             << " worker_failures=" << pool.failure_count()
-            << " rejection_outputs_dropped=" << rejection_outputs_dropped << '\n';
+            << " rejection_outputs_dropped=" << rejection_outputs_dropped
+            << " shared_weight_bytes=" << pool.shared_weight_bytes()
+            << " placement=" << fe::relay::to_string(options.placement)
+            << " numa_nodes=" << fe::relay::available_numa_nodes() << '\n';
   return 0;
 } catch (const std::exception& error) {
   std::cerr << "flowedge-relayd: " << error.what() << '\n';

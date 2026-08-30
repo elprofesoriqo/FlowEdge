@@ -22,4 +22,5 @@ A pull request that makes an architectural choice adds an ADR.
 0014-portable-relay-traces
 0015-calibrated-deadline-admission
 0016-preallocated-head-worker-pool
+0017-shared-weights-and-worker-placement
 ```

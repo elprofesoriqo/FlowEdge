@@ -319,15 +319,69 @@ TEST(HeadWorker, RunsAndCancelsGenerationTrackedRequests)
   EXPECT_EQ(action.metadata.generation, 6u);
 }
 
+TEST(CoreWeights, SharesImmutableCheckpointAcrossIndependentEngineState)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{fe_weights_load(
+                                                                      model.string().c_str()),
+                                                                  fe_weights_free};
+  ASSERT_NE(weights, nullptr) << fe_engine_last_error();
+  EXPECT_GT(fe_weights_size_bytes(weights.get()), 0uz);
+  std::unique_ptr<fe_engine, decltype(&fe_engine_free)> first{
+      fe_engine_create_from_weights(weights.get(), 0u), fe_engine_free};
+  std::unique_ptr<fe_engine, decltype(&fe_engine_free)> second{
+      fe_engine_create_from_weights(weights.get(), 0u), fe_engine_free};
+  ASSERT_NE(first, nullptr) << fe_engine_last_error();
+  ASSERT_NE(second, nullptr) << fe_engine_last_error();
+  weights.reset(); // engines retain the shared immutable checkpoint lifetime
+
+  fe_model_metadata first_metadata{};
+  fe_model_metadata second_metadata{};
+  ASSERT_EQ(fe_engine_model_metadata(first.get(), &first_metadata), 0);
+  ASSERT_EQ(fe_engine_model_metadata(second.get(), &second_metadata), 0);
+  EXPECT_TRUE(
+      std::ranges::equal(first_metadata.model_digest.bytes, second_metadata.model_digest.bytes));
+  std::vector<float> condition(first_metadata.condition_dim, 0.125f);
+  std::vector<float> noise(first_metadata.action_dim, -0.25f);
+  std::vector<float> first_action(first_metadata.action_dim);
+  std::vector<float> second_action(first_metadata.action_dim);
+  ASSERT_EQ(fe_engine_sample_condition(first.get(), condition.data(), noise.data(), 6uz,
+                                       FE_SOLVER_HEUN, first_action.data()),
+            0);
+  ASSERT_EQ(fe_engine_sample_condition(second.get(), condition.data(), noise.data(), 6uz,
+                                       FE_SOLVER_HEUN, second_action.data()),
+            0);
+  EXPECT_EQ(first_action, second_action);
+}
+
+TEST(WorkerTopology, ParsesPortablePlacementPolicies)
+{
+  const auto none = parse_worker_placement("none");
+  const auto compact = parse_worker_placement("compact");
+  const auto spread = parse_worker_placement("spread");
+  ASSERT_TRUE(none);
+  ASSERT_TRUE(compact);
+  ASSERT_TRUE(spread);
+  EXPECT_EQ(*none, WorkerPlacement::kNone);
+  EXPECT_EQ(*compact, WorkerPlacement::kCompact);
+  EXPECT_EQ(*spread, WorkerPlacement::kSpread);
+  EXPECT_FALSE(parse_worker_placement("random"));
+}
+
 TEST(HeadWorkerPool, RunsTwoRequestsOnPreallocatedWorkerThreads)
 {
   const std::filesystem::path model =
       std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
   if (!std::filesystem::exists(model))
     GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
-  auto opened = HeadWorkerPool::open(model.string(), 2uz, 0u);
+  auto opened = HeadWorkerPool::open(model.string(), 2uz, 0u, WorkerPlacement::kSpread);
   ASSERT_TRUE(opened) << opened.error();
   HeadWorkerPool pool = std::move(*opened);
+  EXPECT_GT(pool.shared_weight_bytes(), 0uz);
   const auto& metadata = pool.model_metadata();
   std::vector<float> condition(metadata.condition_dim, 0.125f);
   std::vector<float> noise(metadata.action_dim, -0.25f);

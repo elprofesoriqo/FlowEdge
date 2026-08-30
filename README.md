@@ -89,7 +89,8 @@ On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/b
 
 Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its allocation-checked
 single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
-`--threads` setting; begin with `--workers 2 --threads 0` and measure on the deployment CPU.
+`--threads` setting; workers share one immutable checkpoint store. Begin with
+`--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, and replay;
 `scripts/verify_all.sh` runs the complete local release gate.
 

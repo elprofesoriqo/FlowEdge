@@ -5,6 +5,11 @@ The only public surface. C linkage, opaque handle.
 ```c
 fe_engine* fe_engine_load(const char* path);
 fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads);
+fe_weights* fe_weights_load(const char* path);
+size_t      fe_weights_size_bytes(const fe_weights*);
+void        fe_weights_free(fe_weights*);
+fe_engine*  fe_engine_create_from_weights(const fe_weights*, unsigned worker_threads);
+fe_engine*  fe_engine_create_from_weights_auto(const fe_weights*);
 void       fe_engine_free(fe_engine* e);
 
 void   fe_engine_dims(const fe_engine*, size_t* d_model, size_t* n_layers);
@@ -48,6 +53,9 @@ Rules:
 
 - Everything runtime-relevant is a parameter. Nothing is baked in.
 - The handle owns the whole runtime. Free it with `fe_engine_free`.
+- `fe_weights` owns immutable checkpoint tensors. Engines created from it retain a shared reference,
+  so the weight handle may be released immediately after construction. Mutable engine state is never
+  shared.
 - `fe_engine_load` reads `FLOWEDGE_THREADS=0..8` when present and otherwise uses a
   bandwidth-aware automatic default. `fe_engine_load_with_threads` bypasses the environment;
   zero selects caller-thread-only execution.

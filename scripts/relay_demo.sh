@@ -45,6 +45,7 @@ rm -f "$TRACE"
 
 "$DAEMON" --model "$MODEL" --create --condition-shm "$CONDITION_SHM" \
   --action-shm "$ACTION_SHM" --workers "${FLOWEDGE_RELAY_DEMO_WORKERS:-2}" --threads 0 \
+  --placement "${FLOWEDGE_RELAY_DEMO_PLACEMENT:-spread}" \
   --nfe-ns "${FLOWEDGE_RELAY_DEMO_NFE_NS:-1000000}" --trace "$TRACE" \
   >"$BUILD_DIR/relay-demo-daemon.log" 2>&1 &
 DAEMON_PID=$!

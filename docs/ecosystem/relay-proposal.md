@@ -46,6 +46,8 @@ The current MVP provides:
 - stale-request pruning and cancellation between complete solver steps;
 - typed stale, unreachable-deadline, capacity, and expiry outcomes returned on the action ring;
 - a preallocated 1..8 worker pool with one independent Core engine and outer thread per slot;
+- one immutable checkpoint store shared by every worker, with optional compact/spread NUMA-aware
+  outer-thread placement;
 - portable little-endian condition/action traces with checksum validation and v1 read compatibility;
 - `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints;
 - `RelayClient`, a typed SPSC producer/action-consumer endpoint for external C++ services;
@@ -53,7 +55,7 @@ The current MVP provides:
 - `flowedge-relay-trace`, which inspects traces as text/JSONL or replays actions against a model;
 - a Windows/POSIX integration test that crosses a real process and shared-memory boundary.
 
-Action overlap policies, state-capsule migration, long-term metrics export, weight sharing, and adapters
+Action overlap policies, state-capsule migration, long-term metrics export, and runtime adapters
 for training/serving runtimes remain later milestones. They should be justified by real traces rather
 than expanding the hot-path dependency footprint speculatively.
 
@@ -143,11 +145,13 @@ Parallel model workers are explicit:
 ./build/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 2 0
 ```
 
-`--workers` creates independent engines and dedicated outer threads; `--threads` configures the Core
+`--workers` creates independent mutable engines and dedicated outer threads; `--threads` configures the Core
 background thread pool inside each engine. Start with caller-only engines when using multiple outer
 workers, then measure alternatives. Each slot keeps a completed action until the ring consumer makes
-space, while the other slots and the transport loop continue. The current implementation duplicates
-model weights per slot, making two workers a throughput/memory tradeoff rather than a free default.
+space, while the other slots and the transport loop continue. Immutable checkpoint tensors are loaded
+once and shared; scratch, decode/sampler state, and transformed constants remain private per worker.
+Use `--placement compact` to favor local shared-weight reads or `--placement spread` to distribute
+outer workers across available NUMA nodes.
 
 For a runnable source-level `RelayClient` integration plus deadline and trace handling, use:
 
