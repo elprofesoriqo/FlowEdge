@@ -205,6 +205,9 @@ int main(int argc, char** argv)
   for (const double value : latencies_us)
     sum += value;
   const double seconds = std::chrono::duration<double>(benchmark_end - benchmark_start).count();
+  const double p99_us = percentile(latencies_us, 0.99);
+  const double p99_ns_per_nfe =
+      (p99_us * 1'000.0) / static_cast<double>(required_nfe(6u, FE_SOLVER_HEUN));
   const auto& stats = scheduler.stats();
   std::cout << std::fixed << std::setprecision(3)
             << "FlowEdge Relay producer->EDF->head-worker->consumer\n"
@@ -214,12 +217,13 @@ int main(int argc, char** argv)
             << wire_size(*consumed) << " slot_capacity=" << sizeof(ConditionMessage) << '/'
             << sizeof(ActionMessage) << '\n'
             << "mean_us=" << (sum / static_cast<double>(iterations))
-            << " p50_us=" << percentile(latencies_us, 0.50)
-            << " p99_us=" << percentile(latencies_us, 0.99)
+            << " p50_us=" << percentile(latencies_us, 0.50) << " p99_us=" << p99_us
             << " p999_us=" << percentile(latencies_us, 0.999) << '\n'
+            << "p99_ns_per_nfe=" << p99_ns_per_nfe << '\n'
             << "throughput_req_s=" << (static_cast<double>(iterations) / seconds)
             << " hot_allocations=" << hot_allocations << " accepted=" << stats.accepted
-            << " stale=" << stats.stale << " expired=" << stats.expired
-            << " evicted=" << stats.evicted << " full=" << stats.full << '\n';
+            << " stale=" << stats.stale << " unreachable=" << stats.unreachable
+            << " expired=" << stats.expired << " evicted=" << stats.evicted
+            << " full=" << stats.full << '\n';
   return 0;
 }

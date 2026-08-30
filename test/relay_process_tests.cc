@@ -75,7 +75,7 @@ public:
     std::wstring command = quote(executable.wstring()) + L" --model " + quote(model.wstring()) +
                            L" --condition-shm " + quote(widen_ascii(condition_name)) +
                            L" --action-shm " + quote(widen_ascii(action_name)) +
-                           L" --capacity 8 --threads 0 --create";
+                           L" --capacity 8 --threads 0 --nfe-ns 1000000000 --create";
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
@@ -91,7 +91,7 @@ public:
     if (process == 0) {
       execl(executable.c_str(), executable.c_str(), "--model", model.c_str(), "--condition-shm",
             condition_name.c_str(), "--action-shm", action_name.c_str(), "--capacity", "8",
-            "--threads", "0", "--create", static_cast<char*>(nullptr));
+            "--threads", "0", "--nfe-ns", "1000000000", "--create", static_cast<char*>(nullptr));
       _exit(127);
     }
     return ChildDaemon{process};
@@ -224,16 +224,44 @@ TEST(RelayProcess, ExchangesRequestWithDaemonAcrossProcessBoundary)
       break;
     std::this_thread::yield();
   } while (std::chrono::steady_clock::now() < response_timeout);
-  ASSERT_EQ(received, ClientResult::kSuccess) << to_string(received);
+  ASSERT_EQ(received, ClientResult::kSuccess)
+      << to_string(received) << " flags=" << action.envelope.flags
+      << " status=" << action.metadata.status << " struct=" << action.envelope.struct_size
+      << " wire=" << wire_size(action) << " metadata_struct=" << action.metadata.struct_size
+      << " protocol=" << action.metadata.protocol_version;
   EXPECT_EQ(action.envelope.sequence, request.sequence);
   EXPECT_EQ(action.envelope.session_id, request.session_id);
   EXPECT_EQ(action.metadata.generation, request.generation);
   EXPECT_EQ(action.metadata.status, FE_ACTION_COMPLETE);
 
+  const std::uint64_t rejection_time = monotonic_ns();
+  const RelayRequest unreachable{.sequence = 42u,
+                                 .session_id = request.session_id,
+                                 .timestamp_ns = rejection_time,
+                                 .deadline_ns = rejection_time + 1'000'000'000u,
+                                 .generation = 10u,
+                                 .solver_steps = 2uz,
+                                 .solver = FE_SOLVER_HEUN,
+                                 .condition = condition,
+                                 .noise = noise};
+  ASSERT_EQ(client->try_submit(unreachable), ClientResult::kSuccess);
+  received = ClientResult::kEmpty;
+  const auto rejection_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  do {
+    received = client->try_receive(action);
+    if (received != ClientResult::kEmpty)
+      break;
+    std::this_thread::yield();
+  } while (std::chrono::steady_clock::now() < rejection_timeout);
+  ASSERT_EQ(received, ClientResult::kSuccess) << to_string(received);
+  EXPECT_EQ(action.envelope.sequence, unreachable.sequence);
+  EXPECT_EQ(action.metadata.status, FE_ACTION_FAILED);
+  EXPECT_EQ(action_code(action), RelayActionCode::kRejectedDeadline);
+
   ClientResult shutdown{ClientResult::kFull};
   const auto shutdown_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
   do {
-    shutdown = client->try_shutdown(42u, request.session_id, 0u);
+    shutdown = client->try_shutdown(43u, request.session_id, 0u);
     if (shutdown != ClientResult::kFull)
       break;
     std::this_thread::yield();

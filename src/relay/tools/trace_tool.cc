@@ -214,13 +214,15 @@ template<typename Message>
         std::cout << "{\"kind\":\"action\",\"sequence\":" << action.envelope.sequence
                   << ",\"session\":" << action.envelope.session_id
                   << ",\"generation\":" << action.metadata.generation << ",\"status\":\""
-                  << action_status(action.metadata.status)
+                  << action_status(action.metadata.status) << "\",\"outcome\":\""
+                  << fe::relay::to_string(fe::relay::action_code(action))
                   << "\",\"remaining_nfe\":" << action.metadata.remaining_nfe << "}\n";
       } else {
         std::cout << "action sequence=" << action.envelope.sequence
                   << " session=" << action.envelope.session_id
                   << " generation=" << action.metadata.generation
                   << " status=" << action_status(action.metadata.status)
+                  << " outcome=" << fe::relay::to_string(fe::relay::action_code(action))
                   << " remaining_nfe=" << action.metadata.remaining_nfe << '\n';
       }
     } else if (record.kind == MessageKind::kShutdown &&

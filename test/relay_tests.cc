@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string>
@@ -78,6 +79,14 @@ TEST(RelayProtocol, BuildsAndValidatesVersionedCondition)
   auto mismatched = test_model();
   mismatched.model_digest.bytes[0] ^= 0xffu;
   EXPECT_FALSE(compatible(message, mismatched));
+
+  ActionMessage rejected{};
+  make_rejected_action(rejected, message, 101u, RelayActionCode::kRejectedDeadline);
+  EXPECT_EQ(validate(rejected), ProtocolResult::kSuccess);
+  EXPECT_TRUE(compatible(rejected, test_model()));
+  EXPECT_EQ(action_code(rejected), RelayActionCode::kRejectedDeadline);
+  EXPECT_EQ(rejected.metadata.status, FE_ACTION_FAILED);
+  EXPECT_EQ(rejected.metadata.remaining_nfe, message.metadata.remaining_nfe);
 }
 
 TEST(EdfScheduler, EnforcesFreshnessThenOrdersByDeadline)
@@ -105,14 +114,62 @@ TEST(EdfScheduler, ExpiresRequestsAndEvictsLatestDeadline)
   EdfScheduler scheduler{2uz};
   EXPECT_EQ(scheduler.submit(request(1u, 4u, 400u)), SubmitResult::kAccepted);
   EXPECT_EQ(scheduler.submit(request(2u, 4u, 500u)), SubmitResult::kAccepted);
-  EXPECT_EQ(scheduler.submit(request(3u, 4u, 300u)), SubmitResult::kAcceptedAndEvicted);
+  ActionMessage displaced{};
+  EXPECT_EQ(scheduler.submit(request(3u, 4u, 300u), {}, &displaced),
+            SubmitResult::kAcceptedAndEvicted);
+  EXPECT_EQ(validate(displaced), ProtocolResult::kSuccess);
+  EXPECT_EQ(action_code(displaced), RelayActionCode::kRejectedCapacity);
+  EXPECT_EQ(displaced.envelope.sequence, 2u);
   ASSERT_EQ(scheduler.stats().evicted, 1u);
+
+  ActionMessage expired{};
+  EXPECT_FALSE(scheduler.pop(350u, &expired));
+  EXPECT_EQ(validate(expired), ProtocolResult::kSuccess);
+  EXPECT_EQ(action_code(expired), RelayActionCode::kExpired);
+  EXPECT_EQ(expired.envelope.sequence, 3u);
 
   const ConditionMessage* first = scheduler.pop(350u);
   ASSERT_NE(first, nullptr);
   EXPECT_EQ(first->envelope.sequence, 1u);
   EXPECT_FALSE(scheduler.pop(600u));
   EXPECT_EQ(scheduler.stats().expired, 1u);
+}
+
+TEST(EdfScheduler, RejectsUnreachableDeadlinePrefixesWithoutPruningFeasibleWork)
+{
+  EdfScheduler scheduler{4uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 5u}};
+  const AdmissionContext idle{.now_ns = 100u};
+  EXPECT_EQ(scheduler.submit(request(1u, 4u, 200u), idle), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.submit(request(2u, 4u, 250u), idle), SubmitResult::kDeadlineUnreachable);
+  EXPECT_EQ(scheduler.size(), 1uz);
+  EXPECT_EQ(scheduler.stats().unreachable, 1u);
+
+  // A fresh generation cancels the older queued prefix, so it is evaluated on
+  // its own and does not destroy feasible work unless admission succeeds.
+  EXPECT_EQ(scheduler.submit(request(3u, 5u, 200u), idle), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.size(), 1uz);
+  EXPECT_EQ(scheduler.newest_generation(), 5u);
+
+  EdfScheduler active_scheduler{2uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 5u}};
+  EXPECT_EQ(active_scheduler.submit(request(4u, 4u, 200u),
+                                    AdmissionContext{.now_ns = 100u,
+                                                     .active_generation = 4u,
+                                                     .active_remaining_nfe = 2u}),
+            SubmitResult::kDeadlineUnreachable);
+
+  EdfScheduler replacement{1uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 0u}};
+  EXPECT_EQ(replacement.submit(request(5u, 4u, 250u), idle), SubmitResult::kAccepted);
+  ActionMessage replaced{};
+  EXPECT_EQ(replacement.submit(request(6u, 4u, 200u), idle, &replaced),
+            SubmitResult::kAcceptedAndEvicted);
+  EXPECT_EQ(replaced.envelope.sequence, 5u);
+
+  EdfScheduler saturated{2uz,
+                         AdmissionPolicy{.nanoseconds_per_nfe =
+                                             std::numeric_limits<std::uint64_t>::max(),
+                                         .reserve_ns = std::numeric_limits<std::uint64_t>::max()}};
+  EXPECT_EQ(saturated.submit(request(7u, 4u, std::numeric_limits<std::uint64_t>::max()), idle),
+            SubmitResult::kDeadlineUnreachable);
 }
 
 TEST(SharedMemoryRing, ExchangesChecksummedVariableSizedMessages)

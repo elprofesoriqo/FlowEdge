@@ -27,6 +27,12 @@ FLOWEDGE_RELAY_BENCH_ITERS=500 ./scripts/relay_bench.sh models/mamba_flow.safete
 Set `FLOWEDGE_THREADS=0..8` to pin the Core worker count. Otherwise the Relay benchmark uses Core's
 bandwidth-aware automatic choice.
 
+The Relay output includes `p99_ns_per_nfe`, calculated from the end-to-end p99 request latency and
+the solver's NFE count. It is a conservative starting value for `flowedge-relayd --nfe-ns`, not a
+portable constant. Re-measure with the production checkpoint, thread count, affinity, power policy,
+and sustained thermal load. Add `--admission-reserve-ns` for transport/controller jitter, then verify
+rejection rates against captured traces before enforcing the policy in a physical control loop.
+
 On Windows, use the `.exe` names from PowerShell. In WSL or Git Bash, the repository's Bash wrappers
 are available as well.
 

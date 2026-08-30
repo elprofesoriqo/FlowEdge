@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <string_view>
 #include <type_traits>
 
 #ifndef FLOWEDGE_RELAY_MAX_CONDITION_DIM
@@ -31,6 +32,15 @@ enum class MessageKind : std::uint16_t
   kCondition = 1,
   kAction = 2,
   kShutdown = 3,
+};
+
+enum class RelayActionCode : std::uint32_t
+{
+  kInference = 0u,
+  kRejectedStale = 1u,
+  kRejectedDeadline = 2u,
+  kRejectedCapacity = 3u,
+  kExpired = 4u,
 };
 
 struct MessageEnvelope
@@ -180,7 +190,8 @@ enum class ProtocolResult : std::uint8_t
 [[nodiscard]] inline ProtocolResult validate(const ActionMessage& message) noexcept
 {
   if (message.envelope.magic != kMessageMagic || message.envelope.version != kMessageVersion ||
-      message.envelope.kind != MessageKind::kAction || message.envelope.flags != 0u)
+      message.envelope.kind != MessageKind::kAction ||
+      message.envelope.flags > static_cast<std::uint32_t>(RelayActionCode::kExpired))
     return ProtocolResult::kInvalidEnvelope;
   if (message.metadata.condition_dim > kMaxConditionDim ||
       message.metadata.action_dim > kMaxActionDim)
@@ -189,9 +200,33 @@ enum class ProtocolResult : std::uint8_t
     return ProtocolResult::kInvalidEnvelope;
   if (message.metadata.struct_size < sizeof(fe_action_metadata) ||
       message.metadata.protocol_version != FE_PROTOCOL_VERSION || message.metadata.solver > 2u ||
-      message.metadata.status > FE_ACTION_FAILED)
+      message.metadata.status > FE_ACTION_FAILED ||
+      (message.envelope.flags != static_cast<std::uint32_t>(RelayActionCode::kInference) &&
+       message.metadata.status != FE_ACTION_FAILED))
     return ProtocolResult::kInvalidMetadata;
   return ProtocolResult::kSuccess;
+}
+
+[[nodiscard]] constexpr RelayActionCode action_code(const ActionMessage& message) noexcept
+{
+  return static_cast<RelayActionCode>(message.envelope.flags);
+}
+
+[[nodiscard]] constexpr std::string_view to_string(RelayActionCode code) noexcept
+{
+  switch (code) {
+  case RelayActionCode::kInference:
+    return "inference";
+  case RelayActionCode::kRejectedStale:
+    return "rejected_stale";
+  case RelayActionCode::kRejectedDeadline:
+    return "rejected_deadline";
+  case RelayActionCode::kRejectedCapacity:
+    return "rejected_capacity";
+  case RelayActionCode::kExpired:
+    return "expired";
+  }
+  return "unknown";
 }
 
 [[nodiscard]] inline bool compatible(const ConditionMessage& message,
@@ -247,6 +282,28 @@ enum class ProtocolResult : std::uint8_t
   std::ranges::copy(condition, destination.condition_values().begin());
   std::ranges::copy(noise, destination.noise_values().begin());
   return ProtocolResult::kSuccess;
+}
+
+inline void make_rejected_action(ActionMessage& destination, const ConditionMessage& request,
+                                 std::uint64_t timestamp_ns, RelayActionCode code) noexcept
+{
+  destination = {};
+  destination.envelope.kind = MessageKind::kAction;
+  destination.envelope.flags = static_cast<std::uint32_t>(code);
+  destination.envelope.sequence = request.envelope.sequence;
+  destination.envelope.session_id = request.envelope.session_id;
+  destination.metadata.struct_size = sizeof(fe_action_metadata);
+  destination.metadata.protocol_version = FE_PROTOCOL_VERSION;
+  destination.metadata.solver = request.metadata.solver;
+  destination.metadata.status = FE_ACTION_FAILED;
+  destination.metadata.model_digest = request.metadata.model_digest;
+  destination.metadata.timestamp_ns = timestamp_ns;
+  destination.metadata.deadline_ns = request.metadata.deadline_ns;
+  destination.metadata.generation = request.metadata.generation;
+  destination.metadata.condition_dim = request.metadata.condition_dim;
+  destination.metadata.action_dim = request.metadata.action_dim;
+  destination.metadata.remaining_nfe = request.metadata.remaining_nfe;
+  destination.envelope.struct_size = static_cast<std::uint32_t>(wire_size(destination));
 }
 
 static_assert(std::is_trivially_copyable_v<MessageEnvelope>);

@@ -262,7 +262,7 @@ void usage(std::ostream& output)
 
   std::cout << "sequence=" << action.envelope.sequence << " session=" << action.envelope.session_id
             << " generation=" << action.metadata.generation << " status=" << action.metadata.status
-            << " action=";
+            << " outcome=" << fe::relay::to_string(fe::relay::action_code(action)) << " action=";
   std::cout << std::setprecision(9);
   for (std::size_t i{0uz}; i < metadata.action_dim; ++i)
     std::cout << (i == 0uz ? "" : ",") << action.action[i];

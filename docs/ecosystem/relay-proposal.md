@@ -42,7 +42,9 @@ The current MVP provides:
   and cancellation generation;
 - local checksummed shared-memory rings with no ROS 2, gRPC, or cloud dependency;
 - bounded earliest-deadline-first admission and expiration before dispatch;
+- optional calibrated EDF-prefix schedulability checks that include active and queued NFE demand;
 - stale-request pruning and cancellation between complete solver steps;
+- typed stale, unreachable-deadline, capacity, and expiry outcomes returned on the action ring;
 - portable little-endian condition/action traces with checksum validation and v1 read compatibility;
 - `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints;
 - `RelayClient`, a typed SPSC producer/action-consumer endpoint for external C++ services;
@@ -50,7 +52,7 @@ The current MVP provides:
 - `flowedge-relay-trace`, which inspects traces as text/JSONL or replays actions against a model;
 - a Windows/POSIX integration test that crosses a real process and shared-memory boundary.
 
-Action overlap policies, state-capsule migration, deadline-miss telemetry, worker pools, and adapters
+Action overlap policies, state-capsule migration, long-term metrics export, worker pools, and adapters
 for training/serving runtimes remain later milestones. They should be justified by real traces rather
 than expanding the hot-path dependency footprint speculatively.
 
@@ -116,6 +118,21 @@ Captured traces are durable cross-platform artifacts rather than dumps of C++ ob
 Replay compares completed action vectors. Cancelled/failed records and accepted conditions without a
 published action are counted separately because the trace does not record every cooperative solver
 step or scheduler interleaving.
+
+Deadline admission is opt-in because its estimate is deployment-specific. Start with the benchmark's
+`p99_ns_per_nfe`, repeat under representative load and thermal conditions, then add a safety reserve:
+
+```bash
+./build/flowedge_relay_bench models/mamba_flow.safetensors 5000 0
+./build/src/relay/flowedge-relayd --model models/mamba_flow.safetensors --create \
+  --nfe-ns 3000 --admission-reserve-ns 20000
+```
+
+The scheduler checks every affected finite-deadline prefix, not just the new request in isolation.
+Passing `--nfe-ns 0` (the default) disables calibrated rejection while expiry-at-dispatch remains
+active. A producer receives a normal, model-compatible action record with `status=failed` and an
+outcome code such as `rejected_deadline`; `RelayClient::try_receive` therefore remains one typed path
+for inference and scheduling results.
 
 ## Reuse outside robotics
 

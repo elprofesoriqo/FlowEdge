@@ -50,6 +50,11 @@ reintroducing native-struct serialization while ordinary round-trip tests still 
 Use `flowedge-relay-trace replay TRACE --model FILE` to compare a field capture against a checkpoint;
 the command returns non-zero when a completed recorded action exceeds its configured tolerance.
 
+The process-boundary test also runs the daemon with an intentionally conservative NFE cost. It proves
+that one feasible request executes and a tighter request returns a valid `rejected_deadline` action.
+Scheduler unit tests cover affected-prefix demand, active remaining work, saturated generation
+replacement, capacity displacement feedback, and expiry feedback independently of wall-clock timing.
+
 ## External-head and streaming smoke test
 
 `scripts/verify_external_head.py` generates two small checkpoints without downloading model data.

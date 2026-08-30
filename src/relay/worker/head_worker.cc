@@ -39,6 +39,7 @@ HeadWorker::~HeadWorker()
 HeadWorker::HeadWorker(HeadWorker&& other) noexcept
     : engine_{std::exchange(other.engine_, nullptr)}, model_metadata_{other.model_metadata_},
       request_envelope_{other.request_envelope_}, generation_{other.generation_},
+      remaining_nfe_{std::exchange(other.remaining_nfe_, 0u)},
       busy_{std::exchange(other.busy_, false)}, last_error_{std::move(other.last_error_)}
 {
 }
@@ -51,6 +52,7 @@ HeadWorker& HeadWorker::operator=(HeadWorker&& other) noexcept
     model_metadata_ = other.model_metadata_;
     request_envelope_ = other.request_envelope_;
     generation_ = other.generation_;
+    remaining_nfe_ = std::exchange(other.remaining_nfe_, 0u);
     busy_ = std::exchange(other.busy_, false);
     last_error_ = std::move(other.last_error_);
   }
@@ -73,6 +75,7 @@ bool HeadWorker::begin(const ConditionMessage& request) noexcept
   }
   request_envelope_ = request.envelope;
   generation_ = request.metadata.generation;
+  remaining_nfe_ = request.metadata.remaining_nfe;
   busy_ = true;
   return true;
 }
@@ -95,6 +98,7 @@ WorkerStep HeadWorker::advance(ActionMessage& result) noexcept
     busy_ = false;
     return WorkerStep::kError;
   }
+  remaining_nfe_ = result.metadata.remaining_nfe;
   result.envelope.struct_size = static_cast<std::uint32_t>(wire_size(result));
   if (rc == 8) {
     busy_ = false;

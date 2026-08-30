@@ -23,12 +23,15 @@
 namespace {
 
 using fe::relay::ActionMessage;
+using fe::relay::AdmissionContext;
+using fe::relay::AdmissionPolicy;
 using fe::relay::ConditionMessage;
 using fe::relay::ControlMessage;
 using fe::relay::EdfScheduler;
 using fe::relay::HeadWorker;
 using fe::relay::MessageEnvelope;
 using fe::relay::MessageKind;
+using fe::relay::RelayActionCode;
 using fe::relay::RingConfig;
 using fe::relay::RingResult;
 using fe::relay::SharedMemoryRing;
@@ -43,6 +46,8 @@ struct Options
   std::string action_shm{"flowedge-relay-actions"};
   std::string trace{};
   std::uint32_t capacity{32u};
+  std::uint64_t nanoseconds_per_nfe{};
+  std::uint64_t admission_reserve_ns{};
   std::optional<unsigned> threads{};
   bool create{false};
   bool help{false};
@@ -78,6 +83,8 @@ void usage(std::ostream& output)
             "  --action-shm NAME     output shared-memory ring name\n"
             "  --capacity N          power-of-two ring/scheduler capacity (default 32)\n"
             "  --threads N           exact Core worker count, 0..8\n"
+            "  --nfe-ns N            measured upper-bound nanoseconds per function evaluation\n"
+            "  --admission-reserve-ns N  fixed deadline safety reserve\n"
             "  --trace FILE          record accepted conditions and emitted actions\n"
             "  --create              create both rings instead of opening them\n";
 }
@@ -111,7 +118,13 @@ void usage(std::ostream& output)
       options.action_shm = *value;
     else if (argument == "--trace")
       options.trace = *value;
-    else if (argument == "--capacity") {
+    else if (argument == "--nfe-ns") {
+      if (!parse_integer(*value, options.nanoseconds_per_nfe))
+        return std::unexpected("Invalid --nfe-ns value");
+    } else if (argument == "--admission-reserve-ns") {
+      if (!parse_integer(*value, options.admission_reserve_ns))
+        return std::unexpected("Invalid --admission-reserve-ns value");
+    } else if (argument == "--capacity") {
       if (!parse_integer(*value, options.capacity))
         return std::unexpected("Invalid --capacity value");
     } else if (argument == "--threads") {
@@ -130,6 +143,23 @@ void usage(std::ostream& output)
   if (options.condition_shm.empty() || options.action_shm.empty())
     return std::unexpected("Shared-memory ring names cannot be empty");
   return options;
+}
+
+[[nodiscard]] std::optional<RelayActionCode> rejection_code(SubmitResult result) noexcept
+{
+  switch (result) {
+  case SubmitResult::kStale:
+    return RelayActionCode::kRejectedStale;
+  case SubmitResult::kDeadlineUnreachable:
+    return RelayActionCode::kRejectedDeadline;
+  case SubmitResult::kFull:
+    return RelayActionCode::kRejectedCapacity;
+  case SubmitResult::kAccepted:
+  case SubmitResult::kAcceptedAndEvicted:
+  case SubmitResult::kInvalid:
+    return std::nullopt;
+  }
+  return std::nullopt;
 }
 
 [[nodiscard]] bool accepted(SubmitResult result) noexcept
@@ -184,7 +214,9 @@ try {
   SharedMemoryRing conditions = std::move(*conditions_result);
   SharedMemoryRing actions = std::move(*actions_result);
 
-  EdfScheduler scheduler{options.capacity};
+  EdfScheduler scheduler{options.capacity,
+                         AdmissionPolicy{.nanoseconds_per_nfe = options.nanoseconds_per_nfe,
+                                         .reserve_ns = options.admission_reserve_ns}};
 
   std::optional<TraceWriter> trace{};
   if (!options.trace.empty()) {
@@ -201,7 +233,23 @@ try {
 
   auto incoming = std::make_unique<ConditionMessage>();
   ActionMessage action{};
+  ActionMessage rejection{};
   bool action_pending{false};
+  std::uint64_t rejection_outputs_dropped{};
+  const auto publish_rejection = [&](const ActionMessage& outcome) {
+    const RingResult pushed = actions.try_push(wire_bytes(outcome));
+    if (pushed != RingResult::kSuccess) {
+      ++rejection_outputs_dropped;
+      if (pushed != RingResult::kFull)
+        std::cerr << "flowedge-relayd: rejection exceeds output ring slot\n";
+      return;
+    }
+    if (trace) {
+      const auto written = trace->append(outcome);
+      if (!written)
+        std::cerr << "flowedge-relayd: " << written.error() << '\n';
+    }
+  };
   while (!stop_requested.load(std::memory_order_relaxed)) {
     bool progressed{false};
 
@@ -230,7 +278,15 @@ try {
         continue;
       if (!fe::relay::compatible(*incoming, worker.model_metadata()))
         continue;
-      const SubmitResult submitted = scheduler.submit(*incoming);
+      const std::uint64_t submitted_at = monotonic_ns();
+      rejection = {};
+      const SubmitResult submitted =
+          scheduler.submit(*incoming,
+                           AdmissionContext{.now_ns = submitted_at,
+                                            .active_generation = worker.generation(),
+                                            .active_remaining_nfe =
+                                                worker.busy() ? worker.remaining_nfe() : 0u},
+                           &rejection);
       if (accepted(submitted)) {
         worker.cancel_before(scheduler.newest_generation());
         if (action_pending && action.metadata.generation < scheduler.newest_generation())
@@ -240,6 +296,11 @@ try {
           if (!written)
             std::cerr << "flowedge-relayd: " << written.error() << '\n';
         }
+        if (rejection.envelope.struct_size != 0u)
+          publish_rejection(rejection);
+      } else if (const auto code = rejection_code(submitted)) {
+        make_rejected_action(rejection, *incoming, submitted_at, *code);
+        publish_rejection(rejection);
       }
     }
 
@@ -260,10 +321,15 @@ try {
     }
 
     if (!action_pending && !worker.busy()) {
-      if (const ConditionMessage* request = scheduler.pop(monotonic_ns())) {
+      rejection = {};
+      const std::uint64_t dispatch_at = monotonic_ns();
+      if (const ConditionMessage* request = scheduler.pop(dispatch_at, &rejection)) {
         if (!worker.begin(*request))
           std::cerr << "flowedge-relayd: rejected scheduled request: " << worker.last_error()
                     << '\n';
+        progressed = true;
+      } else if (rejection.envelope.struct_size != 0u) {
+        publish_rejection(rejection);
         progressed = true;
       }
     }
@@ -286,8 +352,9 @@ try {
     trace->flush();
   const auto& stats = scheduler.stats();
   std::cout << "flowedge-relayd stopped: accepted=" << stats.accepted << " stale=" << stats.stale
-            << " expired=" << stats.expired << " evicted=" << stats.evicted
-            << " full=" << stats.full << '\n';
+            << " unreachable=" << stats.unreachable << " expired=" << stats.expired
+            << " evicted=" << stats.evicted << " full=" << stats.full
+            << " rejection_outputs_dropped=" << rejection_outputs_dropped << '\n';
   return 0;
 } catch (const std::exception& error) {
   std::cerr << "flowedge-relayd: " << error.what() << '\n';
