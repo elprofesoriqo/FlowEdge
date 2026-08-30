@@ -1,4 +1,5 @@
 #include "arena/arena.h"
+#include "arena/thread_pool.h"
 #include "heads/flow/flow.h"
 #include "kernels/kernels.h"
 #include "loader/safetensors.h"
@@ -6,6 +7,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <gtest/gtest.h>
 #include <span>
 #include <vector>
@@ -20,6 +23,18 @@ std::vector<float> seq(std::size_t n, float a, float b)
   return v;
 }
 
+// convert a float vector to BF16
+std::vector<uint16_t> to_bf16(const std::vector<float>& v)
+{
+  std::vector<uint16_t> out(v.size());
+  for (std::size_t i{0uz}; i < v.size(); ++i) {
+    uint32_t bits;
+    std::memcpy(&bits, &v[i], sizeof(bits));
+    out[i] = static_cast<uint16_t>(bits >> 16);
+  }
+  return out;
+}
+
 constexpr float kTol = 2e-3F; // ~1 ULP exp8/log8 + fp32 reduction reorder
 
 } // namespace
@@ -27,7 +42,7 @@ constexpr float kTol = 2e-3F; // ~1 ULP exp8/log8 + fp32 reduction reorder
 TEST(Matmul, MatchesNaive)
 {
   for (const std::size_t rows : {1uz, 4uz, 7uz}) { // 1 hits the single-vector fast path
-    const std::size_t in{40uz};
+    const std::size_t in{37uz}; // exercises SIMD tails without assuming an aligned width
     const std::size_t out{17uz};
     const std::vector<float> a = seq(rows * in, 0.1F, 0.0F);
     const std::vector<float> w = seq(out * in, 0.07F, 1.0F);
@@ -41,6 +56,23 @@ TEST(Matmul, MatchesNaive)
         EXPECT_NEAR(got[(r * out) + o], acc, kTol) << "rows=" << rows;
       }
   }
+}
+
+TEST(ThreadPool, ParallelForCompletesAllSlices)
+{
+  std::vector<fe::Task> ring(8uz);
+  std::vector<std::size_t> sequence(8uz);
+  std::vector<std::jthread> workers(4uz);
+  fe::ThreadPool pool{ring, sequence, workers, 4u};
+  std::array<std::size_t, 64uz> counts{};
+
+  fe::parallel_for(pool, counts.size(), [&](std::size_t lo, std::size_t hi) noexcept {
+    for (std::size_t i{lo}; i < hi; ++i)
+      counts[i] = i + 1uz;
+  });
+
+  for (std::size_t i{0uz}; i < counts.size(); ++i)
+    EXPECT_EQ(counts[i], i + 1uz);
 }
 
 TEST(Silu, MatchesReference)
@@ -101,31 +133,36 @@ TEST(Conv1dCausal, MatchesNaive)
     }
 }
 
-TEST(SelectiveScan, MatchesNaiveRecurrence)
+TEST(DiscretizeAndScan, MatchesNaiveRecurrence)
 {
   const std::size_t l{3uz};
   const std::size_t di{5uz};
   const std::size_t ds{2uz};
-  const std::vector<float> da = seq(l * ds * di, 0.1F, 0.4F);
-  const std::vector<float> dbu = seq(l * ds * di, 0.2F, 0.1F);
-  const std::vector<float> cp = seq(l * ds, 0.3F, 0.7F);
-  const std::vector<float> d = seq(di, 0.15F, 0.2F);
+  const std::vector<float> delta = seq(l * di, 0.1F, 0.4F);
+  const std::vector<float> a_log = seq(di * ds, 0.2F, 0.1F);
+  const std::vector<float> b = seq(l * ds, 0.3F, 0.7F);
   const std::vector<float> u = seq(l * di, 0.25F, 0.9F);
+  const std::vector<float> cp = seq(l * ds, 0.35F, 0.15F);
+  const std::vector<float> d = seq(di, 0.15F, 0.2F);
   std::vector<float> h(ds * di);
   std::vector<float> y(l * di);
-  fe::selective_scan(da, dbu, cp, d, u, h, y, l, di, ds);
+  std::vector<float> a_work(ds * di);
+
+  fe::discretize_and_scan(delta, a_log, b, u, cp, d, h, y, a_work, l, di, ds);
 
   std::vector<float> hr(ds * di, 0.0F);
   std::vector<float> yr(l * di);
   for (std::size_t t{0uz}; t < l; ++t) {
     for (std::size_t c{0uz}; c < di; ++c)
       yr[(t * di) + c] = d[c] * u[(t * di) + c];
-    for (std::size_t nn{0uz}; nn < ds; ++nn)
+    for (std::size_t nn{0uz}; nn < ds; ++nn) {
       for (std::size_t c{0uz}; c < di; ++c) {
-        const std::size_t idx = (((t * ds) + nn) * di) + c;
-        hr[(nn * di) + c] = (da[idx] * hr[(nn * di) + c]) + dbu[idx];
+        const float da = std::exp(delta[(t * di) + c] * -std::exp(a_log[(c * ds) + nn]));
+        const float dbu = delta[(t * di) + c] * b[(t * ds) + nn] * u[(t * di) + c];
+        hr[(nn * di) + c] = (da * hr[(nn * di) + c]) + dbu;
         yr[(t * di) + c] += hr[(nn * di) + c] * cp[(t * ds) + nn];
       }
+    }
   }
   for (std::size_t i{0uz}; i < l * di; ++i)
     EXPECT_NEAR(y[i], yr[i], kTol);
@@ -137,20 +174,36 @@ namespace {
 struct FlowFixture
 {
   static constexpr std::size_t kA = 8uz, kC = 32uz, kH = 48uz, kT = 16uz, kL = 2uz;
-  std::vector<float> in_ = seq(kH * kA, 0.11F, 0.0F);
-  std::vector<float> tp_ = seq(kH * kT, 0.13F, 1.0F);
-  std::vector<float> cp_ = seq(kH * kC, 0.09F, 0.5F);
-  std::vector<float> op_ = seq(kA * kH, 0.07F, 0.2F);
-  std::vector<float> l0_ = seq(kH * kH, 0.05F, 0.1F);
-  std::vector<float> l1_ = seq(kH * kH, 0.06F, 0.3F);
-  std::array<std::vector<float>, kL> layers_{l0_, l1_};
+  // weights stored as BF16
+  std::vector<uint16_t> in_ = to_bf16(seq(kH * kA, 0.11F, 0.0F));
+  std::vector<uint16_t> tp_ = to_bf16(seq(kH * kT, 0.13F, 1.0F));
+  std::vector<uint16_t> cp_ = to_bf16(seq(kH * kC, 0.09F, 0.5F));
+  std::vector<uint16_t> op_ = to_bf16(seq(kA * kH, 0.07F, 0.2F));
+  std::vector<uint16_t> l0_ = to_bf16(seq(kH * kH, 0.05F, 0.1F));
+  std::vector<uint16_t> l1_ = to_bf16(seq(kH * kH, 0.06F, 0.3F));
+  std::array<std::vector<uint16_t>, kL> layers_{l0_, l1_};
   std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
   fe::Arena arena{std::span<std::byte>{slab}};
 
-  static fe::TensorView view(const char* name, float* data, std::size_t r, std::size_t c)
+  static fe::TensorView view(const char* name, uint16_t* data, std::size_t r, std::size_t c)
   {
     fe::TensorView v{};
     v.data = data;
+    v.dtype = fe::TensorView::Dtype::BF16;
+    v.shape[0] = r;
+    v.shape[1] = c;
+    v.ndim = 2;
+    std::size_t j{0uz};
+    for (const char* p = name; (*p != '\0') && (j + 1uz < v.name.size()); ++p)
+      v.name[j++] = *p;
+    return v;
+  }
+
+  static fe::TensorView view_f32(const char* name, float* data, std::size_t r, std::size_t c)
+  {
+    fe::TensorView v{};
+    v.data = data;
+    v.dtype = fe::TensorView::Dtype::F32;
     v.shape[0] = r;
     v.shape[1] = c;
     v.ndim = 2;
@@ -173,6 +226,30 @@ struct FlowFixture
   }
 };
 
+struct FlowF32Fixture
+{
+  static constexpr std::size_t kA = FlowFixture::kA;
+  static constexpr std::size_t kC = FlowFixture::kC;
+  static constexpr std::size_t kH = FlowFixture::kH;
+  static constexpr std::size_t kT = FlowFixture::kT;
+  std::vector<float> in_ = seq(kH * kA, 0.011F, 0.0F);
+  std::vector<float> tp_ = seq(kH * kT, 0.013F, 1.0F);
+  std::vector<float> cp_ = seq(kH * kC, 0.009F, 0.5F);
+  std::vector<float> op_ = seq(kA * kH, 0.007F, 0.2F);
+  std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
+  fe::Arena arena{std::span<std::byte>{slab}};
+
+  std::vector<fe::TensorView> views()
+  {
+    std::vector<fe::TensorView> v;
+    v.push_back(FlowFixture::view_f32("flow.in_proj.weight", in_.data(), kH, kA));
+    v.push_back(FlowFixture::view_f32("flow.time_proj.weight", tp_.data(), kH, kT));
+    v.push_back(FlowFixture::view_f32("flow.cond_proj.weight", cp_.data(), kH, kC));
+    v.push_back(FlowFixture::view_f32("flow.out_proj.weight", op_.data(), kA, kH));
+    return v;
+  }
+};
+
 } // namespace
 
 TEST(FlowHead, DeterministicAndFinite)
@@ -189,6 +266,19 @@ TEST(FlowHead, DeterministicAndFinite)
     EXPECT_EQ(a[i], b[i]) << "not deterministic"; // same inputs -> identical bits
     EXPECT_TRUE(std::isfinite(a[i]));
   }
+}
+
+TEST(FlowHead, AcceptsF32Weights)
+{
+  FlowF32Fixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> cond = seq(FlowF32Fixture::kC, 0.1F, 0.0F);
+  const std::vector<float> x0 = seq(FlowF32Fixture::kA, 0.3F, 0.2F);
+  std::vector<float> out(FlowF32Fixture::kA);
+  head.sample(cond, x0, 2uz, fe::FlowHead::kEuler, out);
+  for (float v : out)
+    EXPECT_TRUE(std::isfinite(v));
 }
 
 TEST(FlowHead, EulerDiffersFromHeun)
@@ -210,9 +300,16 @@ TEST(FlowHead, EulerDiffersFromHeun)
 TEST(FlowHead, RK4DiffersFromEulerAndFinite)
 {
   FlowFixture fx;
-  auto damp = [](std::vector<float>& w) {
-    for (float& e : w)
-      e *= 0.1F;
+  // damp: scale BF16 weights by 0.1 to keep activations from blowing up under RK4
+  auto damp = [](std::vector<uint16_t>& w) {
+    for (uint16_t& e : w) {
+      uint32_t bits = static_cast<uint32_t>(e) << 16;
+      float f;
+      std::memcpy(&f, &bits, sizeof(f));
+      f *= 0.1F;
+      std::memcpy(&bits, &f, sizeof(f));
+      e = static_cast<uint16_t>(bits >> 16);
+    }
   };
   damp(fx.in_);
   damp(fx.tp_);
@@ -238,9 +335,19 @@ TEST(FlowHead, RK4DiffersFromEulerAndFinite)
 TEST(FlowHead, RejectsOddTimeDim)
 {
   FlowFixture fx;
-  fx.tp_ = seq(FlowFixture::kH * 15uz, 0.13F, 1.0F); // odd time_dim: no sin/cos pairing
+  fx.tp_ = to_bf16(seq(FlowFixture::kH * 15uz, 0.13F, 1.0F)); // odd time_dim
   auto v = fx.views();
   v[1] = FlowFixture::view("flow.time_proj.weight", fx.tp_.data(), FlowFixture::kH, 15uz);
+  const fe::FlowHead head{v, fx.arena};
+  EXPECT_FALSE(head.valid());
+}
+
+TEST(FlowHead, RejectsIncompatibleProjectionShape)
+{
+  FlowFixture fx;
+  auto v = fx.views();
+  v[3] = FlowFixture::view("flow.out_proj.weight", fx.op_.data(), FlowFixture::kA - 1uz,
+                           FlowFixture::kH);
   const fe::FlowHead head{v, fx.arena};
   EXPECT_FALSE(head.valid());
 }

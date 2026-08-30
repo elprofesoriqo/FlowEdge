@@ -1,5 +1,8 @@
-build/
+build*/
+venv/
 /docs/_build/
 /models/
 .cache/
 ab_results.md
+/bench-results/
+__pycache__/

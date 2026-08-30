@@ -5,9 +5,12 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace fe {
+
+class ThreadPool;
 
 struct MambaConfig
 {
@@ -22,6 +25,8 @@ public:
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const MambaConfig& config() const noexcept { return cfg_; }
   [[nodiscard]] const float* embedding() const noexcept { return emb_; }
+
+  void set_pool(ThreadPool* p) noexcept { pool_ = p; }
 
   // [seq_len][d_model]
   void forward(std::span<const float> input, std::span<float> output, std::size_t seq_len) noexcept;
@@ -40,15 +45,15 @@ private:
   struct Layer
   {
     const float* norm;
-    const float* in_proj;
+    WeightView in_proj;
     const float* conv_w;
     const float* conv_b;
-    const float* x_proj;
-    const float* dt_w;
+    WeightView x_proj;
+    WeightView dt_w;
     const float* dt_b;
     const float* a_log;
     const float* d;
-    const float* out_proj;
+    WeightView out_proj;
   };
 
   void layer_forward(const Layer& lw, std::span<float> hidden, std::size_t seq_len) noexcept;
@@ -57,7 +62,7 @@ private:
   // 64B-aligned scratch span carved from the arena
   [[nodiscard]] std::span<float> arena_span(std::size_t n) noexcept
   {
-    return scratch_->alloc_span<float>(n, kSimdAlign);
+    return scratch_->alloc_span<float, kSimdAlign>(n);
   }
 
   static constexpr std::size_t kMaxLayers = 64uz;
@@ -66,6 +71,7 @@ private:
   const float* emb_{};
   const float* norm_f_{};
   Arena* scratch_{};
+  ThreadPool* pool_{nullptr};
   bool ok_{false};
 };
 

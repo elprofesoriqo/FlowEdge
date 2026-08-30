@@ -8,9 +8,12 @@ Level III kernels for the forward pass. Targets AVX2 on x86 edge and NEON on Jet
 
 ## Decision
 
-- Explicit intrinsics for the seven kernels that carry the runtime: `matmul`, `silu`, `softplus`, `gate_silu`, `discretize`, `selective_scan` and `scan_step`.
+- Explicit intrinsics for the kernels that carry the runtime: `matmul`, `silu`,
+  `softplus`, `gate_silu`, and fused `discretize_and_scan`.
 - `exp` and `log` use hand-written Cephes polynomials, about 1 ULP. The compiler folds a scalar `exp` into a per-element libm call, so intrinsics are the only way to vectorize it. Constants are shared between the ISA files in `cephes.h`.
-- `conv1d_causal`, `conv1d_step` and `rmsnorm` stay scalar and live once in `kernels_common.cc`. They are under 3% of a layer, too little to justify three ISA copies.
+- `conv1d_causal`, `conv1d_step` and `rmsnorm` stay simple scalar loops inside
+  each backend. They are under 3% of a layer, too little to dominate the
+  profile.
 - Scan layout is state-major `[t][n][c]` so the inner channel loop is contiguous.
 
 ## Consequences

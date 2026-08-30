@@ -3,7 +3,7 @@ description: Install clang, clang-format, clang-tidy and ninja, symlinked to unv
 inputs:
   version:
     description: LLVM
-    default: "19"
+    default: "23"
 runs:
   using: composite
   steps:

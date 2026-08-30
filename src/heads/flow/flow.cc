@@ -1,6 +1,9 @@
 #include "flow.h"
 
 #include "kernels/kernels.h"
+#include "kernels/span_ops.h"
+#include "loader/tensor_key.h"
+#include "loader/weight_ops.h"
 
 #include <array>
 #include <cmath>
@@ -10,6 +13,25 @@
 #include <utility>
 
 namespace fe {
+namespace {
+
+[[nodiscard]] bool is_matrix(const TensorView* tensor, std::size_t rows,
+                             std::size_t columns) noexcept
+{
+  return tensor != nullptr && tensor->ndim == 2uz && tensor->shape[0] == rows &&
+         tensor->shape[1] == columns && is_matmul_weight(tensor);
+}
+
+std::string_view layer_key(std::span<char> buf, std::size_t layer) noexcept
+{
+  TensorKeyBuilder key{buf};
+  if (!key.append("flow.layers.") || !key.append(layer) || !key.append(".weight"))
+    return {};
+  return key.view();
+}
+
+} // namespace
+
 FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
     : scratch_{&scratch}
 {
@@ -24,39 +46,31 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
   cfg_.action_dim = in->shape[1];
   cfg_.time_dim = tp->shape[1];
   cfg_.cond_dim = cp->shape[1];
-  in_proj_ = in->data;
-  time_proj_ = tp->data;
-  cond_proj_ = cp->data;
-  out_proj_ = op->data;
+  if (cfg_.hidden == 0uz || cfg_.action_dim == 0uz || cfg_.time_dim == 0uz ||
+      cfg_.cond_dim == 0uz || cfg_.time_dim % 2uz != 0uz ||
+      !is_matrix(in, cfg_.hidden, cfg_.action_dim) || !is_matrix(tp, cfg_.hidden, cfg_.time_dim) ||
+      !is_matrix(cp, cfg_.hidden, cfg_.cond_dim) || !is_matrix(op, cfg_.action_dim, cfg_.hidden))
+    return;
+
+  in_proj_ = weight_view(in);
+  time_proj_ = weight_view(tp);
+  cond_proj_ = weight_view(cp);
+  out_proj_ = weight_view(op);
 
   std::size_t n{0uz};
   for (; n < kMaxMlp; ++n) {
     std::array<char, 48> buf{};
-    std::size_t p{0uz};
-    for (const char ch : std::string_view{"flow.layers."})
-      buf[p++] = ch;
-    // multi-digit: safe when kMaxMlp is raised past 9
-    std::array<char, 4> digs{};
-    std::size_t nd{0uz};
-    for (std::size_t v = n; v != 0uz; v /= 10uz)
-      digs[nd++] = static_cast<char>('0' + (v % 10uz));
-    if (nd == 0uz)
-      digs[nd++] = '0';
-    while (nd > 0uz)
-      buf[p++] = digs[--nd];
-    for (const char ch : std::string_view{".weight"})
-      buf[p++] = ch;
-    const TensorView* lw = find_tensor(weights, {buf.data(), p});
+    const TensorView* lw = find_tensor(weights, layer_key(buf, n));
     if (lw == nullptr)
       break;
-    layers_[n] = lw->data;
+    if (!is_matrix(lw, cfg_.hidden, cfg_.hidden))
+      return;
+    layers_[n] = weight_view(lw);
   }
   cfg_.mlp_layers = n;
-  if (cfg_.time_dim % 2uz != 0uz) // sinusoidal embed needs sin/cos pairs
-    return;
 
   const std::size_t half = cfg_.time_dim / 2uz; // sinusoidal freqs are constant
-  auto* const f = scratch.alloc_array<float>(half, kSimdAlign);
+  auto* const f = scratch.alloc_array<float, kSimdAlign>(half);
   if (f == nullptr)
     return;
   for (std::size_t j{0uz}; j < half; ++j)
@@ -77,25 +91,24 @@ void FlowHead::velocity(std::span<const float> x, float t, std::span<const float
   std::span<float> tmp = arena_span(hd);
   const std::span<float> sinu = arena_span(td);
 
-  matmul(x, {in_proj_, hd * a}, h, 1uz, a, hd); // in_proj·x
+  matmul_weight(x, in_proj_, h, 1uz, a, hd, pool_); // in_proj·x
 
-  const std::size_t half = td / 2uz;            // sinusoidal time embedding [sin | cos]
+  const std::size_t half = td / 2uz;                // sinusoidal time embedding [sin | cos]
   for (std::size_t i{0uz}; i < half; ++i) {
     sinu[i] = std::sin(t * freqs_[i]);
     sinu[half + i] = std::cos(t * freqs_[i]);
   }
-  matmul(sinu, {time_proj_, hd * td}, tmp, 1uz, td, hd);
+  matmul_weight(sinu, time_proj_, tmp, 1uz, td, hd, pool_);
 
-  for (std::size_t i{0uz}; i < hd; ++i)
-    h[i] += tmp[i] + c_emb[i]; // fuse x, time, cond
+  add3_inplace(h, tmp, c_emb); // fuse x, time, cond
   silu(h);
 
   for (std::size_t l{0uz}; l < cfg_.mlp_layers; ++l) {
-    matmul(h, {layers_[l], hd * hd}, tmp, 1uz, hd, hd);
+    matmul_weight(h, layers_[l], tmp, 1uz, hd, hd, pool_);
     silu(tmp);
     std::swap(h, tmp);
   }
-  matmul(h, {out_proj_, a * hd}, v, 1uz, hd, a);
+  matmul_weight(h, out_proj_, v, 1uz, hd, a, pool_);
 
   scratch_->reset_to(mark);
 }
@@ -108,7 +121,7 @@ void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, st
 
   std::byte* const mark = scratch_->mark();
   const std::span<float> c_emb = arena_span(hd);
-  matmul(cond, {cond_proj_, hd * cfg_.cond_dim}, c_emb, 1uz, cfg_.cond_dim, hd);
+  matmul_weight(cond, cond_proj_, c_emb, 1uz, cfg_.cond_dim, hd);
 
   const std::span<float> x = arena_span(a);
   const std::span<float> k1 = arena_span(a);
@@ -116,39 +129,30 @@ void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, st
   const std::span<float> k3 = arena_span(a);
   const std::span<float> k4 = arena_span(a);
   const std::span<float> xp = arena_span(a);
-  for (std::size_t i{0uz}; i < a; ++i)
-    x[i] = x0[i];
+  copy_span(x0, x);
 
   const float dt = 1.0F / static_cast<float>(steps);
   for (std::size_t k{0uz}; k < steps; ++k) {
     const float t = static_cast<float>(k) * dt;
     velocity(x, t, c_emb, k1);
     if (method == kEuler) {
-      for (std::size_t i{0uz}; i < a; ++i)
-        x[i] += dt * k1[i];
+      add_scaled(x, k1, dt);
     } else if (method == kHeun) {
-      for (std::size_t i{0uz}; i < a; ++i)
-        xp[i] = x[i] + (dt * k1[i]);
+      scaled_sum(x, k1, dt, xp);
       velocity(xp, t + dt, c_emb, k2);
-      for (std::size_t i{0uz}; i < a; ++i)
-        x[i] += 0.5F * dt * (k1[i] + k2[i]);
+      add_heun(x, k1, k2, dt);
     } else { // kRK4: classic 4-stage
       const float h = 0.5F * dt;
-      for (std::size_t i{0uz}; i < a; ++i)
-        xp[i] = x[i] + (h * k1[i]);
+      scaled_sum(x, k1, h, xp);
       velocity(xp, t + h, c_emb, k2);
-      for (std::size_t i{0uz}; i < a; ++i)
-        xp[i] = x[i] + (h * k2[i]);
+      scaled_sum(x, k2, h, xp);
       velocity(xp, t + h, c_emb, k3);
-      for (std::size_t i{0uz}; i < a; ++i)
-        xp[i] = x[i] + (dt * k3[i]);
+      scaled_sum(x, k3, dt, xp);
       velocity(xp, t + dt, c_emb, k4);
-      for (std::size_t i{0uz}; i < a; ++i)
-        x[i] += (dt / 6.0F) * (k1[i] + (2.0F * k2[i]) + (2.0F * k3[i]) + k4[i]);
+      add_rk4(x, k1, k2, k3, k4, dt);
     }
   }
-  for (std::size_t i{0uz}; i < a; ++i)
-    out[i] = x[i];
+  copy_span(x, out);
 
   scratch_->reset_to(mark);
 }

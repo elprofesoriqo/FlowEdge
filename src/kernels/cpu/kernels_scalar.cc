@@ -1,7 +1,9 @@
 #include "kernels/kernels.h"
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace fe {
 namespace {
@@ -28,36 +30,62 @@ inline void scan_advance(const float* __restrict__ da_t, const float* __restrict
 
 } // namespace
 
+void conv1d_causal(std::span<const float> x, std::span<const float> weight,
+                   std::span<const float> bias, std::span<float> y, std::size_t channels,
+                   std::size_t length, std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ xc = x.data() + (c * length);
+    const float* __restrict__ wc = weight.data() + (c * kernel);
+    float* __restrict__ yc = y.data() + (c * length);
+    const float bc = bias[c];
+    for (std::size_t t{0uz}; t < length; ++t)
+      yc[t] = bc;
+    for (std::size_t k{0uz}; k < kernel; ++k) {
+      const float wk = wc[k];
+      const std::size_t start = (kernel - 1uz) - k;
+      for (std::size_t t{start}; t < length; ++t)
+        yc[t] += wk * xc[t - start];
+    }
+  }
+}
+
+void conv1d_step(std::span<const float> window, std::span<const float> weight,
+                 std::span<const float> bias, std::span<float> y, std::size_t channels,
+                 std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ wc = window.data() + (c * kernel);
+    const float* __restrict__ kw = weight.data() + (c * kernel);
+    float acc = bias[c];
+    for (std::size_t k{0uz}; k < kernel; ++k)
+      acc += kw[k] * wc[k];
+    y[c] = acc;
+  }
+}
+
+void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span<float> out,
+             std::size_t rows, std::size_t dim) noexcept
+{
+  constexpr float eps = 1e-5F;
+  for (std::size_t r{0uz}; r < rows; ++r) {
+    const float* __restrict__ ir = in.data() + (r * dim);
+    float* __restrict__ orow = out.data() + (r * dim);
+    float ss{0.0F};
+    for (std::size_t i{0uz}; i < dim; ++i)
+      ss += ir[i] * ir[i];
+    const float scale = 1.0F / std::sqrt((ss / static_cast<float>(dim)) + eps);
+    for (std::size_t i{0uz}; i < dim; ++i)
+      orow[i] = ir[i] * scale * weight[i];
+  }
+}
+
 void gate_silu(std::span<const float> a, std::span<const float> g, std::span<float> out) noexcept
 {
   for (std::size_t i{0uz}; i < out.size(); ++i) {
     const float v = g[i];
     out[i] = a[i] * (v / (1.0F + std::exp(-v)));
   }
-}
-
-void selective_scan(std::span<const float> delta_a, std::span<const float> delta_bu,
-                    std::span<const float> c_proj, std::span<const float> d_skip,
-                    std::span<const float> u, std::span<float> h, std::span<float> y,
-                    std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
-{
-  float* __restrict__ hs = h.data();
-  for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
-    hs[i] = 0.0F; // h_0 = 0
-  const std::size_t plane = d_state * d_inner;
-  for (std::size_t t{0uz}; t < length; ++t)
-    scan_advance(delta_a.data() + (t * plane), delta_bu.data() + (t * plane),
-                 c_proj.data() + (t * d_state), u.data() + (t * d_inner), d_skip.data(), hs,
-                 y.data() + (t * d_inner), d_inner, d_state);
-}
-
-void scan_step(std::span<const float> delta_a, std::span<const float> delta_bu,
-               std::span<const float> c_proj, std::span<const float> d_skip,
-               std::span<const float> u, std::span<float> h, std::span<float> y,
-               std::size_t d_inner, std::size_t d_state) noexcept
-{
-  scan_advance(delta_a.data(), delta_bu.data(), c_proj.data(), u.data(), d_skip.data(), h.data(),
-               y.data(), d_inner, d_state); // h persists across calls
 }
 
 void silu(std::span<float> x) noexcept
@@ -75,7 +103,7 @@ void softplus(std::span<float> x) noexcept
 }
 
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
 {
   for (std::size_t o{0uz}; o < out_dim; ++o) {
     const float* __restrict__ wr = w.data() + (o * in_dim);
@@ -89,36 +117,58 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
   }
 }
 
-void discretize(std::span<const float> delta, std::span<const float> a_log,
-                std::span<const float> b, std::span<const float> u, std::span<float> delta_a,
-                std::span<float> delta_bu, std::span<float> a_work, std::size_t length,
-                std::size_t d_inner, std::size_t d_state) noexcept
+void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
 {
-  const std::size_t plane = d_inner * d_state;
-  // A = -exp(a_log): compute exp then transpose + negate into a_work[n][c].
-  float* __restrict__ tmp = delta_a.data();
-  for (std::size_t i{0uz}; i < plane; ++i)
-    tmp[i] = std::exp(a_log[i]);
+  for (std::size_t o{0uz}; o < out_dim; ++o) {
+    const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+    for (std::size_t r{0uz}; r < rows; ++r) {
+      const float* __restrict__ ir = in.data() + (r * in_dim);
+      float acc{0.0F};
+      for (std::size_t i{0uz}; i < in_dim; ++i)
+        acc += ir[i] * std::bit_cast<float>(static_cast<std::uint32_t>(wr[i]) << 16u);
+      out.data()[(r * out_dim) + o] = acc;
+    }
+  }
+}
 
+void discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
+                         std::span<const float> b, std::span<const float> u,
+                         std::span<const float> c_proj, std::span<const float> d_skip,
+                         std::span<float> h, std::span<float> y, std::span<float> a_work,
+                         std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
+{
+  float* __restrict__ hs = h.data();
+  for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
+    hs[i] = 0.0F; // h_0 = 0
+
+  // A = -exp(a_log): compute exp then transpose + negate into a_work[n][c].
   float* __restrict__ a_sm = a_work.data();
   for (std::size_t c{0uz}; c < d_inner; ++c)
     for (std::size_t n{0uz}; n < d_state; ++n)
-      a_sm[(n * d_inner) + c] = -tmp[(c * d_state) + n];
+      a_sm[(n * d_inner) + c] = -std::exp(a_log[(c * d_state) + n]);
 
-  // delta_a[t,n,c] = exp(delta[t,c]·A[n,c])
-  // delta_bu[t,n,c] = delta[t,c]·b[t,n]·u[t,c]
   for (std::size_t t{0uz}; t < length; ++t) {
     const float* __restrict__ dt = delta.data() + (t * d_inner);
     const float* __restrict__ ut = u.data() + (t * d_inner);
     const float* __restrict__ bt = b.data() + (t * d_state);
+    const float* __restrict__ c_t = c_proj.data() + (t * d_state);
+    const float* __restrict__ dk = d_skip.data();
+    float* __restrict__ y_t = y.data() + (t * d_inner);
+
+    for (std::size_t c{0uz}; c < d_inner; ++c)
+      y_t[c] = dk[c] * ut[c]; // skip term
+
     for (std::size_t n{0uz}; n < d_state; ++n) {
+      float* __restrict__ hn = hs + (n * d_inner);
       const float* __restrict__ an = a_sm + (n * d_inner);
-      float* __restrict__ da_n = delta_a.data() + (((t * d_state) + n) * d_inner);
-      float* __restrict__ dbu_n = delta_bu.data() + (((t * d_state) + n) * d_inner);
       const float bn = bt[n];
+      const float cn = c_t[n];
       for (std::size_t c{0uz}; c < d_inner; ++c) {
-        da_n[c] = std::exp(dt[c] * an[c]);
-        dbu_n[c] = dt[c] * bn * ut[c];
+        const float da_nc = std::exp(dt[c] * an[c]);
+        const float dbu_nc = dt[c] * bn * ut[c];
+        hn[c] = (da_nc * hn[c]) + dbu_nc;
+        y_t[c] += hn[c] * cn;
       }
     }
   }

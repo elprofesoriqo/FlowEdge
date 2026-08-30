@@ -3,7 +3,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${1:-$ROOT/models/mamba_flow.safetensors}"
-BENCH="$ROOT/build"
+BENCH="${FLOWEDGE_BUILD_DIR:-$ROOT/build}"
+LATENCY_ITERS="${FLOWEDGE_LATENCY_ITERS:-100000}"
+TORCH_LATENCY_ITERS="${FLOWEDGE_TORCH_LATENCY_ITERS:-$LATENCY_ITERS}"
 
 if [[ ! -f "$MODEL" ]]; then
     echo "Downloading mamba_flow.safetensors from Hugging Face..."
@@ -29,12 +31,12 @@ fi
 echo "== Action-head Real-time Latency (us) [Euler, N=10] =="
 echo "Engine     | Mean (us) | p50 (us)  | p99 (us)  | p999 (us) | Min (us)  | Max (us)  | Allocs"
 echo "----------------------------------------------------------------------------------------"
-"$exe_l" euler
-"$PY" "$ROOT/scripts/torch_ref.py" latency || echo "PyTorch          | (requires torch/numpy)"
+"$exe_l" euler "$LATENCY_ITERS"
+"$PY" "$ROOT/scripts/torch_ref.py" latency euler "$TORCH_LATENCY_ITERS" || echo "PyTorch          | (requires torch/numpy)"
 
 echo ""
 echo "== kernel microbenchmarks =="
-"$exe_k" --benchmark_counters_tabular=true --benchmark_color=true --benchmark_out="$ROOT/build/kernels.json" --benchmark_out_format=json
+"$exe_k" --benchmark_counters_tabular=true --benchmark_color=true --benchmark_out="$BENCH/kernels.json" --benchmark_out_format=json
 
 [[ -f "$MODEL" ]] || { echo "note: $MODEL absent — skipping end-to-end vs-PyTorch"; exit 0; }
 
@@ -42,4 +44,4 @@ echo "== FlowEdge (C-ABI) =="
 FLOWEDGE_MODEL="$MODEL" "$BENCH/flowedge_engine_bench"
 
 echo "== PyTorch =="
-"$PY" "$ROOT/scripts/torch_ref.py" bench "$MODEL" 1
+"$PY" "$ROOT/scripts/torch_ref.py" bench "$MODEL" 1 || echo "PyTorch forward: (requires torch/numpy)"

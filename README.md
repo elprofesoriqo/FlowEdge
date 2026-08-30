@@ -36,6 +36,52 @@ FlowEdge supports the following hardware accelerators:
 - ☐ Metal
 - ☐ Vulkan
 
+## Quick Start
+
+<details open>
+<summary><b>C++: build and sample</b></summary>
+
+Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated in WSL.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/flow_sample models/mamba_flow.safetensors euler 10
+```
+
+The checkpoint must contain `backbone.*` Mamba tensors and `flow.*` action-head tensors. Download the smoke-test model:
+
+```bash
+mkdir -p models
+wget -qO models/mamba_flow.safetensors \
+  https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors
+```
+</details>
+
+<details>
+<summary><b>Python: install and sample</b></summary>
+
+```bash
+python -m pip install .
+python examples/flow_sample.py models/mamba_flow.safetensors
+```
+
+The Python wheel builds the same C++ engine. Use `Engine.sample(prefix, noise, steps, method)` for `euler`, `heun`, or `rk4`.
+</details>
+
+<details>
+<summary><b>Validate locally</b></summary>
+
+```bash
+cmake -S . -B build -DFLOWEDGE_TESTS=ON -DFLOWEDGE_BENCH=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench
+```
+
+On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
+</details>
+
 ## Architectures & Heads
 
 **Backbones:**
@@ -59,104 +105,17 @@ FlowEdge supports the following hardware accelerators:
 
 ## Performance
 
-**Mamba (Forward Pass)**
+| Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PyTorch) |
+|---|---|---:|---:|---:|
+| `BM_engine_forward` | CPU | 0.983 ms | 0.120 ms | 8.19x |
+| `BM_engine_forward` | CUDA | TBD | TBD | TBD |
+| `BM_engine_forward` | Metal | TBD | TBD | TBD |
+| `BM_engine_forward` | Vulkan | TBD | TBD | TBD |
+| `BM_engine_forward` | Tenstorrent | TBD | TBD | TBD |
+| Flow action latency, mean (Euler, NFE=10) | CPU | 962.39 us | 294.42 us | 3.27x |
+| Flow action latency, p99 (Euler, NFE=10) | CPU | 1,472.40 us | 482.72 us | 3.05x |
 
-| Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PT) |
-|-----------|---------|---------|----------|-----------------|
-| BM_engine_forward | CPU | 73.0 ms | 28.0 ms | ~2.6x |
-| BM_engine_forward | CUDA | TBD | TBD | TBD |
-| BM_engine_forward | Metal | TBD | TBD | TBD |
-| BM_engine_forward | Vulkan | TBD | TBD | TBD |
-
-*Mamba-130M (24 layers, d_model=768), seq_len=4, FP32, single-threaded CPU. Regenerate with `./scripts/bench.sh`; numbers depend on model and host.*
-
-## Python Installation
-
-You can install the Python bindings directly via pip (requires CMake 3.21+ and a C++23 compiler):
-
-```bash
-pip install .
-```
-
-Then in Python:
-
-```python
-import numpy as np
-import flowedge
-
-e = flowedge.Engine("models/mamba_flow.safetensors")
-action = e.sample(prefix=[1, 2, 3, 4],
-                  noise=np.random.randn(e.action_dim).astype("float32"),
-                  steps=10, method="euler")
-```
-
-A Python script is also provided in [`examples/flow_sample.py`](examples/flow_sample.py).
-
-## C++ Quick Start
-
-**1. Get the code and build.**
-
-Requires CMake 3.21+ and a C++23 compiler (GCC 13+ or Clang 16+).
-
-```bash
-git clone <repo> && cd FlowEdge
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
-```
-
-**2. Bring a model.** FlowEdge runs a Mamba flow-matching policy in `.safetensors` format
-(tensors named `backbone.*` for the SSM and `flow.*` for the action head). You can download a pre-trained model to try the engine:
-
-```bash
-mkdir -p models
-wget -qO models/mamba_flow.safetensors "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
-```
-
-Or bring your own - convert a torch / HuggingFace checkpoint into the FlowEdge layout:
-
-```bash
-python convert/convert.py path/to/checkpoint.safetensors models/mamba_flow.safetensors
-```
-
-See [`convert/`](convert/README.md) for supported architectures and how to add one.
-
-**3. Sample an action chunk** (`euler|heun|rk4`, last argument = number of solver steps):
-
-```bash
-./build/flow_sample models/mamba_flow.safetensors euler 10
-# action_dim=8  solver=euler  NFE=10  action[0..2]=0.021476, 0.176867, 0.692564
-```
-
-Also in `examples/`: `mamba_forward` (backbone hidden states / streaming).
-
-## C API & CMake Integration
-
-The C API is defined in [`src/api/engine.h`](src/api/engine.h).
-
-If you install FlowEdge system-wide or use it via `FetchContent`, you can easily link it in your own `CMakeLists.txt`:
-
-```cmake
-find_package(FlowEdge REQUIRED)
-target_link_libraries(my_robot_node PRIVATE FlowEdge::flowedge_engine)
-```
-
-```c
-#include <api/engine.h>
-#include <stdio.h>
-
-fe_engine* e = fe_engine_load("your_model.safetensors");
-if (!e) {
-    printf("Error: %s\n", fe_engine_last_error());
-    return 1;
-}
-
-size_t n = fe_engine_action_dim(e);
-float noise[n], action[n];                        // noise ~ N(0,1)
-int rc = fe_engine_sample(e, (int32_t[]){1, 2, 3, 4}, 4, noise, /*steps=*/10, /*0=euler*/0, action);
-
-if (rc != 0) {
-    printf("Engine error: %s\n", fe_engine_last_error());
-}
-
-fe_engine_free(e);
-```
+| Measurements | FlowEdge | PyTorch |
+|---|---|---|
+| Engine forward | [`bench/engine_bench.cc`](bench/engine_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`bench`) |
+| Flow action latency | [`bench/latency_bench.cc`](bench/latency_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`latency`) |

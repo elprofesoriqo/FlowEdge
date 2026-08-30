@@ -29,10 +29,9 @@ graph LR
   SL --> XP[x_proj]
   XP --> DT["dt_proj + softplus"]
   XP --> BC["B, C"]
-  DT --> DS[discretize]
+  DT --> DS["discretize_and_scan"]
   BC --> DS
-  DS --> SS[selective_scan]
-  SS --> G["gate: y mul silu(z)"]
+  DS --> G["gate: y mul silu(z)"]
   G --> OP[out_proj]
   OP --> R["+ residual"]
 ```
@@ -45,7 +44,9 @@ Picking a backbone is really picking how memory scales. Attention costs $O(L^2 d
 
 The diagonal $A$ keeps the state update elementwise. $\bar{A} h_{t-1}$ is a Hadamard product rather than a matmul, so a step is $O(d_{inner} d_{state})$ and vectorizes cleanly. Letting $\Delta, B, C$ depend on $x_t$ is what a fixed convolution cannot do, and it is what lets the model track a changing observation.
 
-Discretization is materialized, not fused. Writing $\bar{A}$ and $\bar{B}u$ out as $[t][n][c]$ adds memory traffic, which is the scan's dominant cost, but it keeps the kernel simple and checkable against PyTorch. Fusing it into the scan would cut that traffic at the price of changed numerics, so it waits behind the ULP gate. For now the trade is bandwidth for verifiability.
+Discretization is fused into the scan as `discretize_and_scan`. The kernel keeps
+the state-major `[t][n][c]` access pattern for contiguous channel loads while
+avoiding a separate intermediate write of $\bar{A}$ and $\bar{B}u$.
 
 Since the recurrence carries the same state over a batch or a single token, streaming decode is one step. It tracks the batch forward to about 2e-7, the two paths differing only in floating-point ordering.
 

@@ -2,14 +2,19 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstdio>
 #include <cstring>
+#include <expected>
 #include <memory>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0602
 #endif
 #include <windows.h>
 #else
@@ -22,6 +27,14 @@
 namespace fe {
 namespace {
 
+struct FileCloser
+{
+  void operator()(FILE* fp) const noexcept
+  {
+    std::fclose(fp); // NOLINT(cppcoreguidelines-owning-memory)
+  }
+};
+
 struct MappedFile
 {
   const std::byte* data{};
@@ -30,29 +43,34 @@ struct MappedFile
 #ifdef _WIN32
   HANDLE file{INVALID_HANDLE_VALUE}, mapping{};
 
-  [[nodiscard]] bool open(const char* p) noexcept
+  [[nodiscard]] static std::expected<MappedFile, const char*> open(const char* p) noexcept
   {
-    file = CreateFileA(p, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-      return false;
+    MappedFile mf;
+    mf.file = CreateFileA(p, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                          FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (mf.file == INVALID_HANDLE_VALUE)
+      return std::unexpected("Failed to open safetensors file");
     LARGE_INTEGER sz{};
-    if (!GetFileSizeEx(file, &sz)) {
-      close();
-      return false;
+    if (!GetFileSizeEx(mf.file, &sz)) {
+      mf.close();
+      return std::unexpected("Failed to get safetensors file size");
     }
-    size = static_cast<std::size_t>(sz.QuadPart);
-    mapping = CreateFileMappingA(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
-    if (!mapping) {
-      close();
-      return false;
+    mf.size = static_cast<std::size_t>(sz.QuadPart);
+    mf.mapping = CreateFileMappingA(mf.file, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    if (!mf.mapping) {
+      mf.close();
+      return std::unexpected("Failed to create file mapping");
     }
-    data = static_cast<const std::byte*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
-    if (!data) {
-      close();
-      return false;
+    mf.data = static_cast<const std::byte*>(MapViewOfFile(mf.mapping, FILE_MAP_READ, 0, 0, 0));
+    if (!mf.data) {
+      mf.close();
+      return std::unexpected("Failed to map view of file");
     }
-    return true;
+#if _WIN32_WINNT >= 0x0602
+    WIN32_MEMORY_RANGE_ENTRY range{const_cast<void*>(static_cast<const void*>(mf.data)), mf.size};
+    PrefetchVirtualMemory(GetCurrentProcess(), 1, &range, 0);
+#endif
+    return mf;
   }
   void close() noexcept
   {
@@ -62,32 +80,39 @@ struct MappedFile
       CloseHandle(mapping);
     if (file != INVALID_HANDLE_VALUE)
       CloseHandle(file);
+    data = nullptr;
+    mapping = nullptr;
+    file = INVALID_HANDLE_VALUE;
   }
 #else
   void* mapped_data{};
 
-  [[nodiscard]] bool open(const char* p) noexcept
+  [[nodiscard]] static std::expected<MappedFile, const char*> open(const char* p) noexcept
   {
-    std::unique_ptr<FILE, decltype(&std::fclose)> fp{std::fopen(p, "rb"), &std::fclose};
+    std::unique_ptr<FILE, FileCloser> fp{std::fopen(p, "rb")};
     if (!fp)
-      return false;
+      return std::unexpected("Failed to open safetensors file");
     const int fd = fileno(fp.get());
     struct stat st = {};
     if (fstat(fd, &st) < 0)
-      return false;
-    size = static_cast<std::size_t>(st.st_size);
-    mapped_data = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (mapped_data == MAP_FAILED) {
-      mapped_data = nullptr;
-      return false;
-    }
-    data = static_cast<const std::byte*>(mapped_data);
-    return true;
+      return std::unexpected("Failed to stat safetensors file");
+    MappedFile mf;
+    mf.size = static_cast<std::size_t>(st.st_size);
+    mf.mapped_data = mmap(nullptr, mf.size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (mf.mapped_data == MAP_FAILED)
+      return std::unexpected("Failed to mmap safetensors file");
+    mf.data = static_cast<const std::byte*>(mf.mapped_data);
+#if defined(__linux__)
+    madvise(mf.mapped_data, mf.size, MADV_SEQUENTIAL | MADV_WILLNEED);
+#endif
+    return mf;
   }
   void close() noexcept
   {
     if (mapped_data)
       munmap(mapped_data, size);
+    mapped_data = nullptr;
+    data = nullptr;
   }
 #endif
 };
@@ -174,33 +199,55 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
   return true;
 }
 
-[[nodiscard]] std::string_view header_json(MappedFile& mf, std::string_view path) noexcept
+struct MappedJson
+{
+  MappedFile mf;
+  std::string_view json;
+};
+
+[[nodiscard]] std::expected<MappedJson, const char*> header_json(std::string_view path) noexcept
 {
   std::array<char, 512> buf{};
   if (path.size() >= buf.size())
-    return {};
+    return std::unexpected("Path too long");
   std::memcpy(buf.data(), path.data(), path.size());
-  if (!mf.open(buf.data()) || mf.size < 8uz)
-    return {};
+
+  auto mf_res = MappedFile::open(buf.data());
+  if (!mf_res)
+    return std::unexpected(mf_res.error());
+
+  MappedFile mf = *mf_res;
+  if (mf.size < 8uz) {
+    mf.close();
+    return std::unexpected("File too small");
+  }
   std::uint64_t header_len{};
   std::memcpy(&header_len, mf.data, 8uz);
-  if (header_len > mf.size - 8uz) // overflow-safe: mf.size >= 8
-    return {};
-  return {reinterpret_cast<const char*>(mf.data + 8uz), static_cast<std::size_t>(header_len)};
+  if constexpr (std::endian::native == std::endian::big)
+    header_len = std::byteswap(header_len); // safetensors encodes its length as little-endian
+  if (header_len > mf.size - 8uz) {         // overflow-safe: mf.size >= 8
+    mf.close();
+    return std::unexpected("Invalid header length");
+  }
+  return MappedJson{.mf = mf,
+                    .json = {reinterpret_cast<const char*>(mf.data + 8uz),
+                             static_cast<std::size_t>(header_len)}};
 }
 
 } // namespace
 
-bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView> out,
-                      std::size_t& tensors_loaded) noexcept
+std::expected<void, const char*> load_safetensors(std::string_view path, Arena& arena,
+                                                  std::span<TensorView> out,
+                                                  std::size_t& tensors_loaded) noexcept
 {
   tensors_loaded = 0uz;
-  MappedFile mf{};
-  const std::string_view json = header_json(mf, path);
-  if (json.empty()) {
-    mf.close();
-    return false;
-  }
+  auto res = header_json(path);
+  if (!res)
+    return std::unexpected(res.error());
+
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const std::string_view json = mapped.json;
   const std::byte* const weights_base = mf.data + 8uz + json.size();
   const std::uint64_t data_size = mf.size - 8uz - json.size();
 
@@ -218,23 +265,15 @@ bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView>
                        if (byte_len % elem != 0uz) [[unlikely]] // whole elements
                          return false;
 
-                       const std::size_t count = byte_len / elem;
-                       auto* const dst = arena.alloc_array<float>(count, kSimdAlign);
+                       // store bytes; matmul widens inline
+                       auto* const dst = arena.alloc_array<std::byte, kSimdAlign>(byte_len);
                        if (!dst) [[unlikely]]
                          return false;
-                       const std::byte* const src = weights_base + byte_off;
-                       if (bf16) // bf16 is the high 16 bits of an f32
-                         for (std::size_t i{0uz}; i < count; ++i) {
-                           std::uint16_t hi{};
-                           std::memcpy(&hi, src + (i * 2uz), 2uz);
-                           const std::uint32_t bits = static_cast<std::uint32_t>(hi) << 16;
-                           std::memcpy(&dst[i], &bits, sizeof(float));
-                         }
-                       else
-                         std::memcpy(dst, src, byte_len);
+                       std::memcpy(dst, weights_base + byte_off, byte_len);
 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
+                       tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
                          tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
@@ -245,21 +284,27 @@ bool load_safetensors(std::string_view path, Arena& arena, std::span<TensorView>
                      });
 
   mf.close();
-  return ok;
+  if (!ok)
+    return std::unexpected("Failed during tensor iteration or out of bounds");
+  return {};
 }
 
-std::size_t safetensors_f32_bytes(std::string_view path) noexcept
+std::size_t safetensors_weight_bytes(std::string_view path) noexcept
 {
-  MappedFile mf{};
-  const std::string_view json = header_json(mf, path);
+  auto res = header_json(path);
+  if (!res)
+    return 0uz;
+
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const std::string_view json = mapped.json;
   std::size_t total{0uz};
   static_cast<void>(
-      foreach_tensor(json,
-                     [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
-                         const std::array<std::uint64_t, 4>&, std::uint8_t, bool bf16) noexcept {
-                       total += bf16 ? (2uz * byte_len) : byte_len; // F32 arena size (BF16 exp 2×)
-                       return true;
-                     }));
+      foreach_tensor(json, [&](std::string_view, std::uint64_t, std::uint64_t byte_len,
+                               const std::array<std::uint64_t, 4>&, std::uint8_t, bool) noexcept {
+        total += byte_len; // BF16 stays 2 bytes/elem
+        return true;
+      }));
   mf.close();
   return total;
 }
@@ -267,8 +312,13 @@ std::size_t safetensors_f32_bytes(std::string_view path) noexcept
 std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
                                                     std::string_view name) noexcept
 {
-  MappedFile mf{};
-  const std::string_view json = header_json(mf, path);
+  auto res = header_json(path);
+  if (!res)
+    return {};
+
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const std::string_view json = mapped.json;
   std::array<std::size_t, 4> out{};
   static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
                                              const std::array<std::uint64_t, 4>& shape,

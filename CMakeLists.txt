@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
 project(FlowEdge)
 
+find_package(Threads REQUIRED)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -13,20 +15,18 @@ option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
   add_compile_options(-mavx2 -mfma -fno-math-errno)
-  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    add_compile_options(-mincoming-stack-boundary=4) # gcc-only; clang aligns the stack itself
-  endif()
 endif()
 
 if(MSVC)
   add_compile_options(/D__restrict__=__restrict)
 endif()
 
-# compute kernels, select with -DFLOWEDGE_BACKEND=cpu (default)
-set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu")
+# Compute kernels. CPU is the only production backend; AVX-512 is an explicit CPU variant.
+set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu or avx512")
+set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512)
 
 if(FLOWEDGE_BACKEND STREQUAL "cpu")
-  set(KERNEL_SRC src/kernels/cpu/kernels_common.cc) # arch-independent scalar kernels
+  set(KERNEL_SRC "")
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|x86")
     list(APPEND KERNEL_SRC src/kernels/cpu/kernels_avx2.cc)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64|ARM64")
@@ -34,26 +34,39 @@ if(FLOWEDGE_BACKEND STREQUAL "cpu")
   else()
     list(APPEND KERNEL_SRC src/kernels/cpu/kernels_scalar.cc)
   endif()
-elseif(FLOWEDGE_BACKEND STREQUAL "cuda")
-  set(KERNEL_SRC src/kernels/cuda/kernels_cuda.cu)
-  enable_language(CUDA)
-elseif(FLOWEDGE_BACKEND STREQUAL "vulkan")
-  set(KERNEL_SRC src/kernels/vulkan/kernels_vulkan.cc)
-elseif(FLOWEDGE_BACKEND STREQUAL "metal")
-  set(KERNEL_SRC src/kernels/metal/kernels_metal.mm)
+elseif(FLOWEDGE_BACKEND STREQUAL "avx512")
+  set(KERNEL_SRC src/kernels/cpu/kernels_avx512.cc)
+  add_compile_options(-mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512bf16 -mfma -fno-math-errno)
 else()
-  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' has no implementation")
+  message(FATAL_ERROR "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' is not implemented; use cpu or avx512")
 endif()
 
 # ENGINE
 add_library(flowedge_engine STATIC
   ${KERNEL_SRC}
+  src/arena/thread_pool.cc
   src/loader/safetensors.cc
+  src/runtime/engine_runtime.cc
   src/models/mamba/mamba.cc
   src/heads/flow/flow.cc
   src/api/engine.cc
 )
 set_target_properties(flowedge_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+include(CheckIncludeFileCXX)
+check_include_file_cxx(mdspan HAS_MDSPAN)
+if(NOT HAS_MDSPAN)
+  include(FetchContent)
+  FetchContent_Declare(
+    mdspan
+    GIT_REPOSITORY https://github.com/kokkos/mdspan.git
+    GIT_TAG mdspan-0.6.0
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(mdspan)
+  target_link_libraries(flowedge_engine PUBLIC std::mdspan)
+endif()
+target_link_libraries(flowedge_engine PUBLIC Threads::Threads)
 
 target_include_directories(flowedge_engine PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> 
@@ -94,6 +107,9 @@ if(FLOWEDGE_BENCH)
 
   add_executable(flowedge_latency_bench bench/latency_bench.cc)
   target_link_libraries(flowedge_latency_bench PRIVATE flowedge_engine)
+
+  add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
+  target_link_libraries(flowedge_threaded_matmul_bench PRIVATE flowedge_engine benchmark::benchmark_main Threads::Threads)
 endif()
 
 # TESTS
@@ -120,27 +136,38 @@ endif()
 
 # PYTHON (Pybind11)
 if(FLOWEDGE_PYTHON)
-  include(FetchContent)
-  FetchContent_Declare(
-    pybind11
-    GIT_REPOSITORY https://github.com/pybind/pybind11.git
-    GIT_TAG v2.13.6
-    GIT_SHALLOW TRUE)
-  FetchContent_MakeAvailable(pybind11)
+  set(PYBIND11_FINDPYTHON ON)
+  find_package(pybind11 CONFIG QUIET)
+  if(NOT pybind11_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+      pybind11
+      GIT_REPOSITORY https://github.com/pybind/pybind11.git
+      GIT_TAG v2.13.6
+      GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(pybind11)
+  endif()
 
   pybind11_add_module(flowedge python/flowedge_ext.cc)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(flowedge PRIVATE -pthread)
     if(WIN32)
       if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-        target_compile_options(flowedge PRIVATE -mincoming-stack-boundary=4)
+        # removed -mstackrealign here
       endif()
-      # static libstdc++ (resolves std::call_once) but keep winpthread dynamic
-      target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++)
+      # Statically link the C++ runtime; package winpthread beside the extension below.
+      target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++ "-Wl,--allow-multiple-definition")
       target_link_libraries(flowedge PRIVATE winpthread)
     endif()
   endif()
   target_link_libraries(flowedge PRIVATE flowedge_engine)
+  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    find_file(FLOWEDGE_WINPTHREAD_DLL NAMES libwinpthread-1.dll HINTS $ENV{PATH})
+    if(NOT FLOWEDGE_WINPTHREAD_DLL)
+      message(FATAL_ERROR "libwinpthread-1.dll is required to package the MinGW Python extension")
+    endif()
+    install(FILES "${FLOWEDGE_WINPTHREAD_DLL}" DESTINATION .)
+  endif()
   install(TARGETS flowedge LIBRARY DESTINATION . RUNTIME DESTINATION .) # wheel root: pip install .
 endif()
 

@@ -30,6 +30,10 @@ The converter is checked too. CI converts a model, then asserts the engine gives
 
 ## Unit tests
 
-`test/tests.cc` compares a kernel to a naive reference written inline, so each test checks the real kernel against a second implementation. Covered: `matmul`, `silu`, `softplus`, `rmsnorm`, `conv1d_causal`, `selective_scan`, and the flow head. Not yet covered: `gate_silu`, `conv1d_step`, `scan_step`, `discretize`.
+`test/tests.cc` compares a kernel to a naive reference written inline, so each
+test checks the real kernel against a second implementation. Covered: `matmul`,
+`silu`, `softplus`, `rmsnorm`, `conv1d_causal`, `discretize_and_scan`,
+`ThreadPool`, and the flow head. Not yet covered: `gate_silu` and
+`conv1d_step`.
 
 Add a reference and a test for every new kernel and head.

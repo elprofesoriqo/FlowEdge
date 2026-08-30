@@ -5,9 +5,12 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace fe {
+
+class ThreadPool;
 
 struct FlowConfig
 {
@@ -32,6 +35,8 @@ public:
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const FlowConfig& config() const noexcept { return cfg_; }
 
+  void set_pool(ThreadPool* p) noexcept { pool_ = p; }
+
   // x0: noise [action_dim]
   // cond: [cond_dim]
   // out: action [action_dim]
@@ -45,17 +50,18 @@ private:
                 std::span<float> v) noexcept;
   [[nodiscard]] std::span<float> arena_span(std::size_t n) noexcept
   {
-    return scratch_->alloc_span<float>(n, kSimdAlign);
+    return scratch_->alloc_span<float, kSimdAlign>(n);
   }
 
   FlowConfig cfg_{};
-  const float* in_proj_{};                     // [hidden][action_dim]
-  const float* time_proj_{};                   // [hidden][time_dim]
-  const float* cond_proj_{};                   // [hidden][cond_dim]
-  std::array<const float*, kMaxMlp> layers_{}; // [hidden][hidden]
-  const float* out_proj_{};                    // [action_dim][hidden]
-  const float* freqs_{};                       // [time_dim/2] sinusoidal freqs
+  WeightView in_proj_{};                     // [hidden][action_dim]
+  WeightView time_proj_{};                   // [hidden][time_dim]
+  WeightView cond_proj_{};                   // [hidden][cond_dim]
+  std::array<WeightView, kMaxMlp> layers_{}; // [hidden][hidden]
+  WeightView out_proj_{};                    // [action_dim][hidden]
+  const float* freqs_{};                     // [time_dim/2] computed at init
   Arena* scratch_{};
+  ThreadPool* pool_{nullptr};
   bool ok_{false};
 };
 

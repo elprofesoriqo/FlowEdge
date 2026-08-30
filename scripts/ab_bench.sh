@@ -1,152 +1,73 @@
 #!/usr/bin/env bash
-set -e
-
-FILTER="${1:-}"
+# Compare kernel performance against a Git ref without touching the caller's checkout.
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT"
-
+BASELINE_REF="main"
+FILTER=""
+RUNS=9
+THRESHOLD=5
 BACKEND="${FLOWEDGE_BACKEND:-cpu}"
-PY="$(command -v py || command -v python3 || command -v python)"
+RESULT_ROOT="${FLOWEDGE_BENCH_RESULTS_DIR:-$ROOT/bench-results}"
 
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$CURRENT_BRANCH" == "main" ]]; then
-    echo "You are already on main branch. Please run this from your PR branch." >&2
-    exit 1
-fi
-
-# stash uncommitted changes
-STASHED=0
-if ! git diff-index --quiet HEAD --; then
-    git stash -q
-    STASHED=1
-fi
-
-# MinGW runtime DLLs live in Strawberry
-case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin:$PATH" ;; esac
-
-run_benchmark() {
-    local branch=$1
-    local out_csv=$2
-    
-    rm -rf build/CMakeCache.txt build/CMakeFiles/ build/_deps/googlebenchmark-subbuild/CMakeCache.txt build/_deps/googlebenchmark-subbuild/CMakeFiles/
-    if ! cmake -B build -S . -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND="${BACKEND}" -DCMAKE_BUILD_TYPE=Release > build/cmake_log.txt 2>&1; then
-        exit 1
-    fi
-    
-    if ! cmake --build build --config Release -j 4 > build/build_log.txt 2>&1; then
-        exit 1
-    fi
-    local exe_k="./build/bench/flowedge_kernels_bench"
-    local exe_e="./build/bench/flowedge_engine_bench"
-    if [[ -f "./build/bench/flowedge_kernels_bench.exe" ]]; then
-        exe_k="./build/bench/flowedge_kernels_bench.exe"
-        exe_e="./build/bench/flowedge_engine_bench.exe"
-    elif [[ -f "./build/flowedge_kernels_bench.exe" ]]; then
-        exe_k="./build/flowedge_kernels_bench.exe"
-        exe_e="./build/flowedge_engine_bench.exe"
-    elif [[ -f "./build/flowedge_kernels_bench" ]]; then
-        exe_k="./build/flowedge_kernels_bench"
-        exe_e="./build/flowedge_engine_bench"
-    fi
-    local cmd_k="$exe_k --benchmark_out=${out_csv}_k --benchmark_out_format=csv"
-    export FLOWEDGE_MODEL="$ROOT/models/mamba_flow.safetensors"
-    local cmd_e="$exe_e --benchmark_out=${out_csv}_e --benchmark_out_format=csv"
-    if [[ -n "$FILTER" ]]; then
-        cmd_k="$cmd_k --benchmark_filter=$FILTER"
-        cmd_e="$cmd_e --benchmark_filter=$FILTER"
-    fi
-    
-    $cmd_k >/dev/null 2>&1 || true
-    $cmd_e >/dev/null 2>&1 || true
-    
-    cat "${out_csv}_k" "${out_csv}_e" > "$out_csv" 2>/dev/null || true
+usage() {
+  echo "usage: $0 [--baseline-ref REF] [--filter REGEX] [--runs N] [--threshold PERCENT]" >&2
 }
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --baseline-ref) BASELINE_REF="$2"; shift 2 ;;
+    --filter) FILTER="$2"; shift 2 ;;
+    --runs) RUNS="$2"; shift 2 ;;
+    --threshold) THRESHOLD="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+  esac
+done
+[[ "$RUNS" =~ ^[0-9]+$ ]] && ((10#$RUNS >= 3)) || {
+  echo "--runs must be an integer >= 3" >&2
+  exit 2
+}
+[[ "$THRESHOLD" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "--threshold must be non-negative" >&2; exit 2; }
+
+cd "$ROOT"
+BASELINE_COMMIT="$(git rev-parse --verify "${BASELINE_REF}^{commit}")"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+OUT="$RESULT_ROOT/$STAMP"
+CURRENT_BUILD="$OUT/current-build"
+BASELINE_BUILD="$OUT/baseline-build"
+BASELINE_SOURCE="$(mktemp -d "${TMPDIR:-/tmp}/flowedge-benchmark.XXXXXX")"
+mkdir -p "$OUT"
 
 cleanup() {
-    git switch -q "$CURRENT_BRANCH"
-    if [[ "$STASHED" -eq 1 ]]; then
-        git stash pop -q
-    fi
+  git worktree remove --force "$BASELINE_SOURCE" >/dev/null 2>&1 || rm -rf "$BASELINE_SOURCE"
 }
 trap cleanup EXIT
+git worktree add --detach "$BASELINE_SOURCE" "$BASELINE_COMMIT" >/dev/null
 
-MODEL="models/mamba_flow.safetensors"
-
-if [[ ! -f "$MODEL" ]]; then
-    mkdir -p models
-    wget -qO "$MODEL" "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
-fi
-
-run_benchmark "$CURRENT_BRANCH" "$ROOT/build/current.csv"
-
-git switch -q main
-run_benchmark "main" "$ROOT/build/main.csv"
-git switch -q "$CURRENT_BRANCH"
-
-PT_FORWARD="N/A"
-if [[ -f "$MODEL" ]]; then
-    # Only try to fetch PyTorch baseline if we are benchmarking the engine macro
-    if [[ "$FILTER" == *"engine"* ]] || [[ -z "$FILTER" ]]; then
-        PT_RES=$("$PY" scripts/torch_ref.py bench "$MODEL" 1 | awk '/PyTorch forward:/ {print $3}')
-        if [[ -n "$PT_RES" ]]; then
-            PT_FORWARD="$PT_RES"
-        fi
-    fi
-fi
-
-awk -F, -v pt_fwd="$PT_FORWARD" '
-BEGIN {
-    print "### Microbenchmarks"
-    print "| Benchmark | Main | Current | Speedup (vs Main) |"
-    print "|-----------|------|---------|-------------------|"
+capture() {
+  local source=$1 build=$2 output=$3
+  cmake -S "$source" -B "$build" -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BENCH=ON \
+    -DFLOWEDGE_BACKEND="$BACKEND"
+  cmake --build "$build" --config Release -j
+  local executable="$build/flowedge_kernels_bench"
+  [[ -x "$build/flowedge_kernels_bench.exe" ]] && executable="$build/flowedge_kernels_bench.exe"
+  [[ -x "$build/bench/flowedge_kernels_bench" ]] && executable="$build/bench/flowedge_kernels_bench"
+  [[ -x "$build/bench/flowedge_kernels_bench.exe" ]] && executable="$build/bench/flowedge_kernels_bench.exe"
+  [[ -x "$executable" ]] || { echo "kernel benchmark executable not found in $build" >&2; exit 1; }
+  local args=(--benchmark_repetitions="$RUNS" --benchmark_report_aggregates_only=true
+              --benchmark_out="$output" --benchmark_out_format=json)
+  [[ -n "$FILTER" ]] && args+=(--benchmark_filter="$FILTER")
+  "$executable" "${args[@]}"
 }
-NR==FNR {
-    if ($1 ~ /^"BM_/) {
-        name = $1; gsub(/"/, "", name)
-        main_val[name] = $3
-        unit[name] = $5
-    }
-    next
-}
-{
-    if ($1 ~ /^"BM_/) {
-        name = $1; gsub(/"/, "", name)
-        cur_val = $3
-        u = $5
-        
-        speedup = 0
-        if (cur_val > 0) speedup = main_val[name] / cur_val
-        
-        if (name == "BM_engine_forward") {
-            engine_main = main_val[name]
-            engine_cur = cur_val
-            engine_u = u
-            engine_speedup = speedup
-        } else {
-            if (name in main_val) {
-                printf "| %s | %.4f %s | %.4f %s | %.2fx |\n", name, main_val[name], u, cur_val, u, speedup
-            }
-        }
-    }
-}
-END {
-    if (engine_main != "") {
-        print ""
-        print "### Engine End-to-End"
-        print "| PyTorch | FlowEdge (Main) | FlowEdge (Current) | Speedup (vs Main) | Speedup (vs PT) |"
-        print "|---------|-----------------|--------------------|-----------------------|-----------------------|"
-        
-        pt = "N/A"
-        speedup_pt = "N/A"
-        if (pt_fwd != "N/A" && pt_fwd != "") {
-            pt = sprintf("%.4f %s", pt_fwd, engine_u)
-            if (engine_cur > 0) speedup_pt = sprintf("%.2fx", pt_fwd / engine_cur)
-        }
-        
-        printf "| %s | %.4f %s | %.4f %s | %.2fx | %s |\n", pt, engine_main, engine_u, engine_cur, engine_u, engine_speedup, speedup_pt
-    }
-}
-' "$ROOT/build/main.csv" "$ROOT/build/current.csv" > "$ROOT/ab_results.md"
 
+capture "$BASELINE_SOURCE" "$BASELINE_BUILD" "$OUT/baseline-kernels.json"
+capture "$ROOT" "$CURRENT_BUILD" "$OUT/candidate-kernels.json"
+PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py)}"
+"$PYTHON" "$ROOT/scripts/benchmark_regression.py" \
+  --baseline "$OUT/baseline-kernels.json" \
+  --candidate "$OUT/candidate-kernels.json" \
+  --threshold "$THRESHOLD" \
+  --report "$OUT/report.md"
 
+echo "Artifacts: $OUT"

@@ -13,4 +13,6 @@ A pull request that makes an architectural choice adds an ADR.
 0005-no-graph-runtime
 0006-obs-encoder-out-of-scope
 0007-roofline
+0008-threading
+0009-bf16-weights
 ```

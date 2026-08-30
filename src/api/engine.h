@@ -10,6 +10,13 @@ extern "C" {
 
 typedef struct FeEngine fe_engine;
 
+enum
+{
+  FE_SOLVER_EULER = 0,
+  FE_SOLVER_HEUN = 1,
+  FE_SOLVER_RK4 = 2,
+};
+
 /**
  * @brief Returns the last error message encountered by the engine on the current thread.
  * @return A null-terminated string describing the error, or an empty string if no error occurred.
@@ -58,6 +65,13 @@ int fe_engine_step(fe_engine* engine, int32_t token, float* out);
 void fe_engine_reset(fe_engine* engine);
 
 /**
+ * @brief Get the number of background worker threads in the engine.
+ * @param engine The engine instance.
+ * @return The number of worker threads (0 if single-threaded).
+ */
+unsigned fe_engine_thread_count(const fe_engine* engine);
+
+/**
  * @brief Get the action dimension of the flow-matching head.
  * @param engine The engine instance.
  * @return The action dimension, or 0 if the checkpoint lacks a flow head.
@@ -75,7 +89,7 @@ size_t fe_engine_action_dim(const fe_engine* engine);
  * @param seq_len Length of the token array.
  * @param noise Initial Gaussian noise array of size [action_dim].
  * @param steps Number of ODE solver steps.
- * @param method The ODE solver to use (0 = Euler, 1 = Heun, 2 = RK4).
+ * @param method One of FE_SOLVER_EULER, FE_SOLVER_HEUN, or FE_SOLVER_RK4.
  * @param action Output buffer of size [action_dim] for the final action.
  * @return 0 on success, non-zero on error.
  */

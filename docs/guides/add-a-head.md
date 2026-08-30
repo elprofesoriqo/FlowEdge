@@ -20,7 +20,9 @@ The constructor resolves weight pointers by name and derives config from their s
 ## Steps
 
 1. Create `src/heads/<name>/<name>.{h,cc}`. Resolve weight pointers in the constructor. Set an `ok_` flag only when every required tensor is present.
-2. Add any missing kernel to `kernels.h`. If it vectorizes, implement it in all three ISA files, `kernels_avx2.cc`, `kernels_neon.cc` and `kernels_scalar.cc`, or the fallback build will not link. If it stays scalar, put it once in `kernels_common.cc`.
+2. Add any missing kernel to `kernels.h`. If it is public, implement it in
+   `kernels_avx2.cc`, `kernels_neon.cc`, and `kernels_scalar.cc`, or the
+   fallback build will not link.
 3. Carve scratch with `arena_span`. Take `mark()` at the top of `sample` and `reset_to` at the end. Nothing allocates on the hot path.
 4. Add a converter mapping so a checkpoint loads. See [Converter](converter). Carry the normalization stats and un-normalize the action if the checkpoint stores them.
 5. Add a sampling entrypoint to the C-ABI, or a head selector on `fe_engine_sample`.

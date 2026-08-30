@@ -2,8 +2,11 @@
 #include "kernels/kernels.h"
 
 #include <arm_neon.h>
+#include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 namespace fe {
 namespace {
@@ -87,6 +90,19 @@ inline void scan_advance(const float* __restrict__ da_t, const float* __restrict
   }
 }
 
+// widen 4 BF16 → 4 F32
+inline float32x4_t load_bf16_4(const uint16_t* p) noexcept
+{
+  return vreinterpretq_f32_u32(vshlq_n_u32(vmovl_u16(vld1_u16(p)), 16));
+}
+
+// scalar BF16 → F32
+inline float bf16_to_f32(uint16_t v) noexcept
+{
+  const uint32_t bits = static_cast<uint32_t>(v) << 16;
+  return std::bit_cast<float>(bits);
+}
+
 } // namespace
 
 void gate_silu(std::span<const float> a, std::span<const float> g, std::span<float> out) noexcept
@@ -102,30 +118,6 @@ void gate_silu(std::span<const float> a, std::span<const float> g, std::span<flo
     const float v = g[i];
     out[i] = a[i] * (v / (1.0F + std::exp(-v)));
   }
-}
-
-void selective_scan(std::span<const float> delta_a, std::span<const float> delta_bu,
-                    std::span<const float> c_proj, std::span<const float> d_skip,
-                    std::span<const float> u, std::span<float> h, std::span<float> y,
-                    std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
-{
-  float* __restrict__ hs = h.data();
-  for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
-    hs[i] = 0.0F; // h_0 = 0
-  const std::size_t plane = d_state * d_inner;
-  for (std::size_t t{0uz}; t < length; ++t)
-    scan_advance(delta_a.data() + (t * plane), delta_bu.data() + (t * plane),
-                 c_proj.data() + (t * d_state), u.data() + (t * d_inner), d_skip.data(), hs,
-                 y.data() + (t * d_inner), d_inner, d_state);
-}
-
-void scan_step(std::span<const float> delta_a, std::span<const float> delta_bu,
-               std::span<const float> c_proj, std::span<const float> d_skip,
-               std::span<const float> u, std::span<float> h, std::span<float> y,
-               std::size_t d_inner, std::size_t d_state) noexcept
-{
-  scan_advance(delta_a.data(), delta_bu.data(), c_proj.data(), u.data(), d_skip.data(), h.data(),
-               y.data(), d_inner, d_state); // h persists across calls
 }
 
 void silu(std::span<float> x) noexcept
@@ -157,7 +149,7 @@ void softplus(std::span<float> x) noexcept
 }
 
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
-            std::size_t rows, std::size_t in_dim, std::size_t out_dim) noexcept
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
 {
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();
@@ -233,47 +225,210 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
   }
 }
 
-void discretize(std::span<const float> delta, std::span<const float> a_log,
-                std::span<const float> b, std::span<const float> u, std::span<float> delta_a,
-                std::span<float> delta_bu, std::span<float> a_work, std::size_t length,
-                std::size_t d_inner, std::size_t d_state) noexcept
+void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
+            std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool*) noexcept
 {
-  const std::size_t plane = d_inner * d_state;
-  // A = -exp(a_log): vectorized exp into delta_a
-  // transpose + negate into a_work[n][c].
-  float* __restrict__ tmp = delta_a.data();
-  std::size_t i{0uz};
-  for (; i + 4uz <= plane; i += 4uz)
-    vst1q_f32(tmp + i, exp4(vld1q_f32(a_log.data() + i)));
-  for (; i < plane; ++i)
-    tmp[i] = std::exp(a_log[i]);
+  if (rows == 1uz) { // single vector
+    const float* __restrict__ ir = in.data();
+    for (std::size_t o{0uz}; o < out_dim; ++o) {
+      const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+      float acc{0.0F};
+      std::size_t i{0uz};
+      float32x4_t a0 = vdupq_n_f32(0.0F);
+      float32x4_t a1 = a0, a2 = a0, a3 = a0;
+      for (; i + 16uz <= in_dim; i += 16uz) {
+        a0 = vfmaq_f32(a0, vld1q_f32(ir + i), load_bf16_4(wr + i));
+        a1 = vfmaq_f32(a1, vld1q_f32(ir + i + 4uz), load_bf16_4(wr + i + 4uz));
+        a2 = vfmaq_f32(a2, vld1q_f32(ir + i + 8uz), load_bf16_4(wr + i + 8uz));
+        a3 = vfmaq_f32(a3, vld1q_f32(ir + i + 12uz), load_bf16_4(wr + i + 12uz));
+      }
+      float32x4_t av = vaddq_f32(vaddq_f32(a0, a1), vaddq_f32(a2, a3));
+      for (; i + 4uz <= in_dim; i += 4uz)
+        av = vfmaq_f32(av, vld1q_f32(ir + i), load_bf16_4(wr + i));
+      acc = vaddvq_f32(av);
+      for (; i < in_dim; ++i)
+        acc += ir[i] * bf16_to_f32(wr[i]);
+      out.data()[o] = acc;
+    }
+    return;
+  }
 
+  // multi-row
+  for (std::size_t o{0uz}; o < out_dim; ++o) {
+    const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
+    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
+      const float* __restrict__ i0 = in.data() + ((r0 + 0uz) * in_dim);
+      const float* __restrict__ i1 = in.data() + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
+      const float* __restrict__ i2 = in.data() + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
+      const float* __restrict__ i3 = in.data() + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
+      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
+      std::size_t i{0uz};
+      float32x4_t v0 = vdupq_n_f32(0.0F);
+      float32x4_t v1 = v0, v2 = v0, v3 = v0;
+      for (; i + 4uz <= in_dim; i += 4uz) {
+        const float32x4_t wv = load_bf16_4(wr + i); // widen once
+        v0 = vfmaq_f32(v0, vld1q_f32(i0 + i), wv);
+        v1 = vfmaq_f32(v1, vld1q_f32(i1 + i), wv);
+        v2 = vfmaq_f32(v2, vld1q_f32(i2 + i), wv);
+        v3 = vfmaq_f32(v3, vld1q_f32(i3 + i), wv);
+      }
+      acc0 = vaddvq_f32(v0);
+      acc1 = vaddvq_f32(v1);
+      acc2 = vaddvq_f32(v2);
+      acc3 = vaddvq_f32(v3);
+      for (; i < in_dim; ++i) {
+        const float wv = bf16_to_f32(wr[i]);
+        acc0 += i0[i] * wv;
+        acc1 += i1[i] * wv;
+        acc2 += i2[i] * wv;
+        acc3 += i3[i] * wv;
+      }
+      float* __restrict__ orow = out.data() + (r0 * out_dim);
+      orow[o] = acc0;
+      if (nr > 1uz)
+        orow[out_dim + o] = acc1;
+      if (nr > 2uz)
+        orow[(2uz * out_dim) + o] = acc2;
+      if (nr > 3uz)
+        orow[(3uz * out_dim) + o] = acc3;
+    }
+  }
+}
+void conv1d_causal(std::span<const float> x, std::span<const float> weight,
+                   std::span<const float> bias, std::span<float> y, std::size_t channels,
+                   std::size_t length, std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ xc = x.data() + (c * length);
+    const float* __restrict__ wc = weight.data() + (c * kernel);
+    float* __restrict__ yc = y.data() + (c * length);
+    const float32x4_t vbc = vdupq_n_f32(bias[c]);
+    std::size_t t{0uz};
+    for (; t + 4uz <= length; t += 4uz)
+      vst1q_f32(yc + t, vbc);
+    for (; t < length; ++t)
+      yc[t] = bias[c];
+
+    for (std::size_t k{0uz}; k < kernel; ++k) {
+      const float32x4_t vwk = vdupq_n_f32(wc[k]);
+      const std::size_t start = (kernel - 1uz) - k;
+      std::size_t ts = start;
+      for (; ts + 4uz <= length; ts += 4uz) {
+        vst1q_f32(yc + ts, vmlaq_f32(vld1q_f32(yc + ts), vwk, vld1q_f32(xc + ts - start)));
+      }
+      for (; ts < length; ++ts)
+        yc[ts] += wc[k] * xc[ts - start];
+    }
+  }
+}
+
+void conv1d_step(std::span<const float> window, std::span<const float> weight,
+                 std::span<const float> bias, std::span<float> y, std::size_t channels,
+                 std::size_t kernel) noexcept
+{
+  for (std::size_t c{0uz}; c < channels; ++c) {
+    const float* __restrict__ wc = window.data() + (c * kernel);
+    const float* __restrict__ kw = weight.data() + (c * kernel);
+    float acc = bias[c];
+    for (std::size_t k{0uz}; k < kernel; ++k)
+      acc += kw[k] * wc[k];
+    y[c] = acc;
+  }
+}
+
+void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span<float> out,
+             std::size_t rows, std::size_t dim) noexcept
+{
+  constexpr float eps = 1e-5F;
+  for (std::size_t r{0uz}; r < rows; ++r) {
+    const float* __restrict__ ir = in.data() + (r * dim);
+    float* __restrict__ orow = out.data() + (r * dim);
+    float32x4_t vss = vdupq_n_f32(0.0F);
+    std::size_t i{0uz};
+    for (; i + 4uz <= dim; i += 4uz) {
+      const float32x4_t v = vld1q_f32(ir + i);
+      vss = vmlaq_f32(vss, v, v);
+    }
+    float ss = vaddvq_f32(vss);
+    for (; i < dim; ++i)
+      ss += ir[i] * ir[i];
+    const float scale = 1.0F / std::sqrt((ss / static_cast<float>(dim)) + eps);
+    const float32x4_t vscale = vdupq_n_f32(scale);
+    i = 0uz;
+    for (; i + 4uz <= dim; i += 4uz)
+      vst1q_f32(orow + i,
+                vmulq_f32(vscale, vmulq_f32(vld1q_f32(ir + i), vld1q_f32(weight.data() + i))));
+    for (; i < dim; ++i)
+      orow[i] = ir[i] * scale * weight[i];
+  }
+}
+
+void discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
+                         std::span<const float> b, std::span<const float> u,
+                         std::span<const float> c_proj, std::span<const float> d_skip,
+                         std::span<float> h, std::span<float> y, std::span<float> a_work,
+                         std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
+{
+  float* __restrict__ hs = h.data();
+  for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
+    hs[i] = 0.0F; // h_0 = 0
+
+  // A = -exp(a_log): transpose into a_work then compute exp4 in-place
   float* __restrict__ a_sm = a_work.data();
   for (std::size_t c{0uz}; c < d_inner; ++c)
     for (std::size_t n{0uz}; n < d_state; ++n)
-      a_sm[(n * d_inner) + c] = -tmp[(c * d_state) + n];
+      a_sm[(n * d_inner) + c] = a_log[(c * d_state) + n];
 
-  // delta_a[t,n,c] = exp(delta[t,c]·A[n,c])
-  // delta_bu[t,n,c] = delta[t,c]·b[t,n]·u[t,c]
+  std::size_t i{0uz};
+  const std::size_t plane = d_inner * d_state;
+  for (; i + 4uz <= plane; i += 4uz) {
+    vst1q_f32(a_sm + i, vnegq_f32(exp4(vld1q_f32(a_sm + i))));
+  }
+  for (; i < plane; ++i)
+    a_sm[i] = -std::exp(a_sm[i]);
+
   for (std::size_t t{0uz}; t < length; ++t) {
     const float* __restrict__ dt = delta.data() + (t * d_inner);
     const float* __restrict__ ut = u.data() + (t * d_inner);
     const float* __restrict__ bt = b.data() + (t * d_state);
+    const float* __restrict__ c_t = c_proj.data() + (t * d_state);
+    const float* __restrict__ dk = d_skip.data();
+    float* __restrict__ y_t = y.data() + (t * d_inner);
+
+    std::size_t c0{0uz};
+    for (; c0 + 4uz <= d_inner; c0 += 4uz)
+      vst1q_f32(y_t + c0, vmulq_f32(vld1q_f32(dk + c0), vld1q_f32(ut + c0)));
+    for (; c0 < d_inner; ++c0)
+      y_t[c0] = dk[c0] * ut[c0]; // skip term
+
     for (std::size_t n{0uz}; n < d_state; ++n) {
+      float* __restrict__ hn = hs + (n * d_inner);
       const float* __restrict__ an = a_sm + (n * d_inner);
-      float* __restrict__ da_n = delta_a.data() + (((t * d_state) + n) * d_inner);
-      float* __restrict__ dbu_n = delta_bu.data() + (((t * d_state) + n) * d_inner);
       const float bn = bt[n];
       const float32x4_t vbn = vdupq_n_f32(bn);
+      const float cn = c_t[n];
+      const float32x4_t vcn = vdupq_n_f32(cn);
+
       std::size_t c{0uz};
       for (; c + 4uz <= d_inner; c += 4uz) {
         const float32x4_t vdt = vld1q_f32(dt + c);
-        vst1q_f32(da_n + c, exp4(vmulq_f32(vdt, vld1q_f32(an + c))));
-        vst1q_f32(dbu_n + c, vmulq_f32(vmulq_f32(vdt, vbn), vld1q_f32(ut + c)));
+        const float32x4_t vut = vld1q_f32(ut + c);
+        const float32x4_t van = vld1q_f32(an + c);
+        float32x4_t vhn = vld1q_f32(hn + c);
+
+        const float32x4_t da_nc = exp4(vmulq_f32(vdt, van));
+        const float32x4_t dbu_nc = vmulq_f32(vmulq_f32(vdt, vbn), vut);
+
+        vhn = vfmaq_f32(dbu_nc, da_nc, vhn);
+        vst1q_f32(hn + c, vhn);
+        vst1q_f32(y_t + c, vfmaq_f32(vld1q_f32(y_t + c), vhn, vcn));
       }
       for (; c < d_inner; ++c) {
-        da_n[c] = std::exp(dt[c] * an[c]);
-        dbu_n[c] = dt[c] * bn * ut[c];
+        const float da_nc = std::exp(dt[c] * an[c]);
+        const float dbu_nc = dt[c] * bn * ut[c];
+        hn[c] = (da_nc * hn[c]) + dbu_nc;
+        y_t[c] += hn[c] * cn;
       }
     }
   }

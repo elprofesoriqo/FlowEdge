@@ -55,7 +55,7 @@ graph TD
   B --> C[conditioning vector]
   C --> H[Head]
   H --> ACT[action chunk]
-  K["Kernels: CPU / CUDA / Tenstorrent"] -.-> B
+  K["Kernels: CPU"] -.-> B
   K -.-> H
 ```
 
@@ -99,10 +99,12 @@ guides/add-a-head
 guides/add-a-backbone
 guides/converter
 guides/verification
+guides/benchmarking
 ```
 
 ```{toctree}
 :hidden:
 :caption: Reference
 roadmap
+product-direction
 ```

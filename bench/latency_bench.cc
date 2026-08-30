@@ -90,6 +90,11 @@ int main(int argc, char** argv)
   const char* method_name = (method == fe::FlowHead::kRK4)    ? "rk4"
                             : (method == fe::FlowHead::kHeun) ? "heun"
                                                               : "euler";
+  const std::size_t iterations = (argc > 2) ? std::strtoull(argv[2], nullptr, 10) : 100000uz;
+  if (iterations == 0uz) {
+    std::fputs("iterations must be positive\n", stderr);
+    return 1;
+  }
 
   std::vector<float> in(kHidden * kAction), tp(kHidden * kTime), cp(kHidden * kCond),
       op(kAction * kHidden);
@@ -121,17 +126,16 @@ int main(int argc, char** argv)
   }
 
   std::vector<float> cond(kCond, 0.1F), x0(kAction, 0.1F), out(kAction);
-  constexpr std::size_t kWarm = 2000uz;
-  constexpr std::size_t kIters = 100000uz;
-  for (std::size_t i{0uz}; i < kWarm; ++i)
+  const std::size_t warmup = std::min(2000uz, iterations);
+  for (std::size_t i{0uz}; i < warmup; ++i)
     head.sample(cond, x0, kSteps, method, out);
 
   std::vector<double> us;
-  us.reserve(kIters); // pre-allocated: the timed loop must not allocate
+  us.reserve(iterations); // pre-allocated: the timed loop must not allocate
   float sink = 0.0F;
   using clock = std::chrono::steady_clock;
   const std::size_t allocs_before = g_allocs.load(std::memory_order_relaxed);
-  for (std::size_t i{0uz}; i < kIters; ++i) {
+  for (std::size_t i{0uz}; i < iterations; ++i) {
     const auto t0 = clock::now();
     head.sample(cond, x0, kSteps, method, out);
     const auto t1 = clock::now();
