@@ -149,6 +149,14 @@ workers, then measure alternatives. Each slot keeps a completed action until the
 space, while the other slots and the transport loop continue. The current implementation duplicates
 model weights per slot, making two workers a throughput/memory tradeoff rather than a free default.
 
+For a runnable source-level `RelayClient` integration plus deadline and trace handling, use:
+
+```bash
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.safetensors
+```
+
+The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
+
 ## Reuse outside robotics
 
 The protocol is deliberately condition-vector and state-capsule oriented rather than robot-message

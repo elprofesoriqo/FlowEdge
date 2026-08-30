@@ -30,10 +30,14 @@ if(FLOWEDGE_RELAY)
 endif()
 
 # EXAMPLES
-foreach(ex flow_sample mamba_forward external_flow_sample)
+foreach(ex flow_sample mamba_forward external_flow_sample streaming_snapshot)
   add_executable(${ex} examples/${ex}.cc)
   target_link_libraries(${ex} PRIVATE FlowEdge::Core)
 endforeach()
+if(FLOWEDGE_RELAY)
+  add_executable(relay_client_sample examples/relay_client_sample.cc)
+  target_link_libraries(relay_client_sample PRIVATE FlowEdge::Relay)
+endif()
 
 # BENCHMARKS
 if(FLOWEDGE_BENCH)

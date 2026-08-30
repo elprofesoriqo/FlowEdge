@@ -79,6 +79,13 @@ cmake --build build-relay/install-consumer -j
 The consumer imports and links both `FlowEdge::Core` and `FlowEdge::Relay` using only installed
 headers, archives, transitive dependencies, and generated package metadata.
 
+## Complete local release gate
+
+`scripts/verify_all.sh [model]` builds Core and Relay with tests and benchmarks, executes every C++
+example, exercises single- and multi-worker Relay paths, runs the daemon/client/deadline/trace demo,
+and validates the installed CMake targets. When a runnable Python and its verification dependencies
+are present it also checks the Python external-head, streaming-state, and PyTorch parity paths.
+
 ## External-head and streaming smoke test
 
 `scripts/verify_external_head.py` generates two small checkpoints without downloading model data.

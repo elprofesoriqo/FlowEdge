@@ -90,6 +90,8 @@ On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/b
 Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its allocation-checked
 single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
 `--threads` setting; begin with `--workers 2 --threads 0` and measure on the deployment CPU.
+`scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, and replay;
+`scripts/verify_all.sh` runs the complete local release gate.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>

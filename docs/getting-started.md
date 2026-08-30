@@ -30,6 +30,26 @@ wget -qO models/mamba_flow.safetensors \
 
 Solver is `euler`, `heun`, or `rk4`. The last argument is the number of steps.
 
+State can migrate between compatible streaming engines without exposing raw internal arrays:
+
+```bash
+./build/streaming_snapshot models/mamba_flow.safetensors
+# snapshot_bytes=... migrated_exact=true output0=...
+```
+
+## Relay end-to-end demo
+
+Build the optional local systems layer, then run its daemon/client/deadline/trace lifecycle:
+
+```bash
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/build.sh Release -DFLOWEDGE_RELAY=ON
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.safetensors
+```
+
+The demo starts two preallocated workers, submits through `RelayClient`, demonstrates a typed
+deadline rejection, shuts the daemon down, inspects the portable trace, and replays completed actions.
+Use `scripts/verify_all.sh` for the complete tests/examples/benchmarks/install-consumer gate.
+
 ## Python
 
 ```bash
