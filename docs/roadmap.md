@@ -15,6 +15,8 @@
 - Shared immutable checkpoint weights and compact/spread NUMA-aware Relay worker placement.
 - Worker-aware deadline admission over active and queued EDF lanes.
 - Fixed-memory Relay metrics with Prometheus, JSON, and OTLP/HTTP JSON export.
+- Generic allocation-free cooperative jobs, portable state capsules, and iterative, streaming, and
+  speculative workload adapters.
 
 ## Next
 
@@ -22,7 +24,7 @@
 - Backbone: Transformer. Unlocks the transformer heads.
 - Weight traffic: per-node replication experiments and INT8. See
   [ADR 0007](decisions/0007-roofline).
-- Relay: action overlap and portable state migration.
-- Cooperative adapters for iterative diffusion, streaming SSM/LLM decode, and speculative branches.
+- Relay: route generic jobs through worker pools and add action-overlap policy.
+- Optional ROS 2, Zenoh, and inference-server adapters over the generic job contract.
 - Backends: CUDA, Tenstorrent.
 - Observation encoders, which every real vision policy needs before it runs end to end. See [ADR 0006](decisions/0006-obs-encoder-out-of-scope).

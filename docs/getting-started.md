@@ -50,6 +50,21 @@ The demo starts two preallocated workers, submits through `RelayClient`, demonst
 deadline rejection, shuts the daemon down, inspects the portable trace, and replays completed actions.
 Use `scripts/verify_all.sh` for the complete tests/examples/benchmarks/install-consumer gate.
 
+## Generic cooperative jobs
+
+Relay also exposes a runtime-neutral cooperative contract for iterative, streaming, and speculative
+workloads. The sample advances a toy iterative model, migrates its canonical state capsule to a fresh
+instance, demonstrates streaming cancellation, and completes a speculative job:
+
+```bash
+./build-relay/cooperative_job_sample
+./build-relay/flowedge_cooperative_job_bench 100000
+```
+
+The benchmark covers begin, partial advance, capsule export/import, and completion, and returns a
+failure if the measured path performs a heap allocation. See [Cooperative jobs and state
+migration](guides/cooperative-jobs) for the backend concept and ownership rules.
+
 ## Python
 
 ```bash

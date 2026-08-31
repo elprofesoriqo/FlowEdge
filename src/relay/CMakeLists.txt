@@ -1,5 +1,7 @@
 add_library(flowedge_relay STATIC
   client/relay_client.cc
+  jobs/cooperative_job.cc
+  jobs/state_capsule.cc
   protocol/trace.cc
   shared_memory/shared_memory_ring.cc
   scheduler/edf_scheduler.cc

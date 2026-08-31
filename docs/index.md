@@ -103,6 +103,7 @@ guides/converter
 guides/verification
 guides/benchmarking
 guides/observability
+guides/cooperative-jobs
 ```
 
 ```{toctree}

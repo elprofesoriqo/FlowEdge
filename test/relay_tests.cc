@@ -1,3 +1,6 @@
+#include "relay/adapters/cooperative_adapters.h"
+#include "relay/jobs/state_capsule.h"
+#include "relay/jobs/state_codec.h"
 #include "relay/protocol/messages.h"
 #include "relay/protocol/trace.h"
 #include "relay/scheduler/edf_scheduler.h"
@@ -59,6 +62,90 @@ using namespace fe::relay;
   return std::string{prefix} + '-' + std::to_string(tick);
 }
 
+struct TestCooperativeBackend
+{
+  static constexpr std::size_t kStateBytes =
+      sizeof(std::uint64_t) + (4uz * sizeof(std::uint32_t)) + sizeof(std::uint8_t);
+  static constexpr std::uint64_t kTotalSteps = 6u;
+
+  [[nodiscard]] bool begin() noexcept
+  {
+    step = 0u;
+    values = {1.0f, 2.0f, 3.0f, 4.0f};
+    cancelled = false;
+    return true;
+  }
+
+  [[nodiscard]] BackendAdvance advance(std::size_t budget) noexcept
+  {
+    const std::size_t count =
+        static_cast<std::size_t>(std::min<std::uint64_t>(budget, kTotalSteps - step));
+    for (std::size_t unit{}; unit < count; ++unit) {
+      ++step;
+      for (std::size_t index{}; index < values.size(); ++index)
+        values[index] = (values[index] * 1.125f) + static_cast<float>(step + index) * 0.03125f;
+    }
+    return BackendAdvance{
+        .step = step == kTotalSteps ? BackendStep::kComplete : BackendStep::kInProgress,
+        .completed_work_units = count,
+    };
+  }
+
+  void cancel() noexcept { cancelled = true; }
+  [[nodiscard]] std::size_t state_bytes() const noexcept { return kStateBytes; }
+
+  [[nodiscard]] bool save_state(std::span<std::byte> destination) const noexcept
+  {
+    StateWriter writer{destination};
+    if (!writer.write(step))
+      return false;
+    for (const float value : values) {
+      if (!writer.write_float(value))
+        return false;
+    }
+    return writer.write(static_cast<std::uint8_t>(cancelled)) && writer.remaining() == 0uz;
+  }
+
+  [[nodiscard]] bool load_state(std::span<const std::byte> source) noexcept
+  {
+    StateReader reader{source};
+    const auto decoded_step = reader.read<std::uint64_t>();
+    std::array<float, 4> decoded_values{};
+    for (float& value : decoded_values) {
+      const auto decoded = reader.read_float();
+      if (!decoded)
+        return false;
+      value = *decoded;
+    }
+    const auto decoded_cancelled = reader.read<std::uint8_t>();
+    if (!decoded_step || !decoded_cancelled || *decoded_step > kTotalSteps ||
+        *decoded_cancelled > 1u || reader.remaining() != 0uz)
+      return false;
+    step = *decoded_step;
+    values = decoded_values;
+    cancelled = *decoded_cancelled != 0u;
+    return true;
+  }
+
+  std::uint64_t step{};
+  std::array<float, 4> values{};
+  bool cancelled{};
+};
+
+[[nodiscard]] JobDescriptor test_job_descriptor(std::uint64_t generation = 7u)
+{
+  JobDescriptor descriptor{};
+  const fe_model_metadata model = test_model();
+  for (std::size_t index{}; index < descriptor.model_digest.size(); ++index)
+    descriptor.model_digest[index] = model.model_digest.bytes[index];
+  descriptor.state_schema = 0x746f792d7631u; // "toy-v1"
+  descriptor.session_id = 44u;
+  descriptor.generation = generation;
+  descriptor.deadline_ns = 1'000'000u;
+  descriptor.total_work_units = TestCooperativeBackend::kTotalSteps;
+  return descriptor;
+}
+
 TEST(RelayProtocol, BuildsAndValidatesVersionedCondition)
 {
   const ConditionMessage message = request(9u, 3u, 100u);
@@ -91,6 +178,102 @@ TEST(RelayProtocol, BuildsAndValidatesVersionedCondition)
   EXPECT_EQ(action_code(rejected), RelayActionCode::kRejectedDeadline);
   EXPECT_EQ(rejected.metadata.status, FE_ACTION_FAILED);
   EXPECT_EQ(rejected.metadata.remaining_nfe, message.metadata.remaining_nfe);
+}
+
+TEST(CooperativeJob, MigratesIterativeStateBitExactly)
+{
+  TestCooperativeBackend source_backend{};
+  auto source_result = make_iterative_job(source_backend, test_job_descriptor());
+  ASSERT_TRUE(source_result) << source_result.error().message;
+  CooperativeJob source = *source_result;
+  ASSERT_TRUE(source.start());
+  const auto partial = source.advance(2uz);
+  ASSERT_TRUE(partial) << partial.error().message;
+  EXPECT_EQ(partial->state, JobState::kRunning);
+  EXPECT_EQ(partial->completed_work_units, 2u);
+
+  std::vector<std::byte> capsule(source.capsule_bytes());
+  const auto exported = source.export_capsule(capsule);
+  ASSERT_TRUE(exported) << exported.error().message;
+  EXPECT_EQ(*exported, capsule.size());
+  const auto view = read_state_capsule(capsule);
+  ASSERT_TRUE(view) << view.error().message;
+  EXPECT_EQ(view->metadata.descriptor.kind, JobKind::kIterative);
+  EXPECT_EQ(view->metadata.completed_work_units, 2u);
+
+  TestCooperativeBackend migrated_backend{};
+  auto migrated_result = make_iterative_job(migrated_backend, test_job_descriptor());
+  ASSERT_TRUE(migrated_result) << migrated_result.error().message;
+  CooperativeJob migrated = *migrated_result;
+  const auto restored = migrated.restore_capsule(capsule);
+  ASSERT_TRUE(restored) << restored.error().message;
+  EXPECT_EQ(restored->state, JobState::kRunning);
+
+  ASSERT_TRUE(source.advance(4uz));
+  const auto migrated_complete = migrated.advance(8uz);
+  ASSERT_TRUE(migrated_complete) << migrated_complete.error().message;
+  EXPECT_EQ(migrated_complete->state, JobState::kComplete);
+  EXPECT_EQ(source_backend.step, migrated_backend.step);
+  EXPECT_EQ(source_backend.values, migrated_backend.values);
+}
+
+TEST(CooperativeJob, RejectsCorruptAndIncompatibleCapsulesBeforeRestore)
+{
+  TestCooperativeBackend backend{};
+  auto source_result = make_streaming_job(backend, test_job_descriptor());
+  ASSERT_TRUE(source_result);
+  CooperativeJob source = *source_result;
+  ASSERT_TRUE(source.start());
+  ASSERT_TRUE(source.advance(1uz));
+  std::vector<std::byte> capsule(source.capsule_bytes());
+  ASSERT_TRUE(source.export_capsule(capsule));
+
+  std::vector<std::byte> corrupt = capsule;
+  corrupt[kStateCapsuleHeaderBytes] ^= std::byte{0x40};
+  TestCooperativeBackend corrupt_destination{};
+  auto corrupt_result = make_streaming_job(corrupt_destination, test_job_descriptor());
+  ASSERT_TRUE(corrupt_result);
+  CooperativeJob corrupt_job = *corrupt_result;
+  const auto corrupt_restore = corrupt_job.restore_capsule(corrupt);
+  ASSERT_FALSE(corrupt_restore);
+  EXPECT_EQ(corrupt_restore.error().code, JobErrorCode::kCapsuleInvalid);
+  EXPECT_EQ(corrupt_job.progress().state, JobState::kReady);
+  EXPECT_TRUE(corrupt_job.restore_capsule(capsule));
+
+  JobDescriptor incompatible_descriptor = test_job_descriptor();
+  ++incompatible_descriptor.state_schema;
+  TestCooperativeBackend incompatible_backend{};
+  auto incompatible_result = make_streaming_job(incompatible_backend, incompatible_descriptor);
+  ASSERT_TRUE(incompatible_result);
+  CooperativeJob incompatible = *incompatible_result;
+  const auto incompatible_restore = incompatible.restore_capsule(capsule);
+  ASSERT_FALSE(incompatible_restore);
+  EXPECT_EQ(incompatible_restore.error().code, JobErrorCode::kCapsuleIncompatible);
+  EXPECT_EQ(incompatible.progress().state, JobState::kReady);
+}
+
+TEST(CooperativeJob, ClassifiesAdaptersAndCancelsAtAWorkBoundary)
+{
+  TestCooperativeBackend iterative_backend{};
+  TestCooperativeBackend streaming_backend{};
+  TestCooperativeBackend speculative_backend{};
+  auto iterative = make_iterative_job(iterative_backend, test_job_descriptor());
+  auto streaming = make_streaming_job(streaming_backend, test_job_descriptor());
+  auto speculative = make_speculative_job(speculative_backend, test_job_descriptor());
+  ASSERT_TRUE(iterative);
+  ASSERT_TRUE(streaming);
+  ASSERT_TRUE(speculative);
+  EXPECT_EQ(iterative->descriptor().kind, JobKind::kIterative);
+  EXPECT_EQ(streaming->descriptor().kind, JobKind::kStreaming);
+  EXPECT_EQ(speculative->descriptor().kind, JobKind::kSpeculative);
+
+  ASSERT_TRUE(streaming->start());
+  ASSERT_TRUE(streaming->advance(1uz));
+  const auto cancelled = streaming->advance(1uz, streaming->descriptor().generation + 1u);
+  ASSERT_TRUE(cancelled);
+  EXPECT_EQ(cancelled->state, JobState::kCancelled);
+  EXPECT_TRUE(streaming_backend.cancelled);
+  EXPECT_EQ(cancelled->completed_work_units, 1u);
 }
 
 TEST(EdfScheduler, EnforcesFreshnessThenOrdersByDeadline)

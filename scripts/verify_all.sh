@@ -55,10 +55,12 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure
 "$(resolve_executable mamba_forward)" "$MODEL"
 "$(resolve_executable external_flow_sample)" "$MODEL"
 "$(resolve_executable streaming_snapshot)" "$MODEL"
+"$(resolve_executable cooperative_job_sample)"
 
 "$(resolve_executable flowedge_relay_bench)" "$MODEL" "$BENCH_ITERS" 0
 "$(resolve_executable flowedge_relay_pool_bench)" "$MODEL" "$BENCH_ITERS" \
   "${FLOWEDGE_RELAY_POOL_WORKERS:-2}" "${FLOWEDGE_RELAY_POOL_THREADS:-0}"
+"$(resolve_executable flowedge_cooperative_job_bench)" "$((BENCH_ITERS * 10))"
 FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/relay_demo.sh" "$MODEL"
 
 cmake --install "$BUILD_DIR" --prefix "$INSTALL_DIR"

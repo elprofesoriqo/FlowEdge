@@ -37,6 +37,9 @@ endforeach()
 if(FLOWEDGE_RELAY)
   add_executable(relay_client_sample examples/relay_client_sample.cc)
   target_link_libraries(relay_client_sample PRIVATE FlowEdge::Relay)
+
+  add_executable(cooperative_job_sample examples/cooperative_job_sample.cc)
+  target_link_libraries(cooperative_job_sample PRIVATE FlowEdge::Relay)
 endif()
 
 # BENCHMARKS
@@ -80,6 +83,9 @@ if(FLOWEDGE_BENCH)
 
     add_executable(flowedge_relay_pool_bench bench/relay_pool_bench.cc)
     target_link_libraries(flowedge_relay_pool_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_cooperative_job_bench bench/cooperative_job_bench.cc)
+    target_link_libraries(flowedge_cooperative_job_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 

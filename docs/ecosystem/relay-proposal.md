@@ -55,10 +55,13 @@ The current MVP provides:
 - `flowedge-relay-trace`, which inspects traces as text/JSONL or replays actions against a model;
 - a Windows/POSIX integration test that crosses a real process and shared-memory boundary;
 - fixed-memory counters and latency histograms with Prometheus, JSON, and OTLP/HTTP JSON exporters.
+- a non-owning C++23 cooperative-job contract with checked work budgets;
+- canonical state capsules bound to job kind, model digest, schema, session, generation, and progress;
+- concept-based iterative, streaming, and speculative adapters for external runtimes.
 
-Action overlap policies, state-capsule migration, and additional runtime adapters
-for training/serving runtimes remain later milestones. They should be justified by real traces rather
-than expanding the hot-path dependency footprint speculatively.
+Generic daemon routing, action-overlap policies, and concrete ROS 2, Zenoh, and inference-server
+adapters remain later milestones. They should be justified by real traces rather than expanding the
+hot-path dependency footprint speculatively.
 
 ## Repository boundary
 
@@ -162,6 +165,18 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 ```
 
 The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
+
+The runtime-neutral job layer has no model or transport dependency beyond Relay. Its example performs
+a partial iterative run, exports canonical state, restores it into a second instance, and also covers
+streaming cancellation and speculative classification:
+
+```bash
+./build/cooperative_job_sample
+./build/flowedge_cooperative_job_bench 100000
+```
+
+See [Cooperative jobs and state migration](../guides/cooperative-jobs) for the adapter contract and
+capsule invariants.
 
 ## Reuse outside robotics
 

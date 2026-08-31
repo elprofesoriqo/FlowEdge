@@ -26,8 +26,9 @@ noise, solver, action output, build revision, and timing summary. The engine sta
 the capsule becomes a portable reproducer for a surprising action across a robot, simulator, and CI.
 This is especially valuable to early-stage teams that cannot afford an extensive observability stack.
 
-Relay trace v2 implements the deterministic condition/action core of this capsule. Build revision,
-step-level scheduling events, and imported state capsules remain to be added.
+Relay trace v2 implements the deterministic condition/action core. Generic cooperative jobs now add
+checksummed, model- and schema-bound state capsules for exact worker migration. Build revision and
+step-level scheduling events remain to be added to complete a single incident artifact.
 
 ### Deadline budget contract
 

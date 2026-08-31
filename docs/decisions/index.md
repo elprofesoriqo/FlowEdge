@@ -25,4 +25,5 @@ A pull request that makes an architectural choice adds an ADR.
 0017-shared-weights-and-worker-placement
 0018-multi-lane-deadline-admission
 0019-fixed-memory-relay-metrics
+0020-generic-cooperative-jobs
 ```

@@ -18,15 +18,17 @@ FlowEdge is a custom C++ inference engine designed to execute flow-matching acti
 - decoupled compute backends
 - native `.safetensors` loading, plus a torch/HF checkpoint converter
 - C API and Python bindings
-- an optional deadline-aware shared-memory Relay for cross-process inference
+- an optional deadline-aware Relay with shared-memory inference, generic cooperative jobs, and
+  portable state migration
 - verification against PyTorch
 
 It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused on edge robotics with hard real-time latency constraints and zero dynamic allocations.
 
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
-typed client, worker-aware EDF admission, portable traces, and preallocated parallel head workers. Core does not
-depend on transport, telemetry, ROS, or daemon libraries.
+typed client, worker-aware EDF admission, portable traces and state capsules, generic iterative,
+streaming, and speculative adapters, and preallocated parallel head workers. Core does not depend on
+transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
 
@@ -93,6 +95,8 @@ single-worker and multi-worker paths. The daemon accepts `--workers 1..8` indepe
 `--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
 Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
+`cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation, while
+`flowedge_cooperative_job_bench` enforces zero allocations across the migrated-job path.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>
