@@ -6,7 +6,7 @@ request from another process, receive a typed result, and stop cleanly.
 ## Before you start
 
 You need a C++23 compiler, CMake 3.21+, and a compatible flow-head checkpoint. Relay supports native
-Windows and Linux/WSL. Shared memory is local to one host.
+Windows and Linux. Shared memory is local to one host.
 
 Build Core, Relay, tools, examples, and benchmarks:
 

@@ -97,7 +97,7 @@ ctest --test-dir build --output-on-failure
 The benchmark measures the complete allocation-free local path: compact producer serialization,
 condition ring, EDF queue, cooperative head worker, action ring, and consumer validation.
 `scripts/relay_bench.sh` performs the
-same build and run on WSL, Linux, or Git Bash. The daemon uses `--create` when it owns both rings and
+same build and run on Linux or Git Bash. The daemon uses `--create` when it owns both rings and
 `--trace FILE` to record accepted inputs and published outputs.
 
 For a manual two-process smoke test, keep the daemon in one terminal and use the control tool from a

@@ -145,7 +145,7 @@ Report warm steady-state results separately from startup and model loading.
 Performance claims must use identical checkpoints, inputs, solver configuration, thread counts, and
 thermal conditions.
 
-An initial dated Windows/WSL reference covering Core latency, Relay latency/throughput, one/two-worker
+An initial dated Windows/Linux reference covering Core latency, Relay latency/throughput, one/two-worker
 scaling, shared-weight bytes, and allocation-free cooperative migration is published in
 [`docs/performance.md`](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/performance.md).
 
@@ -159,7 +159,7 @@ scaling, shared-weight bytes, and allocation-free cooperative migration is publi
 - [ ] Worker failure cannot corrupt another worker's mutable state.
 - [ ] Shared immutable weights cannot be modified by a worker.
 - [ ] Begin, advance, cancel, scheduling, recording, and migration allocate nothing after setup.
-- [ ] Windows and WSL/Linux pass the same public surface.
+- [ ] Windows and Linux pass the same public surface.
 
 ## Out of scope
 
@@ -182,7 +182,7 @@ Relay coordinates these runtimes through optional adapters.
 - [ ] A running job migrates to another compatible worker and completes deterministically.
 - [ ] Examples cover lifecycle, deadlines, cancellation, replay, metrics, and migration.
 - [ ] Benchmarks cover single-worker, multi-worker, and generic cooperative-job paths.
-- [ ] Tests, examples, scripts, docs, installation, and benchmarks pass on Windows and WSL/Linux.
+- [ ] Tests, examples, scripts, docs, installation, and benchmarks pass on Windows and Linux.
 
 ## Related FlowEdge issues
 

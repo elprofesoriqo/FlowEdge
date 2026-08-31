@@ -55,7 +55,7 @@ external-encoder, streaming, Relay, and custom cooperative-job workflows.
 <details open>
 <summary><b>C++: build and sample</b></summary>
 
-Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated in WSL.
+Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated on Linux.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -93,7 +93,7 @@ ctest --test-dir build --output-on-failure
 FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench
 ```
 
-On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
+On Linux, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
 
 Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its allocation-checked
 single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
@@ -131,20 +131,13 @@ Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engi
 
 ## Performance
 
-Current local reference results on an Intel i7-9750H, Release builds, measured 2026-08-31:
+Matched local results on an Intel i7-9750H, Release, one CPU thread, measured 2026-08-31:
 
-| Benchmark | Windows Clang 23 | WSL 2 GCC 13 | Hot allocations |
-|---|---:|---:|---:|
-| Smoke-checkpoint backbone forward, median | 71 us | 71 us | fixed engine memory |
-| Synthetic Euler action, 10 steps, p99 | 555.20 us | 542.60 us | 0 |
-| Relay synchronous local path, p99 | 47.60 us | 40.10 us | 0 |
-| Relay pool, 1 worker | 37,240 req/s | 55,719 req/s | 0 |
-| Relay pool, 2 workers | 73,187 req/s | 109,507 req/s | 0 |
-| Cooperative partial-run/migrate/finish | 179.23 ns/job | 306.52 ns/job | 0 |
-| Generic registry route/run/result | 85.86 ns/job | 92.51 ns/job | 0 |
+| Benchmark | Platform | FlowEdge | PyTorch | Speedup |
+|---|---|---:|---:|---:|
+| Backbone forward | Windows | 0.091 ms | 1.650 ms | 18.1x |
+| Backbone forward | Linux | 0.071 ms | 0.990 ms | 13.9x |
+| Euler action head, mean | Windows | 375.73 us | 1,384.08 us | 3.68x |
+| Euler action head, mean | Linux | 395.18 us | 939.67 us | 2.38x |
 
-The pool benchmark maintains a queue and measures throughput under concurrency; the synchronous path
-measures one request at a time. These are reference measurements, not portable deadline guarantees.
-See the [full methodology, latency percentiles, environment, and reproduction commands](docs/performance.md).
-Use `scripts/bench.sh`, `scripts/relay_bench.sh`, and `scripts/ab_bench.sh` on the actual deployment
-host before making a performance claim or configuring deadline admission.
+See [performance](docs/performance.md) for exact commands and Relay results.
