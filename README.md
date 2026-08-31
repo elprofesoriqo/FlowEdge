@@ -135,9 +135,11 @@ Matched local results on an Intel i7-9750H, Release, one CPU thread, measured 20
 
 | Benchmark | Platform | FlowEdge | PyTorch | Speedup |
 |---|---|---:|---:|---:|
-| Backbone forward | Windows | 0.091 ms | 1.650 ms | 18.1x |
-| Backbone forward | Linux | 0.071 ms | 0.990 ms | 13.9x |
+| Backbone forward, mean | Windows | 0.091 ms | 1.650 ms | 18.1x |
+| Backbone forward, mean | Linux | 0.071 ms | 0.990 ms | 13.9x |
 | Euler action head, mean | Windows | 375.73 us | 1,384.08 us | 3.68x |
 | Euler action head, mean | Linux | 395.18 us | 939.67 us | 2.38x |
+| Euler action head, p99 | Windows | 579.40 us | 2,277.40 us | 3.93x |
+| Euler action head, p99 | Linux | 649.80 us | 1,694.64 us | 2.61x |
 
 See [performance](docs/performance.md) for exact commands and Relay results.
