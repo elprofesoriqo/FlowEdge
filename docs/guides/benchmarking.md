@@ -14,7 +14,7 @@ into one headline number.
 | How does inner Core threading scale? | `flowedge_threaded_matmul_bench` |
 | What does one complete local Relay request cost? | `flowedge_relay_bench` |
 | How does the bounded worker pool scale? | `flowedge_relay_pool_bench` |
-| What is generic capsule/adapter overhead? | `flowedge_cooperative_job_bench` |
+| What are generic capsule and registry-route costs? | `flowedge_cooperative_job_bench` |
 
 See [Current performance reference](../performance) for dated results from the repository's validated
 Windows/WSL host.
@@ -75,9 +75,10 @@ The cooperative benchmark isolates framework and capsule overhead with a tiny ba
 ./build/flowedge_cooperative_job_bench 1000000
 ```
 
-It performs partial execution, canonical export, validation, restore into another instance, and
-completion. It fails when the measured path allocates. Real model state can be much larger, so repeat
-with the intended adapter and capsule payload.
+It reports two loops: partial execution, canonical export, validation, restore, and completion; then
+request validation, frozen-registry lookup, adapter prepare/bind, completion, and typed result
+encoding. It fails when either measured path allocates. Real model state and results can be much
+larger, so repeat with the intended adapter and payload sizes.
 
 On Windows, use the `.exe` names from PowerShell. In WSL or Git Bash, the repository's Bash wrappers
 are available as well.

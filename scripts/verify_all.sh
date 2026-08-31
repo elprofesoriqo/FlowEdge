@@ -56,6 +56,7 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure
 "$(resolve_executable external_flow_sample)" "$MODEL"
 "$(resolve_executable streaming_snapshot)" "$MODEL"
 "$(resolve_executable cooperative_job_sample)"
+"$(resolve_executable routed_job_sample)"
 
 "$(resolve_executable flowedge_relay_bench)" "$MODEL" "$BENCH_ITERS" 0
 "$(resolve_executable flowedge_relay_pool_bench)" "$MODEL" "$BENCH_ITERS" \

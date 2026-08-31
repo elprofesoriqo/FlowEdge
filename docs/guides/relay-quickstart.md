@@ -101,6 +101,8 @@ sustained load, fixed affinity, and the real power/thermal policy. It is not a p
 
 ## Current boundary
 
-The daemon currently accepts the condition/action flow-head protocol. The generic iterative,
-streaming, and speculative API described in [Cooperative jobs](cooperative-jobs) is available
-in-process and has portable state migration, but generic daemon routing is not implemented yet.
+The daemon currently accepts the condition/action flow-head protocol. The generic API described in
+[Cooperative jobs](cooperative-jobs) now has validated request/result messages, checksummed-ring
+transport, bounded adapter registration, and portable state migration. `routed_job_sample`
+demonstrates this foundation, but the daemon does not dispatch those messages through its worker pool
+yet.

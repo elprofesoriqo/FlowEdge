@@ -1,6 +1,7 @@
 add_library(flowedge_relay STATIC
   client/relay_client.cc
   jobs/cooperative_job.cc
+  jobs/job_registry.cc
   jobs/state_capsule.cc
   protocol/trace.cc
   shared_memory/shared_memory_ring.cc
@@ -26,6 +27,7 @@ target_include_directories(flowedge_relay PUBLIC
 target_compile_definitions(flowedge_relay PUBLIC
   FLOWEDGE_RELAY_MAX_CONDITION_DIM=${FLOWEDGE_RELAY_MAX_CONDITION_DIM}
   FLOWEDGE_RELAY_MAX_ACTION_DIM=${FLOWEDGE_RELAY_MAX_ACTION_DIM}
+  FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES=${FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES}
 )
 if(UNIX AND NOT APPLE)
   target_link_libraries(flowedge_relay PRIVATE rt)

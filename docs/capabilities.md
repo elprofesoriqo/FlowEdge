@@ -15,11 +15,51 @@ metrics, and a runtime-neutral cooperative-job API.
 | Run policy inference across processes | `scripts/relay_demo.sh` | Client, daemon, deadline rejection, trace replay, and metrics |
 | Scale independent requests on one host | `flowedge_relay_pool_bench` | Shared weights and 1–8 isolated worker states |
 | Adapt diffusion, decode, or speculative work | `cooperative_job_sample` | Bounded steps, cancellation, and portable state capsules |
+| Route an external runtime by model/schema | `routed_job_sample` | Validated messages and fixed-capacity adapter lookup |
 | Call the runtime from Python | `examples/flow_sample.py` | NumPy input/output over the same C++ engine |
 | Port a supported checkpoint | Converter guide | Validated `.safetensors` with explicit tensor mapping |
 
 Follow [Getting Started](getting-started) for Core or the [Relay quickstart](guides/relay-quickstart)
 for a two-process deployment.
+
+## See where your workload fits
+
+```{mermaid}
+flowchart LR
+  I{What do you already have?}
+  I -->|Tokens + policy checkpoint| P[Complete policy]
+  I -->|Condition vector| H[External FlowEdge head]
+  I -->|Stateful custom runtime| J[Cooperative job]
+  P --> C[FlowEdge Core]
+  H --> C
+  J --> R[Relay job registry]
+  C -->|In process| O[Action / model output]
+  C -->|Condition messages| D[flowedge-relayd]
+  R -->|Validated route| B[Caller-owned backend lane]
+  D --> O
+  B --> O
+```
+
+<div class="fe-explorer-grid">
+<details class="fe-explorer" open>
+<summary>Complete robot policy</summary>
+<p><strong>Bring:</strong> a supported Mamba + flow checkpoint and token prefix.</p>
+<p><strong>Receive:</strong> a deterministic continuous-action chunk from <code>flow_sample</code>.</p>
+<p><strong>Expect:</strong> fixed runtime memory after initialization; one mutable solve per engine.</p>
+</details>
+<details class="fe-explorer">
+<summary>Existing VLA or encoder</summary>
+<p><strong>Bring:</strong> a condition vector and compatible head checkpoint.</p>
+<p><strong>Receive:</strong> only the flow-matching action-head result.</p>
+<p><strong>Try:</strong> <code>external_flow_sample</code>, then choose in-process Core or Relay.</p>
+</details>
+<details class="fe-explorer">
+<summary>Diffusion, decode, or planner</summary>
+<p><strong>Bring:</strong> a backend with bounded safe points and canonical state serialization.</p>
+<p><strong>Receive:</strong> cancellation, migration, typed messages, and model/schema routing.</p>
+<p><strong>Try:</strong> <code>cooperative_job_sample</code> and <code>routed_job_sample</code>.</p>
+</details>
+</div>
 
 ## Capabilities available today
 
@@ -45,10 +85,13 @@ engines for independent sessions.
 - Adapt external iterative, streaming, or speculative C++ backends through one concept-checked API.
 - Export/import canonical job capsules bound to the exact model, schema, session, generation, and
   work progress.
+- Build validated variable-size job requests/results and resolve them through a frozen,
+  caller-provisioned adapter registry.
 
-Generic cooperative jobs are currently an **in-process Relay API**. The existing daemon serves the
-FlowEdge action-head protocol; routing arbitrary job adapters through the daemon is the next systems
-milestone.
+Generic messages already traverse the checksummed shared-memory ring, and `JobAdapterRegistry` binds
+them to pre-provisioned execution lanes without allocation. The existing daemon still serves only the
+FlowEdge action-head protocol; connecting generic registry entries to its worker pool and admission
+loop is the next systems milestone.
 
 ### Local inference service
 
@@ -76,7 +119,7 @@ MPSC gate when several producer threads share a request stream.
 | Observation/vision encoder | Intentionally outside the current engine |
 | ROS 2 and Zenoh adapters | Planned as optional Relay adapters |
 | Distributed scheduling | Deferred until local traces justify it |
-| Generic jobs through `flowedge-relayd` | Next Relay milestone |
+| Generic jobs through `flowedge-relayd` | Messages/registry implemented; worker-pool integration next |
 
 FlowEdge is not an ONNX-style arbitrary graph runtime, a training framework, or an OS-level hard
 real-time guarantee. Use the [current performance reference](performance) and re-run the benchmarks

@@ -57,11 +57,14 @@ The current MVP provides:
 - fixed-memory counters and latency histograms with Prometheus, JSON, and OTLP/HTTP JSON exporters.
 - a non-owning C++23 cooperative-job contract with checked work budgets;
 - canonical state capsules bound to job kind, model digest, schema, session, generation, and progress;
-- concept-based iterative, streaming, and speculative adapters for external runtimes.
+- concept-based iterative, streaming, and speculative adapters for external runtimes;
+- validated variable-size generic job request/result messages; and
+- frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema.
 
-Generic daemon routing, action-overlap policies, and concrete ROS 2, Zenoh, and inference-server
-adapters remain later milestones. They should be justified by real traces rather than expanding the
-hot-path dependency footprint speculatively.
+Generic messages and registered adapters are not yet dispatched by `flowedge-relayd`; connecting them
+to its worker pool, action-overlap policies, and concrete ROS 2, Zenoh, and inference-server adapters
+remain later milestones. They should be justified by real traces rather than expanding the hot-path
+dependency footprint speculatively.
 
 ## Repository boundary
 
@@ -172,6 +175,7 @@ streaming cancellation and speculative classification:
 
 ```bash
 ./build/cooperative_job_sample
+./build/routed_job_sample
 ./build/flowedge_cooperative_job_bench 100000
 ```
 

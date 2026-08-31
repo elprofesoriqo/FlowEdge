@@ -1,4 +1,5 @@
 #include "relay/adapters/cooperative_adapters.h"
+#include "relay/adapters/routed_adapters.h"
 #include "relay/jobs/state_codec.h"
 
 #include <algorithm>
@@ -22,10 +23,21 @@ std::atomic<std::size_t> g_allocations{};
 
 struct CounterBackend
 {
+  [[nodiscard]] bool prepare(std::span<const std::byte> request) noexcept
+  {
+    StateReader reader{request};
+    const auto next_seed = reader.read<std::uint64_t>();
+    if (!next_seed || reader.remaining() != 0uz)
+      return false;
+    seed = *next_seed;
+    return true;
+  }
+
   [[nodiscard]] bool begin() noexcept
   {
     completed = 0u;
-    value = 0x9e3779b97f4a7c15ULL;
+    value = seed;
+    encode_result();
     return true;
   }
 
@@ -37,6 +49,7 @@ struct CounterBackend
       value = (value ^ (completed + 1u)) * 0xbf58476d1ce4e5b9ULL;
       ++completed;
     }
+    encode_result();
     return {
         .step = completed == kWorkUnits ? BackendStep::kComplete : BackendStep::kInProgress,
         .completed_work_units = count,
@@ -59,17 +72,31 @@ struct CounterBackend
       return false;
     completed = *next_completed;
     value = *next_value;
+    encode_result();
     return true;
   }
 
+  [[nodiscard]] std::span<const std::byte> result() const noexcept { return encoded_result; }
+
+  void encode_result() noexcept
+  {
+    StateWriter writer{encoded_result};
+    static_cast<void>(writer.write(value));
+  }
+
   static constexpr std::uint64_t kWorkUnits = 8u;
+  std::uint64_t seed{0x9e3779b97f4a7c15ULL};
   std::uint64_t completed{};
   std::uint64_t value{};
+  std::array<std::byte, sizeof(std::uint64_t)> encoded_result{};
 };
+
+static_assert(RoutedBackend<CounterBackend>);
 
 [[nodiscard]] JobDescriptor descriptor() noexcept
 {
   JobDescriptor result{};
+  result.kind = JobKind::kIterative;
   for (std::size_t index{}; index < result.model_digest.size(); ++index)
     result.model_digest[index] = static_cast<std::uint8_t>(index + 1uz);
   result.state_schema = 0x62656e63682d7631u;
@@ -150,8 +177,43 @@ int main(int argc, char** argv)
   const double ns_per_iteration = elapsed_ns / static_cast<double>(iterations);
   const double ns_per_work_unit =
       elapsed_ns / static_cast<double>(iterations * CounterBackend::kWorkUnits);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter input_writer{input};
+  if (!input_writer.write(std::uint64_t{0x9e3779b97f4a7c15ULL}))
+    return 1;
+  JobRequestMessage request{};
+  if (make_job_request(request, 1u, descriptor(), 0u, input) != ProtocolResult::kSuccess)
+    return 1;
+  CounterBackend routed_backend{};
+  std::array<JobAdapterRegistration, 1> registrations{};
+  JobAdapterRegistry registry{registrations};
+  if (!registry.add(make_routed_adapter(routed_backend, job_route(descriptor()), input.size(),
+                                        sizeof(std::uint64_t))))
+    return 1;
+  registry.freeze();
+  JobResultMessage result{};
+  std::uint64_t routed_checksum{};
+  const std::size_t routed_allocations_before = g_allocations.load(std::memory_order_relaxed);
+  const auto routed_start = std::chrono::steady_clock::now();
+  for (std::size_t iteration{}; iteration < iterations; ++iteration) {
+    auto routed = registry.bind(request);
+    if (!routed || !routed->start() || !routed->advance(CounterBackend::kWorkUnits) ||
+        routed->write_result(result, 0u) != ProtocolResult::kSuccess)
+      return 1;
+    routed_checksum ^= routed_backend.value + iteration;
+  }
+  const auto routed_elapsed = std::chrono::steady_clock::now() - routed_start;
+  const std::size_t routed_allocations =
+      g_allocations.load(std::memory_order_relaxed) - routed_allocations_before;
+  const double routed_ns = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(routed_elapsed).count());
+  const double ns_per_routed_job = routed_ns / static_cast<double>(iterations);
+
   std::cout << "iterations=" << iterations << " ns_per_migrated_job=" << ns_per_iteration
             << " ns_per_work_unit=" << ns_per_work_unit << " hot_path_allocations=" << allocations
-            << " checksum=" << checksum << '\n';
-  return allocations == 0uz ? 0 : 1;
+            << " checksum=" << checksum << " ns_per_routed_job=" << ns_per_routed_job
+            << " routed_hot_path_allocations=" << routed_allocations
+            << " routed_checksum=" << routed_checksum << '\n';
+  return allocations == 0uz && routed_allocations == 0uz ? 0 : 1;
 }

@@ -17,6 +17,8 @@ set(FLOWEDGE_RELAY_MAX_CONDITION_DIM "4096" CACHE STRING
     "Maximum condition width stored in a Relay message")
 set(FLOWEDGE_RELAY_MAX_ACTION_DIM "1024" CACHE STRING
     "Maximum action width stored in a Relay message")
+set(FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES "65536" CACHE STRING
+    "Maximum opaque payload stored in a generic Relay job message")
 
 # Core compute kernels. CPU auto-selects the host ISA; scalar is also explicit
 # for compatibility testing and targets where deploying AVX2 is undesirable.
@@ -40,6 +42,9 @@ if(FLOWEDGE_RELAY)
 
   add_executable(cooperative_job_sample examples/cooperative_job_sample.cc)
   target_link_libraries(cooperative_job_sample PRIVATE FlowEdge::Relay)
+
+  add_executable(routed_job_sample examples/routed_job_sample.cc)
+  target_link_libraries(routed_job_sample PRIVATE FlowEdge::Relay)
 endif()
 
 # BENCHMARKS

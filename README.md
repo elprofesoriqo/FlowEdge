@@ -101,8 +101,9 @@ single-worker and multi-worker paths. The daemon accepts `--workers 1..8` indepe
 `--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
 Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
-`cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation, while
-`flowedge_cooperative_job_bench` enforces zero allocations across the migrated-job path.
+`cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
+`routed_job_sample` demonstrates typed request/result messages and bounded adapter lookup; and
+`flowedge_cooperative_job_bench` enforces zero allocations across both paths.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>
@@ -139,7 +140,8 @@ Current local reference results on an Intel i7-9750H, Release builds, measured 2
 | Relay synchronous local path, p99 | 47.60 us | 40.10 us | 0 |
 | Relay pool, 1 worker | 37,240 req/s | 55,719 req/s | 0 |
 | Relay pool, 2 workers | 73,187 req/s | 109,507 req/s | 0 |
-| Cooperative partial-run/migrate/finish | 165.40 ns/job | 251.93 ns/job | 0 |
+| Cooperative partial-run/migrate/finish | 179.23 ns/job | 306.52 ns/job | 0 |
+| Generic registry route/run/result | 85.86 ns/job | 92.51 ns/job | 0 |
 
 The pool benchmark maintains a queue and measures throughput under concurrency; the synchronous path
 measures one request at a time. These are reference measurements, not portable deadline guarantees.

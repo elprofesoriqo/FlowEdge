@@ -1,4 +1,5 @@
 #include "relay/adapters/cooperative_adapters.h"
+#include "relay/adapters/routed_adapters.h"
 #include "relay/jobs/state_capsule.h"
 #include "relay/jobs/state_codec.h"
 #include "relay/protocol/messages.h"
@@ -28,6 +29,10 @@
 namespace {
 
 using namespace fe::relay;
+
+static_assert(static_cast<std::uint16_t>(MessageKind::kCondition) == 1u);
+static_assert(static_cast<std::uint16_t>(MessageKind::kAction) == 2u);
+static_assert(static_cast<std::uint16_t>(MessageKind::kShutdown) == 3u);
 
 [[nodiscard]] fe_model_metadata test_model(std::size_t condition_dim = 4uz,
                                            std::size_t action_dim = 2uz)
@@ -132,6 +137,81 @@ struct TestCooperativeBackend
   bool cancelled{};
 };
 
+struct TestRoutedBackend
+{
+  [[nodiscard]] bool prepare(std::span<const std::byte> request) noexcept
+  {
+    StateReader reader{request};
+    const auto decoded = reader.read<std::uint64_t>();
+    if (!decoded || reader.remaining() != 0uz)
+      return false;
+    seed = *decoded;
+    return true;
+  }
+
+  [[nodiscard]] bool begin() noexcept
+  {
+    completed = 0u;
+    value = seed;
+    update_result();
+    return true;
+  }
+
+  [[nodiscard]] BackendAdvance advance(std::size_t budget) noexcept
+  {
+    const std::size_t count =
+        static_cast<std::size_t>(std::min<std::uint64_t>(budget, kTotalSteps - completed));
+    for (std::size_t index{}; index < count; ++index) {
+      value = (value * 3u) + completed + 1u;
+      ++completed;
+    }
+    update_result();
+    return BackendAdvance{
+        .step = completed == kTotalSteps ? BackendStep::kComplete : BackendStep::kInProgress,
+        .completed_work_units = count,
+    };
+  }
+
+  void cancel() noexcept {}
+  [[nodiscard]] std::size_t state_bytes() const noexcept { return 16uz; }
+
+  [[nodiscard]] bool save_state(std::span<std::byte> destination) const noexcept
+  {
+    StateWriter writer{destination};
+    return writer.write(completed) && writer.write(value) && writer.remaining() == 0uz;
+  }
+
+  [[nodiscard]] bool load_state(std::span<const std::byte> source) noexcept
+  {
+    StateReader reader{source};
+    const auto next_completed = reader.read<std::uint64_t>();
+    const auto next_value = reader.read<std::uint64_t>();
+    if (!next_completed || !next_value || *next_completed > kTotalSteps ||
+        reader.remaining() != 0uz)
+      return false;
+    completed = *next_completed;
+    value = *next_value;
+    update_result();
+    return true;
+  }
+
+  [[nodiscard]] std::span<const std::byte> result() const noexcept { return encoded_result; }
+
+  void update_result() noexcept
+  {
+    StateWriter writer{encoded_result};
+    static_cast<void>(writer.write(value));
+  }
+
+  static constexpr std::uint64_t kTotalSteps = 4u;
+  std::uint64_t seed{};
+  std::uint64_t completed{};
+  std::uint64_t value{};
+  std::array<std::byte, sizeof(std::uint64_t)> encoded_result{};
+};
+
+static_assert(RoutedBackend<TestRoutedBackend>);
+
 [[nodiscard]] JobDescriptor test_job_descriptor(std::uint64_t generation = 7u)
 {
   JobDescriptor descriptor{};
@@ -178,6 +258,117 @@ TEST(RelayProtocol, BuildsAndValidatesVersionedCondition)
   EXPECT_EQ(action_code(rejected), RelayActionCode::kRejectedDeadline);
   EXPECT_EQ(rejected.metadata.status, FE_ACTION_FAILED);
   EXPECT_EQ(rejected.metadata.remaining_nfe, message.metadata.remaining_nfe);
+}
+
+TEST(GenericJobRouting, ValidatesMessagesAndRoutesThroughFrozenRegistry)
+{
+  JobDescriptor descriptor = test_job_descriptor();
+  descriptor.kind = JobKind::kIterative;
+  descriptor.total_work_units = TestRoutedBackend::kTotalSteps;
+  descriptor.deadline_ns = 1'000u;
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter input_writer{input};
+  ASSERT_TRUE(input_writer.write(std::uint64_t{5u}));
+  auto request_message = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*request_message, 91u, descriptor, 100u, input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(validate(*request_message), ProtocolResult::kSuccess);
+  EXPECT_EQ(request_message->envelope.kind, MessageKind::kJobRequest);
+  EXPECT_EQ(wire_size(*request_message), offsetof(JobRequestMessage, payload) + input.size());
+
+  JobRequestMessage invalid = *request_message;
+  invalid.envelope.session_id += 1u;
+  EXPECT_EQ(validate(invalid), ProtocolResult::kInvalidMetadata);
+
+  TestRoutedBackend backend{};
+  std::array<JobAdapterRegistration, 1> storage{};
+  JobAdapterRegistry registry{storage};
+  const JobAdapterRegistration registration =
+      make_routed_adapter(backend, job_route(descriptor), input.size(), sizeof(std::uint64_t));
+  ASSERT_TRUE(registry.add(registration));
+  const auto duplicate = registry.add(registration);
+  ASSERT_FALSE(duplicate);
+  EXPECT_EQ(duplicate.error().code, JobRouteErrorCode::kDuplicateRoute);
+  const auto before_freeze = registry.bind(*request_message);
+  ASSERT_FALSE(before_freeze);
+  EXPECT_EQ(before_freeze.error().code, JobRouteErrorCode::kRegistryNotFrozen);
+
+  registry.freeze();
+  ASSERT_NE(registry.find(descriptor), nullptr);
+  const auto after_freeze = registry.add(registration);
+  ASSERT_FALSE(after_freeze);
+  EXPECT_EQ(after_freeze.error().code, JobRouteErrorCode::kRegistryFrozen);
+
+  auto routed_result = registry.bind(*request_message);
+  ASSERT_TRUE(routed_result) << routed_result.error().message;
+  RoutedJob routed = *routed_result;
+  ASSERT_TRUE(routed.start());
+  ASSERT_TRUE(routed.advance(2uz));
+  auto result_message = std::make_unique<JobResultMessage>();
+  EXPECT_EQ(routed.write_result(*result_message, 200u), ProtocolResult::kSuccess);
+  EXPECT_EQ(validate(*result_message), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*result_message), JobResultCode::kProgress);
+  EXPECT_EQ(result_message->metadata.progress.completed_work_units, 2u);
+
+  ASSERT_TRUE(routed.advance(2uz));
+  EXPECT_EQ(routed.write_result(*result_message, 300u), ProtocolResult::kSuccess);
+  EXPECT_EQ(validate(*result_message), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*result_message), JobResultCode::kComplete);
+  StateReader result_reader{result_message->payload_values()};
+  const auto value = result_reader.read<std::uint64_t>();
+  ASSERT_TRUE(value);
+  EXPECT_EQ(*value, backend.value);
+
+  JobDescriptor missing = descriptor;
+  ++missing.state_schema;
+  ASSERT_EQ(make_job_request(*request_message, 92u, missing, 100u, input),
+            ProtocolResult::kSuccess);
+  const auto not_found = registry.bind(*request_message);
+  ASSERT_FALSE(not_found);
+  EXPECT_EQ(not_found.error().code, JobRouteErrorCode::kAdapterNotFound);
+
+  TestRoutedBackend limited_backend{};
+  std::array<JobAdapterRegistration, 1> limited_storage{};
+  JobAdapterRegistry limited{limited_storage};
+  ASSERT_TRUE(limited.add(
+      make_routed_adapter(limited_backend, job_route(descriptor), 4uz, sizeof(std::uint64_t))));
+  JobRoute another_route = job_route(descriptor);
+  ++another_route.state_schema;
+  const auto capacity = limited.add(
+      make_routed_adapter(limited_backend, another_route, input.size(), sizeof(std::uint64_t)));
+  ASSERT_FALSE(capacity);
+  EXPECT_EQ(capacity.error().code, JobRouteErrorCode::kCapacityExceeded);
+  limited.freeze();
+  ASSERT_EQ(make_job_request(*request_message, 93u, descriptor, 100u, input),
+            ProtocolResult::kSuccess);
+  const auto rejected_payload = limited.bind(*request_message);
+  ASSERT_FALSE(rejected_payload);
+  EXPECT_EQ(rejected_payload.error().code, JobRouteErrorCode::kPayloadTooLarge);
+
+  const std::string ring_name = unique_name("flowedge-generic-job-ring-test");
+  constexpr std::size_t slot_bytes = std::max(sizeof(JobRequestMessage), sizeof(JobResultMessage));
+  auto created = SharedMemoryRing::create(ring_name, RingConfig{2u, slot_bytes});
+  ASSERT_TRUE(created) << created.error();
+  auto opened = SharedMemoryRing::open(ring_name);
+  ASSERT_TRUE(opened) << opened.error();
+  SharedMemoryRing producer = std::move(*created);
+  SharedMemoryRing consumer = std::move(*opened);
+  EXPECT_EQ(producer.try_push(wire_bytes(*request_message)), RingResult::kSuccess);
+  auto received = std::make_unique<JobRequestMessage>();
+  std::size_t received_bytes{};
+  EXPECT_EQ(consumer.try_pop(std::as_writable_bytes(std::span{received.get(), 1uz}),
+                             received_bytes),
+            RingResult::kSuccess);
+  EXPECT_EQ(received_bytes, wire_size(*request_message));
+  EXPECT_EQ(validate(*received), ProtocolResult::kSuccess);
+  EXPECT_EQ(producer.try_push(wire_bytes(*result_message)), RingResult::kSuccess);
+  auto received_result = std::make_unique<JobResultMessage>();
+  EXPECT_EQ(consumer.try_pop(std::as_writable_bytes(std::span{received_result.get(), 1uz}),
+                             received_bytes),
+            RingResult::kSuccess);
+  EXPECT_EQ(received_bytes, wire_size(*result_message));
+  EXPECT_EQ(validate(*received_result), ProtocolResult::kSuccess);
 }
 
 TEST(CooperativeJob, MigratesIterativeStateBitExactly)

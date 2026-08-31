@@ -90,12 +90,15 @@ instance, demonstrates streaming cancellation, and completes a speculative job:
 
 ```bash
 ./build-relay/cooperative_job_sample
+./build-relay/routed_job_sample
 ./build-relay/flowedge_cooperative_job_bench 100000
 ```
 
-The benchmark covers begin, partial advance, capsule export/import, and completion, and returns a
-failure if the measured path performs a heap allocation. See [Cooperative jobs and state
-migration](guides/cooperative-jobs) for the backend concept and ownership rules.
+The routed sample prints `outcome=complete completed=4` after validating a request, resolving its
+model/schema route, executing bounded work, and encoding a typed result. The benchmark covers both
+that lifecycle and partial advance/capsule migration, and returns a failure if either measured path
+performs a heap allocation. See [Cooperative jobs and state migration](guides/cooperative-jobs) for
+the backend concepts and ownership rules.
 
 (python-quickstart)=
 ## Python

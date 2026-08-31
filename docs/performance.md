@@ -17,6 +17,24 @@ the repository's two-layer `models/mamba_flow.safetensors` smoke checkpoint, and
 The machine was otherwise idle, but frequency, background services, virtualization, and laptop
 thermals were not locked. Do not use these numbers directly as robot admission limits.
 
+<div class="fe-explorer-grid">
+<details class="fe-explorer" open>
+<summary>Choosing a latency number</summary>
+<p>Use Core latency for an in-process call and synchronous Relay p99 for an isolated local service.</p>
+<p>Do not use pool backlog latency as a single-request deadline.</p>
+</details>
+<details class="fe-explorer">
+<summary>Choosing a capacity number</summary>
+<p>Use pool requests/second to compare worker counts under concurrency.</p>
+<p>Re-run with the real model, affinity, thermal policy, and producer rate.</p>
+</details>
+<details class="fe-explorer">
+<summary>Reading generic overhead</summary>
+<p>The nanosecond rows use a tiny counter backend to expose framework cost.</p>
+<p>Model compute, payload movement, and state size dominate production adapters.</p>
+</details>
+</div>
+
 ## Core execution
 
 | Benchmark | Windows | WSL 2 | Allocation result |
@@ -50,18 +68,22 @@ and should not be compared directly with the synchronous single-request latency.
 show capacity and scaling under concurrency. On this run, two workers delivered 1.97x Windows and
 1.97x WSL throughput versus one worker while sharing one 986,112-byte immutable checkpoint store.
 
-## Cooperative migration overhead
+## Cooperative migration and routing overhead
 
 `flowedge_cooperative_job_bench` runs three work units, exports a canonical checksummed capsule,
-restores it into a second backend, and finishes five more units.
+restores it into a second backend, and finishes five more units. A second loop validates a request,
+looks up a frozen adapter registry, prepares and binds the backend, runs eight work units, and encodes
+a typed result.
 
-| Environment | Complete migrated job | Per work unit | Hot allocations |
-|---|---:|---:|---:|
-| Windows | 165.40 ns | 20.67 ns | 0 |
-| WSL 2 | 251.93 ns | 31.49 ns | 0 |
+| Environment | Complete migrated job | Per migrated work unit | Complete routed job | Hot allocations |
+|---|---:|---:|---:|---:|
+| Windows | 179.23 ns | 22.40 ns | 85.86 ns | 0 |
+| WSL 2 | 306.52 ns | 38.32 ns | 92.51 ns | 0 |
 
-This is framework overhead around a tiny counter backend. A real model's compute and state payload
-will dominate; benchmark the actual capsule size and adapter.
+These are framework measurements around a tiny counter backend. The routed value includes registry
+lookup, all eight trivial work units, and result creation; it is not just lookup latency. A real
+model's compute, state, and payload copies will dominate, so benchmark the actual adapter and capsule
+sizes.
 
 ## Reproduce the measurements
 

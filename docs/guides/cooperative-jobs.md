@@ -70,6 +70,69 @@ Adapter payloads must also be canonical. Use `StateWriter` and `StateReader` rat
 struct memory; they encode integer and IEEE-754 float bit patterns explicitly in little-endian order.
 `load_state` should decode and validate into temporary values, then commit them together.
 
+## Route requests to an adapter
+
+A routable backend adds two allocation-free operations to the cooperative contract:
+
+```cpp
+bool prepare(std::span<const std::byte> request) noexcept;
+std::span<const std::byte> result() const noexcept;
+```
+
+`prepare` validates and binds adapter-specific input before `begin`; `result` exposes backend-owned
+output for copying into a typed result message. The C++23 `RoutedBackend` concept checks the complete
+eight-operation surface.
+
+Provision adapter entries and mutable backends during initialization, then freeze before worker
+threads can see the registry:
+
+```cpp
+Backend backend;
+std::array<JobAdapterRegistration, 4> entries{};
+JobAdapterRegistry registry{entries};
+
+registry.add(make_routed_adapter(
+    backend, job_route(descriptor), max_input_bytes, max_output_bytes));
+registry.freeze();
+
+JobRequestMessage request;
+make_job_request(request, sequence, descriptor, now_ns, encoded_input);
+auto job = registry.bind(request).value();
+job.start();
+job.advance(descriptor.total_work_units);
+
+JobResultMessage result;
+job.write_result(result, finished_ns);
+```
+
+The lookup key is the exact `(kind, model_digest, state_schema)` tuple. Unknown routes, duplicate
+registration, malformed messages, and adapter-specific payload overflows are typed failures. One
+registration owns one mutable backend lane; provision a backend/registry per concurrent lane while
+sharing immutable model weights outside it.
+
+```{mermaid}
+sequenceDiagram
+  participant Client
+  participant Message as JobRequestMessage
+  participant Registry as Frozen registry
+  participant Backend as Adapter backend
+  Client->>Message: make_job_request(descriptor, payload)
+  Client->>Registry: bind(validated message)
+  Registry->>Backend: prepare(payload)
+  Registry-->>Client: RoutedJob
+  loop bounded safe points
+    Client->>Backend: advance(work budget)
+    Backend-->>Client: checked progress
+  end
+  Client->>Backend: result()
+  Client->>Message: write typed JobResultMessage
+```
+
+Generic messages default to a 64 KiB inline payload, configurable with
+`FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES`. Only the used prefix is initialized, checksummed, and moved
+through a ring. Keep large tensors in adapter-owned/device memory and pass a validated handle when
+possible; raising the inline limit increases each maximum ring slot.
+
 ## Workload mappings
 
 | Adapter | Work unit | Capsule payload examples |
@@ -79,8 +142,10 @@ struct memory; they encode integer and IEEE-754 float bit patterns explicitly in
 | Speculative | One draft or verification quantum | accepted prefix, branch cursor, rollback state |
 
 Run `cooperative_job_sample` for migration, streaming cancellation, and speculative classification.
-`flowedge_cooperative_job_bench` measures a complete partial-run/export/restore/completion cycle and
-fails if the measured path allocates.
+Run `routed_job_sample` for request creation, frozen-registry lookup, execution, and typed result
+encoding. `flowedge_cooperative_job_bench` measures both complete lifecycles and fails if either path
+allocates.
 
-The current contract is an in-process Relay API. Shared-memory job routing, action overlap, ROS 2,
-Zenoh, and inference-server adapters will build on it without adding those dependencies to Core.
+Generic messages can traverse an appropriately sized `SharedMemoryRing`, but `flowedge-relayd` does
+not consume them yet. Worker-pool dispatch, action overlap, ROS 2, Zenoh, and inference-server
+adapters will build on this foundation without adding those dependencies to Core.

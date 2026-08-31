@@ -102,9 +102,9 @@ serving framework.
 
 ### Generic worker routing
 
-- [ ] Add generic job request/result message kinds without breaking the flow condition/action v1 path.
+- [x] Add generic job request/result message kinds without breaking the flow condition/action v1 path.
 - [ ] Route registered job adapters through the existing worker pool and multi-lane admission model.
-- [ ] Add bounded adapter registration with stable model/schema identity.
+- [x] Add bounded adapter registration with stable model/schema identity.
 - [ ] Add per-kind work-cost calibration rather than assuming one NFE cost.
 - [ ] Extend traces and metrics with job kind, schema, work progress, migration, and preemption events.
 
@@ -202,6 +202,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADRs 0010–0011: cooperative execution and versioned state contracts.
 - ADRs 0012–0019: Relay boundary, lifecycle, traces, admission, workers, weights, placement, and metrics.
 - ADR 0020: generic cooperative jobs and portable capsules.
+- ADR 0021: generic job messages and frozen adapter registration.
 
 ## Development branch
 

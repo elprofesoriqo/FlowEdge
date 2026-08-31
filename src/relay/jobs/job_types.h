@@ -80,6 +80,23 @@ struct JobError
          state == JobState::kFailed;
 }
 
+[[nodiscard]] constexpr bool valid_job_progress(const JobDescriptor& descriptor,
+                                                const JobProgress& progress) noexcept
+{
+  if (!valid_job_state(progress.state) ||
+      progress.completed_work_units > descriptor.total_work_units ||
+      progress.remaining_work_units !=
+          descriptor.total_work_units - progress.completed_work_units)
+    return false;
+  if (progress.state == JobState::kReady)
+    return progress.completed_work_units == 0u;
+  if (progress.state == JobState::kRunning)
+    return progress.completed_work_units < descriptor.total_work_units;
+  if (progress.state == JobState::kComplete)
+    return progress.completed_work_units == descriptor.total_work_units;
+  return true;
+}
+
 [[nodiscard]] constexpr bool valid_job_descriptor(const JobDescriptor& descriptor) noexcept
 {
   bool has_digest{false};
