@@ -6,6 +6,19 @@ real checkpoint's backbone forward pass. When Relay is enabled, its benchmark me
 producer-to-consumer local inference path. They answer different questions and should not be combined
 into one headline number.
 
+| Question | Tool |
+|---|---|
+| How fast is one supported backbone forward? | `flowedge_engine_bench` |
+| What is action-head tail latency without model loading? | `flowedge_latency_bench` |
+| Which kernel changed? | `flowedge_kernels_bench` |
+| How does inner Core threading scale? | `flowedge_threaded_matmul_bench` |
+| What does one complete local Relay request cost? | `flowedge_relay_bench` |
+| How does the bounded worker pool scale? | `flowedge_relay_pool_bench` |
+| What is generic capsule/adapter overhead? | `flowedge_cooperative_job_bench` |
+
+See [Current performance reference](../performance) for dated results from the repository's validated
+Windows/WSL host.
+
 ## Establishing a baseline
 
 Configure a Release build with benchmarks and record the exact host, compiler, checkpoint digest,
@@ -51,9 +64,20 @@ the single-request transport benchmark and this pool benchmark; override its poo
 `FLOWEDGE_RELAY_POOL_WORKERS` and `FLOWEDGE_RELAY_POOL_THREADS`.
 
 More workers are useful only while throughput rises without violating tail latency, memory, or CPU
-budgets. Every current slot owns a complete checkpoint arena. Record resident memory as well as
-requests/second, and avoid multiplying outer workers by large inner Core thread pools without an
+budgets. Workers share immutable checkpoint tensors but retain private scratch, transformed constants,
+solver state, and decode state. Record `shared_weight_bytes`, private memory, and resident memory as
+well as requests/second. Avoid multiplying outer workers by large inner Core thread pools without an
 explicit oversubscription experiment.
+
+The cooperative benchmark isolates framework and capsule overhead with a tiny backend:
+
+```bash
+./build/flowedge_cooperative_job_bench 1000000
+```
+
+It performs partial execution, canonical export, validation, restore into another instance, and
+completion. It fails when the measured path allocates. Real model state can be much larger, so repeat
+with the intended adapter and capsule payload.
 
 On Windows, use the `.exe` names from PowerShell. In WSL or Git Bash, the repository's Bash wrappers
 are available as well.

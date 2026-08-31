@@ -145,6 +145,10 @@ Report warm steady-state results separately from startup and model loading.
 Performance claims must use identical checkpoints, inputs, solver configuration, thread counts, and
 thermal conditions.
 
+An initial dated Windows/WSL reference covering Core latency, Relay latency/throughput, one/two-worker
+scaling, shared-weight bytes, and allocation-free cooperative migration is published in
+[`docs/performance.md`](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/performance.md).
+
 ## Correctness requirements
 
 - [ ] A stale generation is never published as a successful current result.

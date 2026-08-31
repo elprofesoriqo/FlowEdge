@@ -14,7 +14,18 @@ It is not a training framework and not a graph runtime. It is a fixed set of han
 
 Training frameworks trade latency for flexibility. PyTorch runs an interpreter over each op, and ONNX Runtime carries a graph engine and a stack of dependencies. Neither is built for a loop that has to finish inside a fixed period on an embedded board. FlowEdge is. It stays small, keeps its memory static, and is checked against PyTorch in CI on every commit.
 
-## What is implemented
+## What you can use today
+
+| Goal | Entry point |
+|---|---|
+| Run a complete Mamba + flow policy | [Getting Started](getting-started) |
+| Keep an existing encoder and use only the action head | [Capabilities](capabilities) |
+| Run deadline-aware inference between processes | [Relay quickstart](guides/relay-quickstart) |
+| Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
+| Evaluate latency, throughput, and allocations | [Current performance](performance) |
+| Convert or port a supported checkpoint | [Converter](guides/converter) |
+
+## Implementation status
 
 <div class="fe-grid">
   <div class="fe-card">
@@ -62,7 +73,9 @@ graph TD
 ## Start here
 
 - [Getting Started](getting-started). Build, load a model, sample an action.
-- [Architecture](architecture/overview). How the layers fit and why.
+- [Capabilities](capabilities). Choose a workflow and understand current limitations.
+- [Current Performance](performance). Dated measurements and reproduction commands.
+- [Relay Quickstart](guides/relay-quickstart). Run the service and understand outcomes.
 - [C-ABI](api/c-abi). The public surface.
 
 ```{toctree}
@@ -70,6 +83,8 @@ graph TD
 :caption: Start
 Overview <self>
 getting-started
+capabilities
+performance
 comparison
 ```
 
@@ -104,6 +119,7 @@ guides/verification
 guides/benchmarking
 guides/observability
 guides/cooperative-jobs
+guides/relay-quickstart
 ```
 
 ```{toctree}

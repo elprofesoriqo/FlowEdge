@@ -22,7 +22,8 @@ FlowEdge is a custom C++ inference engine designed to execute flow-matching acti
   portable state migration
 - verification against PyTorch
 
-It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused on edge robotics with hard real-time latency constraints and zero dynamic allocations.
+It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused
+on predictable edge-robotics latency and zero dynamic allocations on supported hot paths.
 
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
@@ -32,7 +33,9 @@ transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
 
-- **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge is significantly faster for small control models due to zero interpreter overhead and static memory graphs (see the Performance section).
+- **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge removes
+  interpreter and hot-path allocator overhead for its supported fixed models; use the matched
+  benchmark scripts before claiming a speedup.
 - **ONNX Runtime:** ONNX is a massive framework with heavy dependencies. FlowEdge compiles to a tiny static binary and executes with zero heap allocations on the hot path.
 - **ggml / llama.cpp:** While `ggml` is optimized for LLM text generation, FlowEdge is built for robotics: prioritizing low-latency continuous control (flow-matching ODE solvers) over auto-regressive token generation.
 
@@ -45,6 +48,9 @@ FlowEdge supports the following hardware accelerators:
 - ☐ Vulkan
 
 ## Quick Start
+
+Not sure which path fits? See the [capability guide](docs/capabilities.md) for complete-policy,
+external-encoder, streaming, Relay, and custom cooperative-job workflows.
 
 <details open>
 <summary><b>C++: build and sample</b></summary>
@@ -124,19 +130,19 @@ Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engi
 
 ## Performance
 
-| Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PyTorch) |
-|---|---|---:|---:|---:|
-| `BM_engine_forward` | CPU | 0.983 ms | 0.120 ms | 8.19x |
-| `BM_engine_forward` | CUDA | TBD | TBD | TBD |
-| `BM_engine_forward` | Metal | TBD | TBD | TBD |
-| `BM_engine_forward` | Vulkan | TBD | TBD | TBD |
-| `BM_engine_forward` | Tenstorrent | TBD | TBD | TBD |
-| Flow action latency, mean (Euler, NFE=10) | CPU | 962.39 us | 294.42 us | 3.27x |
-| Flow action latency, p99 (Euler, NFE=10) | CPU | 1,472.40 us | 482.72 us | 3.05x |
+Current local reference results on an Intel i7-9750H, Release builds, measured 2026-08-31:
 
-| Measurements | FlowEdge | PyTorch |
-|---|---|---|
-| Engine forward | [`bench/engine_bench.cc`](bench/engine_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`bench`) |
-| Flow action latency | [`bench/latency_bench.cc`](bench/latency_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`latency`) |
+| Benchmark | Windows Clang 23 | WSL 2 GCC 13 | Hot allocations |
+|---|---:|---:|---:|
+| Smoke-checkpoint backbone forward, median | 71 us | 71 us | fixed engine memory |
+| Synthetic Euler action, 10 steps, p99 | 555.20 us | 542.60 us | 0 |
+| Relay synchronous local path, p99 | 47.60 us | 40.10 us | 0 |
+| Relay pool, 1 worker | 37,240 req/s | 55,719 req/s | 0 |
+| Relay pool, 2 workers | 73,187 req/s | 109,507 req/s | 0 |
+| Cooperative partial-run/migrate/finish | 165.40 ns/job | 251.93 ns/job | 0 |
 
-These numbers use the included two-layer smoke checkpoint on one host; use `scripts/bench.sh` and `scripts/ab_bench.sh` on the same idle machine for deployment decisions.
+The pool benchmark maintains a queue and measures throughput under concurrency; the synchronous path
+measures one request at a time. These are reference measurements, not portable deadline guarantees.
+See the [full methodology, latency percentiles, environment, and reproduction commands](docs/performance.md).
+Use `scripts/bench.sh`, `scripts/relay_bench.sh`, and `scripts/ab_bench.sh` on the actual deployment
+host before making a performance claim or configuring deadline admission.
