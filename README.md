@@ -91,8 +91,8 @@ Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its all
 single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
 `--threads` setting; workers share one immutable checkpoint store. Begin with
 `--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
-`scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, and replay;
-`scripts/verify_all.sh` runs the complete local release gate.
+`scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
+Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>

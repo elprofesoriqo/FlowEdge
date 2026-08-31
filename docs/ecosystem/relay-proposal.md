@@ -53,9 +53,10 @@ The current MVP provides:
 - `RelayClient`, a typed SPSC producer/action-consumer endpoint for external C++ services;
 - `flowedge-relayctl`, which submits a deterministic smoke request or asks a daemon to shut down;
 - `flowedge-relay-trace`, which inspects traces as text/JSONL or replays actions against a model;
-- a Windows/POSIX integration test that crosses a real process and shared-memory boundary.
+- a Windows/POSIX integration test that crosses a real process and shared-memory boundary;
+- fixed-memory counters and latency histograms with Prometheus, JSON, and OTLP/HTTP JSON exporters.
 
-Action overlap policies, state-capsule migration, long-term metrics export, and runtime adapters
+Action overlap policies, state-capsule migration, and additional runtime adapters
 for training/serving runtimes remain later milestones. They should be justified by real traces rather
 than expanding the hot-path dependency footprint speculatively.
 

@@ -102,6 +102,7 @@ guides/add-a-backbone
 guides/converter
 guides/verification
 guides/benchmarking
+guides/observability
 ```
 
 ```{toctree}

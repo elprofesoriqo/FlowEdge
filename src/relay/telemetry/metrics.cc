@@ -1,0 +1,287 @@
+#include "relay/telemetry/metrics.h"
+
+#include <algorithm>
+#include <bit>
+#include <fstream>
+#include <limits>
+#include <ostream>
+#include <string>
+#include <utility>
+
+namespace fe::relay {
+namespace {
+
+[[nodiscard]] constexpr std::uint64_t elapsed(std::uint64_t start, std::uint64_t end) noexcept
+{
+  return end >= start ? end - start : 0u;
+}
+
+[[nodiscard]] constexpr std::uint64_t saturating_add(std::uint64_t left,
+                                                     std::uint64_t right) noexcept
+{
+  return left > std::numeric_limits<std::uint64_t>::max() - right
+             ? std::numeric_limits<std::uint64_t>::max()
+             : left + right;
+}
+
+void write_counter(std::ostream& output, std::string_view prefix, std::string_view name,
+                   std::uint64_t value)
+{
+  output << prefix << '_' << name << ' ' << value << '\n';
+}
+
+void write_histogram(std::ostream& output, std::string_view prefix, std::string_view name,
+                     const LatencyHistogram& histogram)
+{
+  std::uint64_t cumulative{};
+  for (std::size_t index{}; index < histogram.buckets().size(); ++index) {
+    cumulative = saturating_add(cumulative, histogram.buckets()[index]);
+    output << prefix << '_' << name << "_bucket{le=\"";
+    if (index < 64uz)
+      output << (std::uint64_t{1u} << index);
+    else
+      output << "+Inf";
+    output << "\"} " << cumulative << '\n';
+  }
+  output << prefix << '_' << name << "_count " << histogram.count() << '\n';
+  output << prefix << '_' << name << "_sum " << histogram.sum_ns() << '\n';
+  output << prefix << '_' << name << "_min " << histogram.min_ns() << '\n';
+  output << prefix << '_' << name << "_max " << histogram.max_ns() << '\n';
+}
+
+void write_otlp_sum(std::ostream& output, std::string_view name, std::uint64_t value, bool& first)
+{
+  output << (first ? "" : ",") << "{\"name\":\"flowedge.relay." << name
+         << "\",\"unit\":\"1\",\"sum\":{\"aggregationTemporality\":"
+            "\"AGGREGATION_TEMPORALITY_CUMULATIVE\",\"isMonotonic\":true,"
+            "\"dataPoints\":[{\"asInt\":\""
+         << value << "\"}]}}";
+  first = false;
+}
+
+void write_otlp_histogram(std::ostream& output, std::string_view name,
+                          const LatencyHistogram& histogram, bool& first)
+{
+  output << (first ? "" : ",") << "{\"name\":\"flowedge.relay." << name
+         << "\",\"unit\":\"ns\",\"histogram\":{\"aggregationTemporality\":"
+            "\"AGGREGATION_TEMPORALITY_CUMULATIVE\",\"dataPoints\":[{\"count\":\""
+         << histogram.count() << "\",\"sum\":" << histogram.sum_ns()
+         << ",\"min\":" << histogram.min_ns() << ",\"max\":" << histogram.max_ns()
+         << ",\"bucketCounts\":[";
+  for (std::size_t index{}; index < histogram.buckets().size(); ++index)
+    output << (index == 0uz ? "\"" : ",\"") << histogram.buckets()[index] << '\"';
+  output << "],\"explicitBounds\":[";
+  for (std::size_t index{}; index < 64uz; ++index)
+    output << (index == 0uz ? "" : ",") << (std::uint64_t{1u} << index);
+  output << "]}]}}";
+  first = false;
+}
+
+} // namespace
+
+void LatencyHistogram::observe(std::uint64_t nanoseconds) noexcept
+{
+  const std::size_t bucket =
+      nanoseconds <= 1u ? 0uz : static_cast<std::size_t>(std::bit_width(nanoseconds - 1u));
+  ++buckets_[std::min(bucket, buckets_.size() - 1uz)];
+  sum_ns_ = saturating_add(sum_ns_, nanoseconds);
+  min_ns_ = count_ == 0u ? nanoseconds : std::min(min_ns_, nanoseconds);
+  max_ns_ = std::max(max_ns_, nanoseconds);
+  ++count_;
+}
+
+void RelayMetrics::record_condition(bool valid) noexcept
+{
+  ++counters_.conditions_received;
+  if (!valid)
+    ++counters_.conditions_corrupt;
+}
+
+void RelayMetrics::record_accepted(std::size_t queue_depth) noexcept
+{
+  ++counters_.conditions_accepted;
+  counters_.queue_high_watermark =
+      std::max(counters_.queue_high_watermark, static_cast<std::uint64_t>(queue_depth));
+}
+
+void RelayMetrics::record_action(const ActionMessage& action, std::uint64_t published_ns,
+                                 WorkerTiming timing) noexcept
+{
+  ++counters_.actions_published;
+  switch (action_code(action)) {
+  case RelayActionCode::kRejectedStale:
+    ++counters_.rejected_stale;
+    break;
+  case RelayActionCode::kRejectedDeadline:
+    ++counters_.rejected_deadline;
+    break;
+  case RelayActionCode::kRejectedCapacity:
+    ++counters_.rejected_capacity;
+    break;
+  case RelayActionCode::kExpired:
+    ++counters_.expired;
+    break;
+  case RelayActionCode::kInference:
+    if (action.metadata.status == FE_ACTION_COMPLETE)
+      ++counters_.inference_complete;
+    else if (action.metadata.status == FE_ACTION_CANCELLED)
+      ++counters_.inference_cancelled;
+    else if (action.metadata.status == FE_ACTION_FAILED)
+      ++counters_.inference_failed;
+    break;
+  }
+  if (action.metadata.timestamp_ns != 0u)
+    end_to_end_latency_.observe(elapsed(action.metadata.timestamp_ns, published_ns));
+  if (timing.started_ns != 0u) {
+    queue_latency_.observe(elapsed(action.metadata.timestamp_ns, timing.started_ns));
+    execution_latency_.observe(elapsed(timing.started_ns, timing.finished_ns));
+  }
+}
+
+void RelayMetrics::observe_workers(std::size_t busy, std::uint64_t failures) noexcept
+{
+  counters_.busy_workers_high_watermark =
+      std::max(counters_.busy_workers_high_watermark, static_cast<std::uint64_t>(busy));
+  counters_.worker_failures = failures;
+}
+
+void write_prometheus(std::ostream& output, const RelayMetrics& metrics, std::string_view prefix)
+{
+  const RelayMetricCounters& counters = metrics.counters();
+  write_counter(output, prefix, "conditions_received_total", counters.conditions_received);
+  write_counter(output, prefix, "conditions_corrupt_total", counters.conditions_corrupt);
+  write_counter(output, prefix, "conditions_accepted_total", counters.conditions_accepted);
+  write_counter(output, prefix, "actions_published_total", counters.actions_published);
+  write_counter(output, prefix, "actions_dropped_total", counters.actions_dropped);
+  write_counter(output, prefix, "inference_complete_total", counters.inference_complete);
+  write_counter(output, prefix, "inference_cancelled_total", counters.inference_cancelled);
+  write_counter(output, prefix, "inference_failed_total", counters.inference_failed);
+  write_counter(output, prefix, "rejected_stale_total", counters.rejected_stale);
+  write_counter(output, prefix, "rejected_deadline_total", counters.rejected_deadline);
+  write_counter(output, prefix, "rejected_capacity_total", counters.rejected_capacity);
+  write_counter(output, prefix, "expired_total", counters.expired);
+  write_counter(output, prefix, "queue_high_watermark", counters.queue_high_watermark);
+  write_counter(output, prefix, "busy_workers_high_watermark",
+                counters.busy_workers_high_watermark);
+  write_counter(output, prefix, "worker_failures_total", counters.worker_failures);
+  write_histogram(output, prefix, "queue_latency_ns", metrics.queue_latency());
+  write_histogram(output, prefix, "execution_latency_ns", metrics.execution_latency());
+  write_histogram(output, prefix, "end_to_end_latency_ns", metrics.end_to_end_latency());
+}
+
+void write_metrics_json(std::ostream& output, const RelayMetrics& metrics)
+{
+  const RelayMetricCounters& c = metrics.counters();
+  output << "{\"conditions_received\":" << c.conditions_received
+         << ",\"conditions_corrupt\":" << c.conditions_corrupt
+         << ",\"conditions_accepted\":" << c.conditions_accepted
+         << ",\"actions_published\":" << c.actions_published
+         << ",\"actions_dropped\":" << c.actions_dropped
+         << ",\"inference_complete\":" << c.inference_complete
+         << ",\"inference_cancelled\":" << c.inference_cancelled
+         << ",\"inference_failed\":" << c.inference_failed
+         << ",\"rejected_stale\":" << c.rejected_stale
+         << ",\"rejected_deadline\":" << c.rejected_deadline
+         << ",\"rejected_capacity\":" << c.rejected_capacity << ",\"expired\":" << c.expired
+         << ",\"queue_high_watermark\":" << c.queue_high_watermark
+         << ",\"busy_workers_high_watermark\":" << c.busy_workers_high_watermark
+         << ",\"worker_failures\":" << c.worker_failures << ",\"latency_ns\":{"
+         << "\"queue\":{\"count\":" << metrics.queue_latency().count()
+         << ",\"min\":" << metrics.queue_latency().min_ns()
+         << ",\"max\":" << metrics.queue_latency().max_ns()
+         << ",\"sum\":" << metrics.queue_latency().sum_ns() << "},"
+         << "\"execution\":{\"count\":" << metrics.execution_latency().count()
+         << ",\"min\":" << metrics.execution_latency().min_ns()
+         << ",\"max\":" << metrics.execution_latency().max_ns()
+         << ",\"sum\":" << metrics.execution_latency().sum_ns() << "},"
+         << "\"end_to_end\":{\"count\":" << metrics.end_to_end_latency().count()
+         << ",\"min\":" << metrics.end_to_end_latency().min_ns()
+         << ",\"max\":" << metrics.end_to_end_latency().max_ns()
+         << ",\"sum\":" << metrics.end_to_end_latency().sum_ns() << "}}}\n";
+}
+
+void write_otlp_json(std::ostream& output, const RelayMetrics& metrics,
+                     std::string_view service_name)
+{
+  const RelayMetricCounters& c = metrics.counters();
+  output << "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":"
+            "\"service.name\",\"value\":{\"stringValue\":\""
+         << service_name
+         << "\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"flowedge.relay\"},"
+            "\"metrics\":[";
+  bool first{true};
+  const std::array counters{
+      std::pair{"conditions_received_total", c.conditions_received},
+      std::pair{"conditions_corrupt_total", c.conditions_corrupt},
+      std::pair{"conditions_accepted_total", c.conditions_accepted},
+      std::pair{"actions_published_total", c.actions_published},
+      std::pair{"actions_dropped_total", c.actions_dropped},
+      std::pair{"inference_complete_total", c.inference_complete},
+      std::pair{"inference_cancelled_total", c.inference_cancelled},
+      std::pair{"inference_failed_total", c.inference_failed},
+      std::pair{"rejected_stale_total", c.rejected_stale},
+      std::pair{"rejected_deadline_total", c.rejected_deadline},
+      std::pair{"rejected_capacity_total", c.rejected_capacity},
+      std::pair{"expired_total", c.expired},
+      std::pair{"queue_high_watermark", c.queue_high_watermark},
+      std::pair{"busy_workers_high_watermark", c.busy_workers_high_watermark},
+      std::pair{"worker_failures_total", c.worker_failures},
+  };
+  for (const auto& [name, value] : counters)
+    write_otlp_sum(output, name, value, first);
+  write_otlp_histogram(output, "queue_latency", metrics.queue_latency(), first);
+  write_otlp_histogram(output, "execution_latency", metrics.execution_latency(), first);
+  write_otlp_histogram(output, "end_to_end_latency", metrics.end_to_end_latency(), first);
+  output << "]}]}]}\n";
+}
+
+std::expected<void, std::string> export_prometheus(std::string_view path,
+                                                   const RelayMetrics& metrics) noexcept
+{
+  try {
+    std::ofstream output{std::string{path}, std::ios::trunc};
+    if (!output)
+      return std::unexpected("failed to open Prometheus metrics file");
+    write_prometheus(output, metrics);
+    if (!output)
+      return std::unexpected("failed to write Prometheus metrics file");
+    return {};
+  } catch (...) {
+    return std::unexpected("exception exporting Prometheus metrics");
+  }
+}
+
+std::expected<void, std::string> export_metrics_json(std::string_view path,
+                                                     const RelayMetrics& metrics) noexcept
+{
+  try {
+    std::ofstream output{std::string{path}, std::ios::trunc};
+    if (!output)
+      return std::unexpected("failed to open JSON metrics file");
+    write_metrics_json(output, metrics);
+    if (!output)
+      return std::unexpected("failed to write JSON metrics file");
+    return {};
+  } catch (...) {
+    return std::unexpected("exception exporting JSON metrics");
+  }
+}
+
+std::expected<void, std::string> export_otlp_json(std::string_view path,
+                                                  const RelayMetrics& metrics,
+                                                  std::string_view service_name) noexcept
+{
+  try {
+    std::ofstream output{std::string{path}, std::ios::trunc};
+    if (!output)
+      return std::unexpected("failed to open OTLP JSON metrics file");
+    write_otlp_json(output, metrics, service_name);
+    if (!output)
+      return std::unexpected("failed to write OTLP JSON metrics file");
+    return {};
+  } catch (...) {
+    return std::unexpected("exception exporting OTLP JSON metrics");
+  }
+}
+
+} // namespace fe::relay

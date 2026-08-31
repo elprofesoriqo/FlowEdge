@@ -1,6 +1,7 @@
 #include "relay/protocol/trace.h"
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/shared_memory/shared_memory_ring.h"
+#include "relay/telemetry/metrics.h"
 #include "relay/worker/head_worker_pool.h"
 
 #include <atomic>
@@ -45,10 +46,14 @@ struct Options
   std::string condition_shm{"flowedge-relay-conditions"};
   std::string action_shm{"flowedge-relay-actions"};
   std::string trace{};
+  std::string metrics_prometheus{};
+  std::string metrics_json{};
+  std::string metrics_otlp_json{};
   std::uint32_t capacity{32u};
   std::size_t workers{1uz};
   std::uint64_t nanoseconds_per_nfe{};
   std::uint64_t admission_reserve_ns{};
+  std::uint64_t metrics_interval_ms{};
   std::optional<unsigned> threads{};
   WorkerPlacement placement{WorkerPlacement::kNone};
   bool create{false};
@@ -90,6 +95,10 @@ void usage(std::ostream& output)
             "  --nfe-ns N            measured upper-bound nanoseconds per function evaluation\n"
             "  --admission-reserve-ns N  fixed deadline safety reserve\n"
             "  --trace FILE          record accepted conditions and emitted actions\n"
+            "  --metrics-prometheus FILE  export Prometheus text metrics\n"
+            "  --metrics-json FILE   export a dependency-free JSON snapshot\n"
+            "  --metrics-otlp-json FILE  export an OTLP/HTTP JSON request body\n"
+            "  --metrics-interval-ms N  periodic export interval; 0 means shutdown only\n"
             "  --create              create both rings instead of opening them\n";
 }
 
@@ -122,6 +131,12 @@ void usage(std::ostream& output)
       options.action_shm = *value;
     else if (argument == "--trace")
       options.trace = *value;
+    else if (argument == "--metrics-prometheus")
+      options.metrics_prometheus = *value;
+    else if (argument == "--metrics-json")
+      options.metrics_json = *value;
+    else if (argument == "--metrics-otlp-json")
+      options.metrics_otlp_json = *value;
     else if (argument == "--placement") {
       const auto placement = fe::relay::parse_worker_placement(*value);
       if (!placement)
@@ -133,6 +148,10 @@ void usage(std::ostream& output)
     } else if (argument == "--admission-reserve-ns") {
       if (!parse_integer(*value, options.admission_reserve_ns))
         return std::unexpected("Invalid --admission-reserve-ns value");
+    } else if (argument == "--metrics-interval-ms") {
+      if (!parse_integer(*value, options.metrics_interval_ms) ||
+          options.metrics_interval_ms > 86'400'000u)
+        return std::unexpected("Invalid --metrics-interval-ms value; maximum is one day");
     } else if (argument == "--capacity") {
       if (!parse_integer(*value, options.capacity))
         return std::unexpected("Invalid --capacity value");
@@ -242,6 +261,27 @@ try {
     trace.emplace(std::move(*trace_result));
   }
 
+  fe::relay::RelayMetrics metrics{};
+  const auto export_metrics = [&]() {
+    if (!options.metrics_prometheus.empty()) {
+      const auto exported = fe::relay::export_prometheus(options.metrics_prometheus, metrics);
+      if (!exported)
+        std::cerr << "flowedge-relayd: " << exported.error() << '\n';
+    }
+    if (!options.metrics_json.empty()) {
+      const auto exported = fe::relay::export_metrics_json(options.metrics_json, metrics);
+      if (!exported)
+        std::cerr << "flowedge-relayd: " << exported.error() << '\n';
+    }
+    if (!options.metrics_otlp_json.empty()) {
+      const auto exported = fe::relay::export_otlp_json(options.metrics_otlp_json, metrics);
+      if (!exported)
+        std::cerr << "flowedge-relayd: " << exported.error() << '\n';
+    }
+  };
+  auto next_metrics_export =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds{options.metrics_interval_ms};
+
   std::signal(SIGINT, request_stop);
   std::signal(SIGTERM, request_stop);
 
@@ -252,10 +292,12 @@ try {
     const RingResult pushed = actions.try_push(wire_bytes(outcome));
     if (pushed != RingResult::kSuccess) {
       ++rejection_outputs_dropped;
+      metrics.record_action_drop();
       if (pushed != RingResult::kFull)
         std::cerr << "flowedge-relayd: rejection exceeds output ring slot\n";
       return;
     }
+    metrics.record_action(outcome, monotonic_ns());
     if (trace) {
       const auto written = trace->append(outcome);
       if (!written)
@@ -273,28 +315,37 @@ try {
       if (result == RingResult::kEmpty)
         break;
       if (result != RingResult::kSuccess) {
+        metrics.record_condition(false);
         std::cerr << "flowedge-relayd: discarded corrupt condition-ring entry\n";
         progressed = true;
         continue;
       }
       progressed = true;
-      if (bytes_read < sizeof(MessageEnvelope))
+      if (bytes_read < sizeof(MessageEnvelope)) {
+        metrics.record_condition(false);
         continue;
+      }
       const MessageEnvelope envelope = incoming->envelope;
       if (envelope.kind == MessageKind::kShutdown && bytes_read == sizeof(ControlMessage) &&
           fe::relay::valid_envelope(envelope, MessageKind::kShutdown, sizeof(ControlMessage))) {
         stop_requested.store(true, std::memory_order_relaxed);
         break;
       }
-      if (bytes_read != wire_size(*incoming))
+      if (bytes_read != wire_size(*incoming)) {
+        metrics.record_condition(false);
         continue;
-      if (!fe::relay::compatible(*incoming, pool.model_metadata()))
+      }
+      if (!fe::relay::compatible(*incoming, pool.model_metadata())) {
+        metrics.record_condition(false);
         continue;
+      }
+      metrics.record_condition(true);
       const std::uint64_t submitted_at = monotonic_ns();
       rejection = {};
       const SubmitResult submitted =
           scheduler.submit(*incoming, pool.admission_context(submitted_at), &rejection);
       if (accepted(submitted)) {
+        metrics.record_accepted(scheduler.size());
         pool.cancel_before(scheduler.newest_generation());
         if (trace) {
           const auto written = trace->append(*incoming);
@@ -321,6 +372,7 @@ try {
         break;
       const RingResult pushed = actions.try_push(wire_bytes(*action));
       if (pushed == RingResult::kSuccess) {
+        metrics.record_action(*action, monotonic_ns(), pool.ready_timing());
         if (trace) {
           const auto written = trace->append(*action);
           if (!written)
@@ -353,12 +405,22 @@ try {
       }
     }
 
+    metrics.observe_workers(pool.busy_count(), pool.failure_count());
+    if (options.metrics_interval_ms != 0u &&
+        std::chrono::steady_clock::now() >= next_metrics_export) {
+      export_metrics();
+      next_metrics_export =
+          std::chrono::steady_clock::now() + std::chrono::milliseconds{options.metrics_interval_ms};
+    }
+
     if (!progressed)
       std::this_thread::yield();
   }
 
   if (trace)
     trace->flush();
+  metrics.observe_workers(pool.busy_count(), pool.failure_count());
+  export_metrics();
   const auto& stats = scheduler.stats();
   std::cout << "flowedge-relayd stopped: accepted=" << stats.accepted << " stale=" << stats.stale
             << " unreachable=" << stats.unreachable << " expired=" << stats.expired

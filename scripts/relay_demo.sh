@@ -6,6 +6,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${1:-$ROOT/models/mamba_flow.safetensors}"
 BUILD_DIR="${FLOWEDGE_BUILD_DIR:-$ROOT/build-relay}"
 TRACE="${FLOWEDGE_RELAY_DEMO_TRACE:-$BUILD_DIR/relay-demo.trace}"
+PROMETHEUS_METRICS="$BUILD_DIR/relay-demo.prom"
+JSON_METRICS="$BUILD_DIR/relay-demo-metrics.json"
+OTLP_METRICS="$BUILD_DIR/relay-demo-otlp.json"
 CONDITION_SHM="flowedge-relay-demo-conditions-$$"
 ACTION_SHM="flowedge-relay-demo-actions-$$"
 
@@ -41,12 +44,14 @@ if ! DAEMON="$(resolve_executable flowedge-relayd)" ||
   TRACE_TOOL="$(resolve_executable flowedge-relay-trace)"
 fi
 mkdir -p "$BUILD_DIR"
-rm -f "$TRACE"
+rm -f "$TRACE" "$PROMETHEUS_METRICS" "$JSON_METRICS" "$OTLP_METRICS"
 
 "$DAEMON" --model "$MODEL" --create --condition-shm "$CONDITION_SHM" \
   --action-shm "$ACTION_SHM" --workers "${FLOWEDGE_RELAY_DEMO_WORKERS:-2}" --threads 0 \
   --placement "${FLOWEDGE_RELAY_DEMO_PLACEMENT:-spread}" \
   --nfe-ns "${FLOWEDGE_RELAY_DEMO_NFE_NS:-1000000}" --trace "$TRACE" \
+  --metrics-prometheus "$PROMETHEUS_METRICS" --metrics-json "$JSON_METRICS" \
+  --metrics-otlp-json "$OTLP_METRICS" \
   >"$BUILD_DIR/relay-demo-daemon.log" 2>&1 &
 DAEMON_PID=$!
 
@@ -94,3 +99,7 @@ trap - EXIT
 cat "$BUILD_DIR/relay-demo-daemon.log"
 "$TRACE_TOOL" inspect "$TRACE"
 "$TRACE_TOOL" replay "$TRACE" --model "$MODEL" --tolerance 1e-5
+grep -q '^flowedge_relay_inference_complete_total 1$' "$PROMETHEUS_METRICS"
+grep -q '"inference_complete":1' "$JSON_METRICS"
+grep -q '"resourceMetrics"' "$OTLP_METRICS"
+echo "metrics_prometheus=$PROMETHEUS_METRICS metrics_json=$JSON_METRICS metrics_otlp=$OTLP_METRICS"

@@ -2,6 +2,7 @@
 #include "relay/protocol/trace.h"
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/shared_memory/shared_memory_ring.h"
+#include "relay/telemetry/metrics.h"
 #include "relay/worker/head_worker.h"
 #include "relay/worker/head_worker_pool.h"
 
@@ -16,6 +17,7 @@
 #include <limits>
 #include <memory>
 #include <span>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -301,6 +303,57 @@ TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
   EXPECT_FALSE(*eof);
   std::error_code ignored{};
   std::filesystem::remove(path, ignored);
+}
+
+TEST(RelayMetrics, RecordsTypedOutcomesAndFixedLatencyHistograms)
+{
+  RelayMetrics metrics{};
+  metrics.record_condition(true);
+  metrics.record_condition(false);
+  metrics.record_accepted(3uz);
+
+  ActionMessage complete{};
+  complete.envelope.flags = static_cast<std::uint32_t>(RelayActionCode::kInference);
+  complete.metadata.status = FE_ACTION_COMPLETE;
+  complete.metadata.timestamp_ns = 100u;
+  metrics.record_action(complete, 170u,
+                        WorkerTiming{.dispatched_ns = 110u,
+                                     .started_ns = 120u,
+                                     .finished_ns = 150u});
+  const ConditionMessage condition = request(90u, 11u, 300u);
+  ActionMessage rejected{};
+  make_rejected_action(rejected, condition, 200u, RelayActionCode::kRejectedDeadline);
+  metrics.record_action(rejected, 200u);
+  metrics.record_action_drop();
+  metrics.observe_workers(2uz, 1u);
+
+  const RelayMetricCounters& counters = metrics.counters();
+  EXPECT_EQ(counters.conditions_received, 2u);
+  EXPECT_EQ(counters.conditions_corrupt, 1u);
+  EXPECT_EQ(counters.conditions_accepted, 1u);
+  EXPECT_EQ(counters.actions_published, 2u);
+  EXPECT_EQ(counters.actions_dropped, 1u);
+  EXPECT_EQ(counters.inference_complete, 1u);
+  EXPECT_EQ(counters.rejected_deadline, 1u);
+  EXPECT_EQ(counters.queue_high_watermark, 3u);
+  EXPECT_EQ(counters.busy_workers_high_watermark, 2u);
+  EXPECT_EQ(counters.worker_failures, 1u);
+  EXPECT_EQ(metrics.queue_latency().count(), 1u);
+  EXPECT_EQ(metrics.queue_latency().sum_ns(), 20u);
+  EXPECT_EQ(metrics.execution_latency().sum_ns(), 30u);
+  EXPECT_EQ(metrics.end_to_end_latency().count(), 2u);
+
+  std::ostringstream prometheus{};
+  write_prometheus(prometheus, metrics);
+  EXPECT_NE(prometheus.str().find("flowedge_relay_inference_complete_total 1"), std::string::npos);
+  EXPECT_NE(prometheus.str().find("flowedge_relay_execution_latency_ns_bucket"), std::string::npos);
+  std::ostringstream json{};
+  write_metrics_json(json, metrics);
+  EXPECT_NE(json.str().find("\"rejected_deadline\":1"), std::string::npos);
+  std::ostringstream otlp{};
+  write_otlp_json(otlp, metrics);
+  EXPECT_NE(otlp.str().find("\"resourceMetrics\""), std::string::npos);
+  EXPECT_NE(otlp.str().find("flowedge.relay.execution_latency"), std::string::npos);
 }
 
 TEST(HeadWorker, RunsAndCancelsGenerationTrackedRequests)

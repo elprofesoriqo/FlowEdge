@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstring>
 #include <limits>
 #include <ranges>
@@ -18,6 +19,13 @@ enum class SlotState : std::uint8_t
   kRunning,
   kReady,
 };
+
+[[nodiscard]] std::uint64_t monotonic_ns() noexcept
+{
+  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch())
+                                        .count());
+}
 
 [[nodiscard]] bool same_model(const fe_model_metadata& left,
                               const fe_model_metadata& right) noexcept
@@ -61,6 +69,9 @@ struct HeadWorkerPool::Slot
   std::atomic<std::uint64_t> generation{};
   std::atomic<std::uint64_t> remaining_nfe{};
   std::atomic<std::uint64_t> cancel_generation{};
+  std::atomic<std::uint64_t> dispatched_ns{};
+  std::atomic<std::uint64_t> started_ns{};
+  std::atomic<std::uint64_t> finished_ns{};
   std::atomic<std::uint32_t> numa_node{};
   std::atomic<std::uint32_t> logical_cpu{};
   std::atomic_bool bound{false};
@@ -83,6 +94,7 @@ void HeadWorkerPool::run_slot(Slot& slot) noexcept
 
     slot.result = {};
     slot.execution_failed = false;
+    slot.started_ns.store(monotonic_ns(), std::memory_order_relaxed);
     if (!slot.worker.begin(slot.request)) {
       slot.execution_failed = true;
       slot.remaining_nfe.store(0u, std::memory_order_release);
@@ -105,6 +117,7 @@ void HeadWorkerPool::run_slot(Slot& slot) noexcept
 
     if (slot.stop_requested.load(std::memory_order_acquire))
       break;
+    slot.finished_ns.store(monotonic_ns(), std::memory_order_relaxed);
     slot.state.store(SlotState::kReady, std::memory_order_release);
     slot.state.notify_one();
   }
@@ -215,6 +228,9 @@ bool HeadWorkerPool::try_dispatch(const ConditionMessage& request) noexcept
     std::memcpy(&slot.request, &request, wire_size(request));
     slot.generation.store(request.metadata.generation, std::memory_order_relaxed);
     slot.remaining_nfe.store(request.metadata.remaining_nfe, std::memory_order_relaxed);
+    slot.dispatched_ns.store(monotonic_ns(), std::memory_order_relaxed);
+    slot.started_ns.store(0u, std::memory_order_relaxed);
+    slot.finished_ns.store(0u, std::memory_order_relaxed);
     slot.state.store(SlotState::kRequested, std::memory_order_release);
     slot.state.notify_one();
     dispatch_cursor_ = (index + 1uz) % slots_.size();
@@ -272,6 +288,18 @@ const ActionMessage* HeadWorkerPool::ready_action() noexcept
     return &slot.result;
   }
   return nullptr;
+}
+
+WorkerTiming HeadWorkerPool::ready_timing() const noexcept
+{
+  if (!ready_index_)
+    return {};
+  const Slot& slot = *slots_[*ready_index_];
+  if (slot.state.load(std::memory_order_acquire) != SlotState::kReady)
+    return {};
+  return WorkerTiming{.dispatched_ns = slot.dispatched_ns.load(std::memory_order_relaxed),
+                      .started_ns = slot.started_ns.load(std::memory_order_relaxed),
+                      .finished_ns = slot.finished_ns.load(std::memory_order_relaxed)};
 }
 
 void HeadWorkerPool::release_ready_action() noexcept

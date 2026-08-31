@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relay/scheduler/edf_scheduler.h"
+#include "relay/telemetry/metrics.h"
 #include "relay/worker/head_worker.h"
 #include "relay/worker/worker_topology.h"
 
@@ -47,6 +48,7 @@ public:
 
   // The returned view remains valid until release_ready_action().
   [[nodiscard]] const ActionMessage* ready_action() noexcept;
+  [[nodiscard]] WorkerTiming ready_timing() const noexcept;
   void release_ready_action() noexcept;
 
 private:
