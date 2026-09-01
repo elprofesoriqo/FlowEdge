@@ -39,7 +39,8 @@ pip install .
 ```python
 import numpy as np, flowedge
 e = flowedge.Engine("models/mamba_flow.safetensors")
-a = e.sample(prefix=[1, 2, 3, 4],
+prefix = np.array([1, 2, 3, 4], dtype=np.int32)
+a = e.sample(prefix=prefix,
              noise=np.random.randn(e.action_dim).astype("float32"),
              steps=10, method="euler")
 ```

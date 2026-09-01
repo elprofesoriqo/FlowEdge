@@ -82,6 +82,8 @@ architecture/loader
 architecture/kernels
 architecture/backbones
 architecture/heads
+architecture/cooperative-execution
+architecture/model-porting
 decisions/index
 ```
 
@@ -107,4 +109,5 @@ guides/benchmarking
 :caption: Reference
 roadmap
 product-direction
+ecosystem/relay-proposal
 ```

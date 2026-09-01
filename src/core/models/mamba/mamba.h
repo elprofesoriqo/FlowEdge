@@ -51,7 +51,7 @@ private:
     WeightView x_proj;
     WeightView dt_w;
     const float* dt_b;
-    const float* a_log;
+    const float* a_neg;
     const float* d;
     WeightView out_proj;
   };

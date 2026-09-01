@@ -20,11 +20,11 @@ The conditioning vector is the last row of `forward`, size `d_model`.
 
 ## Steps
 
-1. Create `src/models/<name>/`. Derive config from checkpoint shapes. Store raw weight pointers.
+1. Create `src/core/models/<name>/`. Derive config from checkpoint shapes. Store raw weight pointers.
 2. Implement `forward` for the prefix. Carve per-layer scratch from the arena and rewind per layer.
 3. Implement `decode` for one token. Keep all state fixed-size and in the caller `state` span. It must equal `forward` step by step.
 4. Add kernels behind `kernels.h`. Do not grow state with sequence length. A transformer sizes its KV-cache to the max prefix.
 5. Add a converter mapping. Select the backbone at load from the tensor names.
 6. Verify against PyTorch. Check `decode` matches `forward`. Add tests and an ADR.
 
-Reference: `src/models/mamba/`.
+Reference: `src/core/models/mamba/`.

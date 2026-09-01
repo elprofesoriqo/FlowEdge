@@ -79,6 +79,13 @@ unsigned fe_engine_thread_count(const fe_engine* engine);
 size_t fe_engine_action_dim(const fe_engine* engine);
 
 /**
+ * @brief Get the condition-vector dimension accepted by the flow head.
+ * @param engine The engine instance.
+ * @return The condition dimension, or 0 if the checkpoint lacks a flow head.
+ */
+size_t fe_engine_condition_dim(const fe_engine* engine);
+
+/**
  * @brief Sample an action trajectory from the flow-matching head.
  *
  * This function processes the input tokens to generate a conditioning context,
@@ -95,6 +102,69 @@ size_t fe_engine_action_dim(const fe_engine* engine);
  */
 int fe_engine_sample(fe_engine* engine, const int32_t* tokens, size_t seq_len, const float* noise,
                      size_t steps, int method, float* action);
+
+/**
+ * @brief Sample directly from an externally produced condition vector.
+ *
+ * This bypasses the built-in backbone and lets a vision encoder, VLA, or other
+ * runtime reuse FlowEdge's deterministic action head without copying through a
+ * token representation.
+ *
+ * @param engine The engine instance.
+ * @param condition Input array of size [condition_dim].
+ * @param noise Initial Gaussian noise array of size [action_dim].
+ * @param steps Number of ODE solver steps.
+ * @param method One of FE_SOLVER_EULER, FE_SOLVER_HEUN, or FE_SOLVER_RK4.
+ * @param action Output buffer of size [action_dim].
+ * @return 0 on success, non-zero on error.
+ */
+int fe_engine_sample_condition(fe_engine* engine, const float* condition, const float* noise,
+                               size_t steps, int method, float* action);
+
+/**
+ * @brief Begin an allocation-free, resumable flow solve from an external condition.
+ *
+ * Only one resumable solve may be active per engine. Starting another replaces
+ * the previous solve. Use fe_engine_flow_advance() to run bounded work units.
+ *
+ * @return 0 on success, non-zero on error.
+ */
+int fe_engine_flow_begin(fe_engine* engine, const float* condition, const float* noise,
+                         size_t steps, int method);
+
+/**
+ * @brief Advance a resumable solve by at most `step_budget` complete ODE steps.
+ *
+ * The current solver state is copied to `action`; publish it as a final action
+ * when `steps_remaining` reaches zero.
+ *
+ * @param engine The engine instance.
+ * @param step_budget Maximum number of ODE steps to execute in this call.
+ * @param action Output buffer of size [action_dim].
+ * @param steps_remaining Optional output for the number of unfinished steps.
+ * @return 0 on success, non-zero on error.
+ */
+int fe_engine_flow_advance(fe_engine* engine, size_t step_budget, float* action,
+                           size_t* steps_remaining);
+
+/**
+ * @brief Return the byte size of the model's streaming decode state.
+ *
+ * A snapshot is valid only for another engine loaded from the same checkpoint.
+ */
+size_t fe_engine_decode_state_bytes(const fe_engine* engine);
+
+/**
+ * @brief Copy the streaming decode state into caller-owned storage.
+ * @param destination Buffer with at least fe_engine_decode_state_bytes() bytes.
+ */
+int fe_engine_export_decode_state(const fe_engine* engine, void* destination, size_t bytes);
+
+/**
+ * @brief Restore a streaming state previously exported from the same model.
+ * @param source Snapshot buffer of exactly fe_engine_decode_state_bytes() bytes.
+ */
+int fe_engine_import_decode_state(fe_engine* engine, const void* source, size_t bytes);
 
 /**
  * @brief Free the engine resources.

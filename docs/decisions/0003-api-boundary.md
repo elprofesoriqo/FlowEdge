@@ -1,6 +1,6 @@
 # ADR 0003: Public API boundary
 
-Status: Accepted. Scope: `src/api/`.
+Status: Accepted. Scope: `src/core/api/`.
 
 ## Context
 
@@ -8,7 +8,7 @@ The engine ships as a library consumed over FFI from C, Rust, Go, or a ROS2 node
 
 ## Decision
 
-- `src/api/` is a C-ABI over an opaque handle `fe_engine`. Internals live behind the handle.
+- `src/core/api/` is a C-ABI over an opaque handle `fe_engine`. Internals live behind the handle.
 - Everything runtime-relevant is a parameter. The model path and input come from the caller.
 - The handle owns the whole runtime: slab, arena, tensor table, model, head. The slab is sized from the file.
 - Exceptions never cross into C. `fe_engine_load` catches OOM and returns `nullptr`. Run and sample are non-throwing and rewind arena scratch per call.

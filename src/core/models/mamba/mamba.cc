@@ -119,7 +119,7 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
     lw.x_proj = layer_weight(weights, n, "mixer.x_proj.weight", lok);
     lw.dt_w = layer_weight(weights, n, "mixer.dt_proj.weight", lok);
     lw.dt_b = layer_weight_f32(weights, n, "mixer.dt_proj.bias", lok);
-    lw.a_log = layer_weight_f32(weights, n, "mixer.A_log", lok);
+    const float* const a_log = layer_weight_f32(weights, n, "mixer.A_log", lok);
     lw.d = layer_weight_f32(weights, n, "mixer.D", lok);
     lw.out_proj = layer_weight(weights, n, "mixer.out_proj.weight", lok);
     if (!lok || !is_vector_f32(layer_tensor(weights, n, "norm.weight"), cfg_.d_model) ||
@@ -138,6 +138,16 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
         !is_matrix_weight(layer_tensor(weights, n, "mixer.out_proj.weight"), cfg_.d_model,
                           cfg_.d_inner))
       return; // malformed layer
+
+    // A_log is immutable. Transform and transpose it once so every scan can
+    // stream contiguous channels without repeating exp() or a layout pass.
+    auto* const a_neg = scratch.alloc_array<float, kSimdAlign>(cfg_.d_state * cfg_.d_inner);
+    if (a_neg == nullptr)
+      return;
+    for (std::size_t nn{0uz}; nn < cfg_.d_state; ++nn)
+      for (std::size_t c{0uz}; c < cfg_.d_inner; ++c)
+        a_neg[(nn * cfg_.d_inner) + c] = -std::exp(a_log[(c * cfg_.d_state) + nn]);
+    lw.a_neg = a_neg;
   }
   cfg_.n_layers = n;
   ok_ = n > 0uz;
@@ -177,7 +187,6 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   fe_md::mdspan b_buf_md{b_buf.data(), l, ds};
   fe_md::mdspan c_buf_md{c_buf.data(), l, ds};
 
-  const std::span<float> a_neg = arena_span(ds * di); // transposed A scratch for discretize
   const std::span<float> h = arena_span(ds * di);
   const std::span<float> yv = arena_span(l * di);
   const std::span<float> out = arena_span(l * dm);
@@ -215,8 +224,8 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
       c_buf_md[t, nn] = dbl_md[t, dr + ds + nn];
     }
 
-  discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_sm, c_buf, {lw.d, di}, h, yv, a_neg, l, di,
-                      ds);
+  discretize_and_scan(dt, {lw.a_neg, di * ds}, b_buf, x_sm, c_buf, {lw.d, di}, h, yv, l, di, ds,
+                      true);
   gate_silu(yv, z, yv); // y · silu(z)
   matmul_weight(yv, lw.out_proj, out, l, di, dm, pool_);
 
@@ -256,7 +265,6 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   const std::span<float> dt = arena_span(di);
   const std::span<float> b_buf = arena_span(ds);
   const std::span<float> c_buf = arena_span(ds);
-  const std::span<float> a_neg = arena_span(ds * di);
   const std::span<float> yv = arena_span(di);
   const std::span<float> out = arena_span(dm);
 
@@ -284,8 +292,8 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
     c_buf[nn] = dbl[dr + ds + nn];
   }
 
-  discretize_and_scan(dt, {lw.a_log, di * ds}, b_buf, x_conv, c_buf, {lw.d, di}, h, yv, a_neg, 1uz,
-                      di, ds);
+  discretize_and_scan(dt, {lw.a_neg, di * ds}, b_buf, x_conv, c_buf, {lw.d, di}, h, yv, 1uz, di, ds,
+                      false);
   gate_silu(yv, z, yv);
   matmul_weight(yv, lw.out_proj, out, 1uz, di, dm);
 

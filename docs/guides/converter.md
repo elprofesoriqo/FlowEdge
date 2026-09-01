@@ -15,6 +15,16 @@ graph LR
 python convert/convert.py <source> models/out.safetensors --arch mamba
 ```
 
+Extract only the action head for an external encoder:
+
+```bash
+python convert/convert.py models/full.safetensors models/head.safetensors \
+  --arch mamba --component head --dtype bf16
+```
+
+`--component backbone` drops the head; `all` preserves both. Head-only output validates the four
+required flow projections and is directly loadable through `fe_engine_sample_condition`.
+
 ## A mapping
 
 An architecture is one function in the `ARCH` registry. It takes the source state dict and returns a dict keyed by FlowEdge names.
@@ -35,7 +45,13 @@ FlowEdge uses PyTorch `[out, in]` linear layout, so most weights need no transpo
 
 ## Validation and normalization
 
-`REQUIRED` lists the tensors the model constructor looks for. The converter checks they are present and stops if not. Keep it in sync with the constructor.
+`REQUIRED_BACKBONE` and `REQUIRED_FLOW` list the tensors the model constructors look for. The
+converter checks the selected component and stops if it is incomplete. Keep these lists in sync
+with the constructors.
+
+With `--dtype bf16`, only two-dimensional matmul weights are narrowed. Embeddings, normalization,
+biases, convolution weights, `A_log`, and `D` remain F32 because the current kernels and model
+constructors require them in that format.
 
 If the source normalizes actions with dataset stats, carry those stats through and un-normalize the sampled action. Otherwise the output stays in normalized space.
 

@@ -1,6 +1,6 @@
 # ADR 0001: CPU kernel strategy
 
-Status: Accepted. Scope: `src/kernels/cpu/`.
+Status: Accepted. Scope: `src/core/kernels/cpu/`.
 
 ## Context
 

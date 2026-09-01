@@ -1,34 +1,12 @@
 #include "kernels/kernels.h"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 
 namespace fe {
-namespace {
-
-// 1 recurrence step, state-major [n][c]: advance h in place, emit y (skip term + sum_n h·c)
-inline void scan_advance(const float* __restrict__ da_t, const float* __restrict__ dbu_t,
-                         const float* __restrict__ c_t, const float* __restrict__ u_t,
-                         const float* __restrict__ d, float* __restrict__ hs,
-                         float* __restrict__ y_t, std::size_t d_inner, std::size_t d_state) noexcept
-{
-  for (std::size_t c{0uz}; c < d_inner; ++c)
-    y_t[c] = d[c] * u_t[c]; // skip term, scan accumulates onto it
-  for (std::size_t n{0uz}; n < d_state; ++n) {
-    float* __restrict__ hn = hs + (n * d_inner);
-    const float* __restrict__ da_n = da_t + (n * d_inner);
-    const float* __restrict__ dbu_n = dbu_t + (n * d_inner);
-    const float cn = c_t[n];
-    for (std::size_t c{0uz}; c < d_inner; ++c) {
-      hn[c] = (da_n[c] * hn[c]) + dbu_n[c];
-      y_t[c] += hn[c] * cn;
-    }
-  }
-}
-
-} // namespace
 
 void conv1d_causal(std::span<const float> x, std::span<const float> weight,
                    std::span<const float> bias, std::span<float> y, std::size_t channels,
@@ -132,21 +110,15 @@ void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<fl
   }
 }
 
-void discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
+void discretize_and_scan(std::span<const float> delta, std::span<const float> a_neg,
                          std::span<const float> b, std::span<const float> u,
                          std::span<const float> c_proj, std::span<const float> d_skip,
-                         std::span<float> h, std::span<float> y, std::span<float> a_work,
-                         std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
+                         std::span<float> h, std::span<float> y, std::size_t length,
+                         std::size_t d_inner, std::size_t d_state, bool reset_state) noexcept
 {
   float* __restrict__ hs = h.data();
-  for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
-    hs[i] = 0.0F; // h_0 = 0
-
-  // A = -exp(a_log): compute exp then transpose + negate into a_work[n][c].
-  float* __restrict__ a_sm = a_work.data();
-  for (std::size_t c{0uz}; c < d_inner; ++c)
-    for (std::size_t n{0uz}; n < d_state; ++n)
-      a_sm[(n * d_inner) + c] = -std::exp(a_log[(c * d_state) + n]);
+  if (reset_state)
+    std::fill_n(hs, d_inner * d_state, 0.0F);
 
   for (std::size_t t{0uz}; t < length; ++t) {
     const float* __restrict__ dt = delta.data() + (t * d_inner);
@@ -161,7 +133,7 @@ void discretize_and_scan(std::span<const float> delta, std::span<const float> a_
 
     for (std::size_t n{0uz}; n < d_state; ++n) {
       float* __restrict__ hn = hs + (n * d_inner);
-      const float* __restrict__ an = a_sm + (n * d_inner);
+      const float* __restrict__ an = a_neg.data() + (n * d_inner);
       const float bn = bt[n];
       const float cn = c_t[n];
       for (std::size_t c{0uz}; c < d_inner; ++c) {

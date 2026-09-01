@@ -51,11 +51,12 @@ private:
   unsigned nthreads_{0u};
 
   alignas(kCacheLine) std::atomic<std::size_t> pending_{0uz};
+  alignas(kCacheLine) std::atomic<std::size_t> work_epoch_{0uz};
   alignas(kCacheLine) std::atomic<bool> stop_{false};
 };
 
 template<typename Fn>
-FE_STACK_ALIGN static void trampoline(void* ctx, std::size_t lo, std::size_t hi) noexcept
+FE_STACK_ALIGN inline void trampoline(void* ctx, std::size_t lo, std::size_t hi) noexcept
 {
   (*static_cast<std::remove_reference_t<Fn>*>(ctx))(lo, hi);
 }

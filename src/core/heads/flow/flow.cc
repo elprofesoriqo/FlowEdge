@@ -5,6 +5,7 @@
 #include "loader/tensor_key.h"
 #include "loader/weight_ops.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -116,45 +117,82 @@ void FlowHead::velocity(std::span<const float> x, float t, std::span<const float
 void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, std::size_t steps,
                       Method method, std::span<float> out) noexcept
 {
-  const std::size_t a = cfg_.action_dim;
-  const std::size_t hd = cfg_.hidden;
-
   std::byte* const mark = scratch_->mark();
-  const std::span<float> c_emb = arena_span(hd);
-  matmul_weight(cond, cond_proj_, c_emb, 1uz, cfg_.cond_dim, hd);
-
-  const std::span<float> x = arena_span(a);
-  const std::span<float> k1 = arena_span(a);
-  const std::span<float> k2 = arena_span(a);
-  const std::span<float> k3 = arena_span(a);
-  const std::span<float> k4 = arena_span(a);
-  const std::span<float> xp = arena_span(a);
-  copy_span(x0, x);
-
-  const float dt = 1.0F / static_cast<float>(steps);
-  for (std::size_t k{0uz}; k < steps; ++k) {
-    const float t = static_cast<float>(k) * dt;
-    velocity(x, t, c_emb, k1);
-    if (method == kEuler) {
-      add_scaled(x, k1, dt);
-    } else if (method == kHeun) {
-      scaled_sum(x, k1, dt, xp);
-      velocity(xp, t + dt, c_emb, k2);
-      add_heun(x, k1, k2, dt);
-    } else { // kRK4: classic 4-stage
-      const float h = 0.5F * dt;
-      scaled_sum(x, k1, h, xp);
-      velocity(xp, t + h, c_emb, k2);
-      scaled_sum(x, k2, h, xp);
-      velocity(xp, t + h, c_emb, k3);
-      scaled_sum(x, k3, dt, xp);
-      velocity(xp, t + dt, c_emb, k4);
-      add_rk4(x, k1, k2, k3, k4, dt);
-    }
-  }
-  copy_span(x, out);
+  const std::span<float> workspace = arena_span(sampler_workspace_size());
+  SamplerState state{};
+  if (sampler_begin(cond, x0, steps, method, workspace, state))
+    static_cast<void>(sampler_advance(state, steps, out));
 
   scratch_->reset_to(mark);
+}
+
+bool FlowHead::sampler_begin(std::span<const float> cond, std::span<const float> x0,
+                             std::size_t steps, Method method, std::span<float> workspace,
+                             SamplerState& state) noexcept
+{
+  state.active = false;
+  const bool valid_method = method == kEuler || method == kHeun || method == kRK4;
+  if (!ok_ || !valid_method || steps == 0uz || cond.size() != cfg_.cond_dim ||
+      x0.size() != cfg_.action_dim || workspace.size() < sampler_workspace_size()) [[unlikely]]
+    return false;
+
+  const std::size_t hd = cfg_.hidden;
+  const std::size_t a = cfg_.action_dim;
+  std::size_t offset{0uz};
+  const auto take = [&](std::size_t n) noexcept {
+    const std::span<float> part = workspace.subspan(offset, n);
+    offset += n;
+    return part;
+  };
+
+  state.condition_embedding = take(hd);
+  state.x = take(a);
+  state.k1 = take(a);
+  state.k2 = take(a);
+  state.k3 = take(a);
+  state.k4 = take(a);
+  state.probe = take(a);
+  state.steps = steps;
+  state.next_step = 0uz;
+  state.method = method;
+  state.active = true;
+
+  matmul_weight(cond, cond_proj_, state.condition_embedding, 1uz, cfg_.cond_dim, hd, pool_);
+  copy_span(x0, state.x);
+  return true;
+}
+
+std::size_t FlowHead::sampler_advance(SamplerState& state, std::size_t step_budget,
+                                      std::span<float> out) noexcept
+{
+  if (!state.active || out.size() < cfg_.action_dim) [[unlikely]]
+    return 0uz;
+
+  const std::size_t todo = std::min(step_budget, state.remaining());
+  const std::size_t end = state.next_step + todo;
+  const float dt = 1.0F / static_cast<float>(state.steps);
+  for (; state.next_step < end; ++state.next_step) {
+    const float t = static_cast<float>(state.next_step) * dt;
+    velocity(state.x, t, state.condition_embedding, state.k1);
+    if (state.method == kEuler) {
+      add_scaled(state.x, state.k1, dt);
+    } else if (state.method == kHeun) {
+      scaled_sum(state.x, state.k1, dt, state.probe);
+      velocity(state.probe, t + dt, state.condition_embedding, state.k2);
+      add_heun(state.x, state.k1, state.k2, dt);
+    } else { // kRK4: classic 4-stage
+      const float half_dt = 0.5F * dt;
+      scaled_sum(state.x, state.k1, half_dt, state.probe);
+      velocity(state.probe, t + half_dt, state.condition_embedding, state.k2);
+      scaled_sum(state.x, state.k2, half_dt, state.probe);
+      velocity(state.probe, t + half_dt, state.condition_embedding, state.k3);
+      scaled_sum(state.x, state.k3, dt, state.probe);
+      velocity(state.probe, t + dt, state.condition_embedding, state.k4);
+      add_rk4(state.x, state.k1, state.k2, state.k3, state.k4, dt);
+    }
+  }
+  copy_span(state.x, out.first(cfg_.action_dim));
+  return todo;
 }
 
 } // namespace fe

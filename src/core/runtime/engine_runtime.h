@@ -30,17 +30,30 @@ public:
   EngineRuntime& operator=(const EngineRuntime&) = delete;
   EngineRuntime& operator=(EngineRuntime&&) = delete;
 
-  [[nodiscard]] bool valid() const noexcept { return model_.valid(); }
+  [[nodiscard]] bool valid() const noexcept { return model_.valid() || flow_.valid(); }
   [[nodiscard]] bool has_compatible_flow_head() const noexcept;
   [[nodiscard]] const MambaConfig& config() const noexcept { return model_.config(); }
   [[nodiscard]] unsigned thread_count() const noexcept;
   [[nodiscard]] std::size_t action_dim() const noexcept;
+  [[nodiscard]] std::size_t condition_dim() const noexcept;
+  [[nodiscard]] std::size_t decode_state_bytes() const noexcept
+  {
+    return decode_state_.size_bytes();
+  }
 
   int run(const std::int32_t* tokens, std::size_t seq_len, float* out, const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
   void reset() noexcept;
   int sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise, std::size_t steps,
              FlowHead::Method method, float* action, const char*& error) noexcept;
+  int sample_condition(const float* condition, const float* noise, std::size_t steps,
+                       FlowHead::Method method, float* action, const char*& error) noexcept;
+  int flow_begin(const float* condition, const float* noise, std::size_t steps,
+                 FlowHead::Method method, const char*& error) noexcept;
+  int flow_advance(std::size_t step_budget, float* action, std::size_t& steps_remaining,
+                   const char*& error) noexcept;
+  int export_decode_state(std::span<std::byte> destination, const char*& error) const noexcept;
+  int import_decode_state(std::span<const std::byte> source, const char*& error) noexcept;
 
 private:
   static constexpr std::size_t kMaxTensors = 1024uz;
@@ -60,6 +73,8 @@ private:
   ThreadPool* pool_{};
   std::span<std::jthread> workers_{};
   std::span<float> decode_state_{};
+  std::span<float> flow_workspace_{};
+  FlowHead::SamplerState flow_state_{};
 };
 
 } // namespace fe

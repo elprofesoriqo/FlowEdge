@@ -126,16 +126,15 @@ void BM_conv1d_causal(benchmark::State& state)
 void BM_discretize_and_scan(benchmark::State& state)
 {
   const std::vector<float> dt = filled(kSeq * kDInner, 0.01F);
-  const std::vector<float> a_log = filled(kDInner * kDState, 0.05F);
+  const std::vector<float> a_neg = filled(kDInner * kDState, -1.0F);
   const std::vector<float> b = filled(kSeq * kDState);
   const std::vector<float> u = filled(kSeq * kDInner);
   const std::vector<float> c = filled(kSeq * kDState);
   const std::vector<float> d = filled(kDInner);
   std::vector<float> h(kDState * kDInner);
   std::vector<float> y(kSeq * kDInner);
-  std::vector<float> a_work(kDState * kDInner);
   for (auto _ : state) {
-    fe::discretize_and_scan(dt, a_log, b, u, c, d, h, y, a_work, kSeq, kDInner, kDState);
+    fe::discretize_and_scan(dt, a_neg, b, u, c, d, h, y, kSeq, kDInner, kDState, true);
     benchmark::DoNotOptimize(y.data());
     benchmark::ClobberMemory();
   }

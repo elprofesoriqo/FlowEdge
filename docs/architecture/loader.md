@@ -34,4 +34,4 @@ footprint compact while preserving F32 activations. See [ADR 0009](../decisions/
 
 The header is a flat map of name to dtype, shape, and byte offsets, so a hundred-line scan reads it. A JSON library would add a dependency, binary size, and a supply-chain surface for a grammar this small.
 
-Source: `src/loader/safetensors.h` and `safetensors.cc`.
+Source: `src/core/loader/safetensors.h` and `safetensors.cc`.

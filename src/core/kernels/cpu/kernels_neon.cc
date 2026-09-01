@@ -1,6 +1,7 @@
 #include "kernels/cpu/cephes.h"
 #include "kernels/kernels.h"
 
+#include <algorithm>
 #include <arm_neon.h>
 #include <bit>
 #include <cmath>
@@ -56,38 +57,6 @@ float32x4_t log4(float32x4_t x) noexcept
   y = vfmsq_f32(y, z, vdupq_n_f32(0.5F));
   x = vaddq_f32(x, y);
   return vfmaq_f32(x, e, vdupq_n_f32(ln2_hi));
-}
-
-// 1 recurrence step, state-major [n][c]: advance h in place, emit y (skip term + Σ_n h·c)
-inline void scan_advance(const float* __restrict__ da_t, const float* __restrict__ dbu_t,
-                         const float* __restrict__ c_t, const float* __restrict__ u_t,
-                         const float* __restrict__ d, float* __restrict__ hs,
-                         float* __restrict__ y_t, std::size_t d_inner, std::size_t d_state) noexcept
-{
-  std::size_t c0{0uz};
-  for (; c0 + 4uz <= d_inner; c0 += 4uz)
-    vst1q_f32(y_t + c0, vmulq_f32(vld1q_f32(d + c0), vld1q_f32(u_t + c0)));
-  for (; c0 < d_inner; ++c0)
-    y_t[c0] = d[c0] * u_t[c0]; // skip term, scan accumulates onto it
-
-  for (std::size_t n{0uz}; n < d_state; ++n) {
-    float* __restrict__ hn = hs + (n * d_inner);
-    const float* __restrict__ da_n = da_t + (n * d_inner);
-    const float* __restrict__ dbu_n = dbu_t + (n * d_inner);
-    const float cn = c_t[n];
-    const float32x4_t vcn = vdupq_n_f32(cn);
-    std::size_t c{0uz};
-    for (; c + 4uz <= d_inner; c += 4uz) {
-      float32x4_t vh = vld1q_f32(hn + c);
-      vh = vfmaq_f32(vld1q_f32(dbu_n + c), vld1q_f32(da_n + c), vh);
-      vst1q_f32(hn + c, vh);
-      vst1q_f32(y_t + c, vfmaq_f32(vld1q_f32(y_t + c), vh, vcn));
-    }
-    for (; c < d_inner; ++c) {
-      hn[c] = (da_n[c] * hn[c]) + dbu_n[c];
-      y_t[c] += hn[c] * cn;
-    }
-  }
 }
 
 // widen 4 BF16 → 4 F32
@@ -364,29 +333,15 @@ void rmsnorm(std::span<const float> in, std::span<const float> weight, std::span
   }
 }
 
-void discretize_and_scan(std::span<const float> delta, std::span<const float> a_log,
+void discretize_and_scan(std::span<const float> delta, std::span<const float> a_neg,
                          std::span<const float> b, std::span<const float> u,
                          std::span<const float> c_proj, std::span<const float> d_skip,
-                         std::span<float> h, std::span<float> y, std::span<float> a_work,
-                         std::size_t length, std::size_t d_inner, std::size_t d_state) noexcept
+                         std::span<float> h, std::span<float> y, std::size_t length,
+                         std::size_t d_inner, std::size_t d_state, bool reset_state) noexcept
 {
   float* __restrict__ hs = h.data();
-  for (std::size_t i{0uz}; i < d_inner * d_state; ++i)
-    hs[i] = 0.0F; // h_0 = 0
-
-  // A = -exp(a_log): transpose into a_work then compute exp4 in-place
-  float* __restrict__ a_sm = a_work.data();
-  for (std::size_t c{0uz}; c < d_inner; ++c)
-    for (std::size_t n{0uz}; n < d_state; ++n)
-      a_sm[(n * d_inner) + c] = a_log[(c * d_state) + n];
-
-  std::size_t i{0uz};
-  const std::size_t plane = d_inner * d_state;
-  for (; i + 4uz <= plane; i += 4uz) {
-    vst1q_f32(a_sm + i, vnegq_f32(exp4(vld1q_f32(a_sm + i))));
-  }
-  for (; i < plane; ++i)
-    a_sm[i] = -std::exp(a_sm[i]);
+  if (reset_state)
+    std::fill_n(hs, d_inner * d_state, 0.0F);
 
   for (std::size_t t{0uz}; t < length; ++t) {
     const float* __restrict__ dt = delta.data() + (t * d_inner);
@@ -404,7 +359,7 @@ void discretize_and_scan(std::span<const float> delta, std::span<const float> a_
 
     for (std::size_t n{0uz}; n < d_state; ++n) {
       float* __restrict__ hn = hs + (n * d_inner);
-      const float* __restrict__ an = a_sm + (n * d_inner);
+      const float* __restrict__ an = a_neg.data() + (n * d_inner);
       const float bn = bt[n];
       const float32x4_t vbn = vdupq_n_f32(bn);
       const float cn = c_t[n];

@@ -2,8 +2,17 @@
 """
 Usage: python flow_sample.py <mamba_flow.safetensors> [euler|heun|rk4] [steps]
 """
+import os
+from pathlib import Path
 import sys
 import numpy as np
+
+if os.name == "nt":
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        winpthread = Path(entry) / "libwinpthread-1.dll"
+        if winpthread.is_file():
+            os.add_dll_directory(str(winpthread.parent))
+            break
 
 try:
     import flowedge

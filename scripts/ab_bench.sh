@@ -47,8 +47,17 @@ git worktree add --detach "$BASELINE_SOURCE" "$BASELINE_COMMIT" >/dev/null
 
 capture() {
   local source=$1 build=$2 output=$3
+  local cmake_args=()
+  if command -v clang++ >/dev/null; then
+    cmake_args+=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+    case "$(uname -s)" in
+      MINGW* | MSYS* | CYGWIN*)
+        cmake_args+=(-DCMAKE_C_COMPILER_TARGET=x86_64-w64-mingw32
+                     -DCMAKE_CXX_COMPILER_TARGET=x86_64-w64-mingw32) ;;
+    esac
+  fi
   cmake -S "$source" -B "$build" -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BENCH=ON \
-    -DFLOWEDGE_BACKEND="$BACKEND"
+    -DFLOWEDGE_BACKEND="$BACKEND" "${cmake_args[@]}"
   cmake --build "$build" --config Release -j
   local executable="$build/flowedge_kernels_bench"
   [[ -x "$build/flowedge_kernels_bench.exe" ]] && executable="$build/flowedge_kernels_bench.exe"
