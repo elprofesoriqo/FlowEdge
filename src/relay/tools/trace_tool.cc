@@ -21,6 +21,9 @@ using fe::relay::ActionMessage;
 using fe::relay::ConditionMessage;
 using fe::relay::ControlMessage;
 using fe::relay::HeadWorker;
+using fe::relay::JobEventMessage;
+using fe::relay::JobRequestMessage;
+using fe::relay::JobResultMessage;
 using fe::relay::MessageEnvelope;
 using fe::relay::MessageKind;
 using fe::relay::ProtocolResult;
@@ -142,7 +145,11 @@ template<typename Message>
     return false;
   message = {};
   std::memcpy(&message, record.message.data(), record.message.size());
-  if constexpr (std::is_same_v<Message, ConditionMessage> || std::is_same_v<Message, ActionMessage>)
+  if constexpr (std::is_same_v<Message, ConditionMessage> ||
+                std::is_same_v<Message, ActionMessage> ||
+                std::is_same_v<Message, JobRequestMessage> ||
+                std::is_same_v<Message, JobResultMessage> ||
+                std::is_same_v<Message, JobEventMessage>)
     return fe::relay::validate(message) == ProtocolResult::kSuccess &&
            fe::relay::wire_size(message) == record.message.size();
   else
@@ -177,9 +184,15 @@ template<typename Message>
   std::uint64_t conditions{};
   std::uint64_t actions{};
   std::uint64_t controls{};
+  std::uint64_t job_requests{};
+  std::uint64_t job_results{};
+  std::uint64_t job_events{};
   ConditionMessage condition{};
   ActionMessage action{};
   ControlMessage control{};
+  JobRequestMessage job_request{};
+  JobResultMessage job_result{};
+  JobEventMessage job_event{};
   while (true) {
     const auto next = reader.next();
     if (!next) {
@@ -236,6 +249,81 @@ template<typename Message>
         std::cout << "shutdown sequence=" << control.envelope.sequence
                   << " session=" << control.envelope.session_id << " reason=" << control.reason
                   << '\n';
+    } else if (record.kind == MessageKind::kJobRequest &&
+               unpack(record, MessageKind::kJobRequest, job_request)) {
+      ++job_requests;
+      if (options.json_lines)
+        std::cout << "{\"kind\":\"job_request\",\"sequence\":" << job_request.envelope.sequence
+                  << ",\"session\":" << job_request.envelope.session_id << ",\"job_kind\":\""
+                  << fe::relay::to_string(job_request.metadata.descriptor.kind)
+                  << "\",\"schema\":" << job_request.metadata.descriptor.state_schema
+                  << ",\"generation\":" << job_request.metadata.descriptor.generation
+                  << ",\"work_units\":" << job_request.metadata.descriptor.total_work_units
+                  << "}\n";
+      else
+        std::cout << "job_request sequence=" << job_request.envelope.sequence
+                  << " session=" << job_request.envelope.session_id
+                  << " kind=" << fe::relay::to_string(job_request.metadata.descriptor.kind)
+                  << " schema=" << job_request.metadata.descriptor.state_schema
+                  << " generation=" << job_request.metadata.descriptor.generation
+                  << " work_units=" << job_request.metadata.descriptor.total_work_units << '\n';
+    } else if (record.kind == MessageKind::kJobResult &&
+               unpack(record, MessageKind::kJobResult, job_result)) {
+      ++job_results;
+      if (options.json_lines)
+        std::cout << "{\"kind\":\"job_result\",\"sequence\":" << job_result.envelope.sequence
+                  << ",\"session\":" << job_result.envelope.session_id << ",\"job_kind\":\""
+                  << fe::relay::to_string(job_result.metadata.descriptor.kind) << "\",\"state\":\""
+                  << fe::relay::to_string(job_result.metadata.progress.state) << "\",\"outcome\":\""
+                  << fe::relay::to_string(fe::relay::job_result_code(job_result))
+                  << "\",\"completed_work_units\":"
+                  << job_result.metadata.progress.completed_work_units << "}\n";
+      else
+        std::cout << "job_result sequence=" << job_result.envelope.sequence
+                  << " session=" << job_result.envelope.session_id
+                  << " kind=" << fe::relay::to_string(job_result.metadata.descriptor.kind)
+                  << " state=" << fe::relay::to_string(job_result.metadata.progress.state)
+                  << " outcome=" << fe::relay::to_string(fe::relay::job_result_code(job_result))
+                  << " completed_work_units=" << job_result.metadata.progress.completed_work_units
+                  << '\n';
+    } else if (record.kind == MessageKind::kJobEvent &&
+               unpack(record, MessageKind::kJobEvent, job_event)) {
+      ++job_events;
+      const auto& metadata = job_event.metadata;
+      if (options.json_lines) {
+        std::cout << "{\"kind\":\"job_event\",\"event\":\"" << fe::relay::to_string(metadata.event)
+                  << "\",\"sequence\":" << job_event.envelope.sequence
+                  << ",\"session\":" << job_event.envelope.session_id << ",\"job_kind\":\""
+                  << fe::relay::to_string(metadata.descriptor.kind)
+                  << "\",\"schema\":" << metadata.descriptor.state_schema
+                  << ",\"generation\":" << metadata.descriptor.generation
+                  << ",\"completed_work_units\":" << metadata.progress.completed_work_units
+                  << ",\"remaining_work_units\":" << metadata.progress.remaining_work_units
+                  << ",\"worker\":";
+        if (metadata.worker_index == fe::relay::kNoWorker)
+          std::cout << "null";
+        else
+          std::cout << metadata.worker_index;
+        std::cout << ",\"queue_ns\":" << metadata.timing.queue_ns
+                  << ",\"execution_ns\":" << metadata.timing.execution_ns
+                  << ",\"end_to_end_ns\":" << metadata.timing.end_to_end_ns << "}\n";
+      } else {
+        std::cout << "job_event event=" << fe::relay::to_string(metadata.event)
+                  << " sequence=" << job_event.envelope.sequence
+                  << " session=" << job_event.envelope.session_id
+                  << " kind=" << fe::relay::to_string(metadata.descriptor.kind)
+                  << " schema=" << metadata.descriptor.state_schema
+                  << " generation=" << metadata.descriptor.generation
+                  << " work=" << metadata.progress.completed_work_units << '/'
+                  << metadata.descriptor.total_work_units << " worker=";
+        if (metadata.worker_index == fe::relay::kNoWorker)
+          std::cout << "none";
+        else
+          std::cout << metadata.worker_index;
+        std::cout << " queue_ns=" << metadata.timing.queue_ns
+                  << " execution_ns=" << metadata.timing.execution_ns
+                  << " end_to_end_ns=" << metadata.timing.end_to_end_ns << '\n';
+      }
     } else {
       std::cerr << "flowedge-relay-trace: decoded record has invalid message semantics\n";
       return 1;
@@ -243,10 +331,12 @@ template<typename Message>
   }
   if (options.json_lines)
     std::cout << "{\"kind\":\"summary\",\"conditions\":" << conditions << ",\"actions\":" << actions
-              << ",\"controls\":" << controls << "}\n";
+              << ",\"controls\":" << controls << ",\"job_requests\":" << job_requests
+              << ",\"job_results\":" << job_results << ",\"job_events\":" << job_events << "}\n";
   else
     std::cout << "summary conditions=" << conditions << " actions=" << actions
-              << " controls=" << controls << '\n';
+              << " controls=" << controls << " job_requests=" << job_requests
+              << " job_results=" << job_results << " job_events=" << job_events << '\n';
   return 0;
 }
 

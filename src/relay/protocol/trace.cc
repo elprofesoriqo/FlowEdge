@@ -25,8 +25,19 @@ constexpr std::size_t kRecordHeaderBytes = 32uz;
 constexpr std::size_t kEnvelopeBytes = 32uz;
 constexpr std::size_t kConditionMetadataBytes = 88uz;
 constexpr std::size_t kActionMetadataBytes = 80uz;
+constexpr std::size_t kJobRequestMetadataBytes = 88uz;
+constexpr std::size_t kJobResultMetadataBytes = 112uz;
+constexpr std::size_t kJobEventMetadataBytes = 168uz;
 constexpr std::size_t kConditionPayloadOffset = kEnvelopeBytes + kConditionMetadataBytes;
 constexpr std::size_t kActionPayloadOffset = kEnvelopeBytes + kActionMetadataBytes;
+constexpr std::size_t kJobRequestPayloadOffset = kEnvelopeBytes + kJobRequestMetadataBytes;
+constexpr std::size_t kJobResultPayloadOffset = kEnvelopeBytes + kJobResultMetadataBytes;
+constexpr std::size_t kMaxTraceMessageBytes =
+    std::max({sizeof(ConditionMessage), sizeof(JobRequestMessage), sizeof(JobResultMessage),
+              sizeof(JobEventMessage)});
+static_assert(offsetof(JobRequestMessage, payload) == kJobRequestPayloadOffset);
+static_assert(offsetof(JobResultMessage, payload) == kJobResultPayloadOffset);
+static_assert(sizeof(JobEventMetadata) == kJobEventMetadataBytes);
 
 template<std::unsigned_integral Integer>
 void write_le(std::span<std::byte> destination, std::size_t offset, Integer value) noexcept
@@ -149,10 +160,143 @@ void encode_action_metadata(std::span<std::byte> destination,
   return metadata;
 }
 
+void encode_job_descriptor(std::span<std::byte> destination,
+                           const JobDescriptor& descriptor) noexcept
+{
+  write_le(destination, 0uz, descriptor.protocol_version);
+  write_le(destination, 4uz, static_cast<std::uint16_t>(descriptor.kind));
+  write_le(destination, 6uz, std::uint16_t{});
+  std::ranges::copy(std::as_bytes(std::span{descriptor.model_digest}), destination.begin() + 8uz);
+  write_le(destination, 24uz, descriptor.state_schema);
+  write_le(destination, 32uz, descriptor.session_id);
+  write_le(destination, 40uz, descriptor.generation);
+  write_le(destination, 48uz, descriptor.deadline_ns);
+  write_le(destination, 56uz, descriptor.total_work_units);
+}
+
+[[nodiscard]] JobDescriptor decode_job_descriptor(std::span<const std::byte> source) noexcept
+{
+  JobDescriptor descriptor{};
+  descriptor.protocol_version = read_le<std::uint32_t>(source, 0uz);
+  descriptor.kind = static_cast<JobKind>(read_le<std::uint16_t>(source, 4uz));
+  std::ranges::copy(source.subspan(8uz, descriptor.model_digest.size()),
+                    reinterpret_cast<std::byte*>(descriptor.model_digest.data()));
+  descriptor.state_schema = read_le<std::uint64_t>(source, 24uz);
+  descriptor.session_id = read_le<std::uint64_t>(source, 32uz);
+  descriptor.generation = read_le<std::uint64_t>(source, 40uz);
+  descriptor.deadline_ns = read_le<std::uint64_t>(source, 48uz);
+  descriptor.total_work_units = read_le<std::uint64_t>(source, 56uz);
+  return descriptor;
+}
+
+void encode_job_progress(std::span<std::byte> destination, const JobProgress& progress) noexcept
+{
+  write_le(destination, 0uz, static_cast<std::uint16_t>(progress.state));
+  write_le(destination, 2uz, std::uint16_t{});
+  write_le(destination, 4uz, std::uint32_t{});
+  write_le(destination, 8uz, progress.completed_work_units);
+  write_le(destination, 16uz, progress.remaining_work_units);
+}
+
+[[nodiscard]] JobProgress decode_job_progress(std::span<const std::byte> source) noexcept
+{
+  return JobProgress{.state = static_cast<JobState>(read_le<std::uint16_t>(source, 0uz)),
+                     .completed_work_units = read_le<std::uint64_t>(source, 8uz),
+                     .remaining_work_units = read_le<std::uint64_t>(source, 16uz)};
+}
+
+void encode_job_request_metadata(std::span<std::byte> destination,
+                                 const JobRequestMetadata& metadata) noexcept
+{
+  write_le(destination, 0uz, metadata.struct_size);
+  write_le(destination, 4uz, metadata.reserved);
+  encode_job_descriptor(destination.subspan(8uz), metadata.descriptor);
+  write_le(destination, 72uz, metadata.timestamp_ns);
+  write_le(destination, 80uz, metadata.payload_bytes);
+}
+
+[[nodiscard]] JobRequestMetadata decode_job_request_metadata(
+    std::span<const std::byte> source) noexcept
+{
+  return JobRequestMetadata{.struct_size = read_le<std::uint32_t>(source, 0uz),
+                            .reserved = read_le<std::uint32_t>(source, 4uz),
+                            .descriptor = decode_job_descriptor(source.subspan(8uz)),
+                            .timestamp_ns = read_le<std::uint64_t>(source, 72uz),
+                            .payload_bytes = read_le<std::uint64_t>(source, 80uz)};
+}
+
+void encode_job_result_metadata(std::span<std::byte> destination,
+                                const JobResultMetadata& metadata) noexcept
+{
+  write_le(destination, 0uz, metadata.struct_size);
+  write_le(destination, 4uz, metadata.reserved);
+  encode_job_descriptor(destination.subspan(8uz), metadata.descriptor);
+  encode_job_progress(destination.subspan(72uz), metadata.progress);
+  write_le(destination, 96uz, metadata.timestamp_ns);
+  write_le(destination, 104uz, metadata.payload_bytes);
+}
+
+[[nodiscard]] JobResultMetadata decode_job_result_metadata(
+    std::span<const std::byte> source) noexcept
+{
+  return JobResultMetadata{.struct_size = read_le<std::uint32_t>(source, 0uz),
+                           .reserved = read_le<std::uint32_t>(source, 4uz),
+                           .descriptor = decode_job_descriptor(source.subspan(8uz)),
+                           .progress = decode_job_progress(source.subspan(72uz)),
+                           .timestamp_ns = read_le<std::uint64_t>(source, 96uz),
+                           .payload_bytes = read_le<std::uint64_t>(source, 104uz)};
+}
+
+void encode_job_event_metadata(std::span<std::byte> destination,
+                               const JobEventMetadata& metadata) noexcept
+{
+  write_le(destination, 0uz, metadata.struct_size);
+  write_le(destination, 4uz, metadata.protocol_version);
+  write_le(destination, 6uz, static_cast<std::uint16_t>(metadata.event));
+  encode_job_descriptor(destination.subspan(8uz), metadata.descriptor);
+  encode_job_progress(destination.subspan(72uz), metadata.progress);
+  write_le(destination, 96uz, metadata.timestamp_ns);
+  write_le(destination, 104uz, metadata.timing.queue_ns);
+  write_le(destination, 112uz, metadata.timing.execution_ns);
+  write_le(destination, 120uz, metadata.timing.end_to_end_ns);
+  write_le(destination, 128uz, metadata.timing.cancellation_ns);
+  write_le(destination, 136uz, metadata.related_generation);
+  write_le(destination, 144uz, metadata.worker_index);
+  write_le(destination, 148uz, metadata.peer_worker_index);
+  write_le(destination, 152uz, metadata.queue_depth);
+  write_le(destination, 156uz, static_cast<std::uint32_t>(metadata.result_code));
+  write_le(destination, 160uz, metadata.reserved);
+  write_le(destination, 164uz, metadata.reserved2);
+}
+
+[[nodiscard]] JobEventMetadata decode_job_event_metadata(std::span<const std::byte> source) noexcept
+{
+  return JobEventMetadata{
+      .struct_size = read_le<std::uint32_t>(source, 0uz),
+      .protocol_version = read_le<std::uint16_t>(source, 4uz),
+      .event = static_cast<JobEventKind>(read_le<std::uint16_t>(source, 6uz)),
+      .descriptor = decode_job_descriptor(source.subspan(8uz)),
+      .progress = decode_job_progress(source.subspan(72uz)),
+      .timestamp_ns = read_le<std::uint64_t>(source, 96uz),
+      .timing = JobEventTiming{.queue_ns = read_le<std::uint64_t>(source, 104uz),
+                               .execution_ns = read_le<std::uint64_t>(source, 112uz),
+                               .end_to_end_ns = read_le<std::uint64_t>(source, 120uz),
+                               .cancellation_ns = read_le<std::uint64_t>(source, 128uz)},
+      .related_generation = read_le<std::uint64_t>(source, 136uz),
+      .worker_index = read_le<std::uint32_t>(source, 144uz),
+      .peer_worker_index = read_le<std::uint32_t>(source, 148uz),
+      .queue_depth = read_le<std::uint32_t>(source, 152uz),
+      .result_code = static_cast<JobResultCode>(read_le<std::uint32_t>(source, 156uz)),
+      .reserved = read_le<std::uint32_t>(source, 160uz),
+      .reserved2 = read_le<std::uint32_t>(source, 164uz),
+  };
+}
+
 [[nodiscard]] constexpr bool valid_kind(MessageKind kind) noexcept
 {
   return kind == MessageKind::kCondition || kind == MessageKind::kAction ||
-         kind == MessageKind::kShutdown;
+         kind == MessageKind::kShutdown || kind == MessageKind::kJobRequest ||
+         kind == MessageKind::kJobResult || kind == MessageKind::kJobEvent;
 }
 
 [[nodiscard]] std::expected<std::size_t, std::string> encode_message(
@@ -188,6 +332,32 @@ void encode_action_metadata(std::span<std::byte> destination,
     encode_action_metadata(destination.subspan(kEnvelopeBytes), message.metadata);
     for (std::size_t i{0uz}; i < message.metadata.action_dim; ++i)
       write_float(destination, kActionPayloadOffset + (i * sizeof(float)), message.action[i]);
+  } else if (envelope.kind == MessageKind::kJobRequest) {
+    if (source.size() > sizeof(JobRequestMessage))
+      return std::unexpected("Relay trace job request is too large");
+    JobRequestMessage message{};
+    std::memcpy(&message, source.data(), source.size());
+    if (validate(message) != ProtocolResult::kSuccess || wire_size(message) != source.size())
+      return std::unexpected("Relay trace job request is invalid");
+    encode_job_request_metadata(destination.subspan(kEnvelopeBytes), message.metadata);
+    std::ranges::copy(message.payload_values(), destination.begin() + kJobRequestPayloadOffset);
+  } else if (envelope.kind == MessageKind::kJobResult) {
+    if (source.size() > sizeof(JobResultMessage))
+      return std::unexpected("Relay trace job result is too large");
+    JobResultMessage message{};
+    std::memcpy(&message, source.data(), source.size());
+    if (validate(message) != ProtocolResult::kSuccess || wire_size(message) != source.size())
+      return std::unexpected("Relay trace job result is invalid");
+    encode_job_result_metadata(destination.subspan(kEnvelopeBytes), message.metadata);
+    std::ranges::copy(message.payload_values(), destination.begin() + kJobResultPayloadOffset);
+  } else if (envelope.kind == MessageKind::kJobEvent) {
+    if (source.size() != sizeof(JobEventMessage))
+      return std::unexpected("Relay trace job event size is invalid");
+    JobEventMessage message{};
+    std::memcpy(&message, source.data(), sizeof(message));
+    if (validate(message) != ProtocolResult::kSuccess)
+      return std::unexpected("Relay trace job event is invalid");
+    encode_job_event_metadata(destination.subspan(kEnvelopeBytes), message.metadata);
   } else {
     if (source.size() != sizeof(ControlMessage))
       return std::unexpected("Relay trace control message size is invalid");
@@ -239,6 +409,41 @@ void encode_action_metadata(std::span<std::byte> destination,
     if (validate(message) != ProtocolResult::kSuccess)
       return std::unexpected("Relay trace decoded action is invalid");
     std::memcpy(destination.data(), &message, source.size());
+  } else if (envelope.kind == MessageKind::kJobRequest) {
+    if (source.size() < kJobRequestPayloadOffset ||
+        source.size() - kJobRequestPayloadOffset > kMaxJobPayloadBytes)
+      return std::unexpected("Relay trace encoded job request size is invalid");
+    JobRequestMessage message{};
+    message.envelope = envelope;
+    message.metadata = decode_job_request_metadata(source.subspan(kEnvelopeBytes));
+    if (wire_size(message) != source.size())
+      return std::unexpected("Relay trace encoded job request payload is invalid");
+    std::ranges::copy(source.subspan(kJobRequestPayloadOffset), message.payload.begin());
+    if (validate(message) != ProtocolResult::kSuccess)
+      return std::unexpected("Relay trace decoded job request is invalid");
+    std::memcpy(destination.data(), &message, source.size());
+  } else if (envelope.kind == MessageKind::kJobResult) {
+    if (source.size() < kJobResultPayloadOffset ||
+        source.size() - kJobResultPayloadOffset > kMaxJobPayloadBytes)
+      return std::unexpected("Relay trace encoded job result size is invalid");
+    JobResultMessage message{};
+    message.envelope = envelope;
+    message.metadata = decode_job_result_metadata(source.subspan(kEnvelopeBytes));
+    if (wire_size(message) != source.size())
+      return std::unexpected("Relay trace encoded job result payload is invalid");
+    std::ranges::copy(source.subspan(kJobResultPayloadOffset), message.payload.begin());
+    if (validate(message) != ProtocolResult::kSuccess)
+      return std::unexpected("Relay trace decoded job result is invalid");
+    std::memcpy(destination.data(), &message, source.size());
+  } else if (envelope.kind == MessageKind::kJobEvent) {
+    if (source.size() != sizeof(JobEventMessage))
+      return std::unexpected("Relay trace encoded job event size is invalid");
+    JobEventMessage message{};
+    message.envelope = envelope;
+    message.metadata = decode_job_event_metadata(source.subspan(kEnvelopeBytes));
+    if (validate(message) != ProtocolResult::kSuccess)
+      return std::unexpected("Relay trace decoded job event is invalid");
+    std::memcpy(destination.data(), &message, sizeof(message));
   } else {
     if (source.size() != sizeof(ControlMessage))
       return std::unexpected("Relay trace encoded control size is invalid");
@@ -365,7 +570,7 @@ std::expected<std::optional<TraceRecord>, std::string> TraceReader::next() noexc
   const std::uint64_t expected_checksum = read_le<std::uint64_t>(header, 24uz);
   if (bytes != header.size() || record_magic != expected_magic || record_version != version_ ||
       reserved != 0u || !valid_kind(kind) || message_bytes < kEnvelopeBytes ||
-      message_bytes > sizeof(ConditionMessage))
+      message_bytes > kMaxTraceMessageBytes)
     return std::unexpected("Relay trace record header is incompatible or corrupt");
 
   std::vector<std::byte> encoded{};

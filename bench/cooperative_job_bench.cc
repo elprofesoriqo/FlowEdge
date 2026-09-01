@@ -1,6 +1,7 @@
 #include "relay/adapters/cooperative_adapters.h"
 #include "relay/adapters/routed_adapters.h"
 #include "relay/jobs/state_codec.h"
+#include "relay/telemetry/metrics.h"
 #include "relay/worker/job_worker_pool.h"
 
 #include <algorithm>
@@ -213,11 +214,16 @@ int main(int argc, char** argv)
   const double ns_per_routed_job = routed_ns / static_cast<double>(iterations);
 
   std::array<JobAdapterRegistry, 1> lane_registries{registry};
+  auto events = JobEventBuffer::create(4uz);
+  if (!events)
+    return 1;
   auto pool_result =
-      JobWorkerPool::create(lane_registries, 1uz, {}, 1uz, CounterBackend::kWorkUnits);
+      JobWorkerPool::create(lane_registries, 1uz, {}, 1uz, CounterBackend::kWorkUnits,
+                            WorkerPlacement::kNone, &*events);
   if (!pool_result)
     return 1;
   JobWorkerPool pool = std::move(*pool_result);
+  JobMetrics pooled_metrics{};
   std::uint64_t pooled_checksum{};
   const std::size_t pooled_allocations_before = g_allocations.load(std::memory_order_relaxed);
   const auto pooled_start = std::chrono::steady_clock::now();
@@ -239,6 +245,10 @@ int main(int argc, char** argv)
       return 1;
     pooled_checksum ^= *pooled_value + iteration;
     pool.release_ready_result();
+    while (const JobEventMessage* event = events->front()) {
+      pooled_metrics.record(*event);
+      events->pop();
+    }
   }
   const auto pooled_elapsed = std::chrono::steady_clock::now() - pooled_start;
   const std::size_t pooled_allocations =
@@ -255,6 +265,8 @@ int main(int argc, char** argv)
             << " routed_hot_path_allocations=" << routed_allocations
             << " routed_checksum=" << routed_checksum << " ns_per_pooled_job=" << ns_per_pooled_job
             << " pooled_hot_path_allocations=" << pooled_allocations
-            << " pooled_checksum=" << pooled_checksum << '\n';
+            << " pooled_checksum=" << pooled_checksum
+            << " pooled_events=" << pooled_metrics.counters().events
+            << " pooled_event_drops=" << events->dropped() << '\n';
   return allocations == 0uz && routed_allocations == 0uz && pooled_allocations == 0uz ? 0 : 1;
 }

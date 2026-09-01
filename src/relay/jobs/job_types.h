@@ -74,6 +74,38 @@ struct JobError
   return state >= JobState::kReady && state <= JobState::kFailed;
 }
 
+[[nodiscard]] constexpr std::string_view to_string(JobKind kind) noexcept
+{
+  switch (kind) {
+  case JobKind::kIterative:
+    return "iterative";
+  case JobKind::kStreaming:
+    return "streaming";
+  case JobKind::kSpeculative:
+    return "speculative";
+  case JobKind::kUnknown:
+    break;
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(JobState state) noexcept
+{
+  switch (state) {
+  case JobState::kReady:
+    return "ready";
+  case JobState::kRunning:
+    return "running";
+  case JobState::kComplete:
+    return "complete";
+  case JobState::kCancelled:
+    return "cancelled";
+  case JobState::kFailed:
+    return "failed";
+  }
+  return "unknown";
+}
+
 [[nodiscard]] constexpr bool terminal(JobState state) noexcept
 {
   return state == JobState::kComplete || state == JobState::kCancelled ||

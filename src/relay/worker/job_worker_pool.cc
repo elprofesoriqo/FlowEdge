@@ -53,6 +53,11 @@ namespace {
              : left * right;
 }
 
+[[nodiscard]] constexpr std::uint64_t elapsed(std::uint64_t start, std::uint64_t end) noexcept
+{
+  return start != 0u && end >= start ? end - start : 0u;
+}
+
 void update_max(std::atomic<std::uint64_t>& value, std::uint64_t candidate) noexcept
 {
   std::uint64_t current = value.load(std::memory_order_relaxed);
@@ -115,6 +120,7 @@ struct JobWorkerPool::Slot
   std::atomic<std::uint64_t> generation{};
   std::atomic<std::uint64_t> remaining_work_units{};
   std::atomic<std::uint64_t> cancel_generation{};
+  std::atomic<std::uint64_t> preempted_ns{};
   std::atomic<std::uint64_t> dispatched_ns{};
   std::atomic<std::uint64_t> started_ns{};
   std::atomic<std::uint64_t> finished_ns{};
@@ -122,6 +128,7 @@ struct JobWorkerPool::Slot
   std::atomic<std::uint32_t> logical_cpu{};
   std::atomic_bool bound{false};
   bool execution_failed{};
+  bool events_published{};
   std::thread thread{};
 };
 
@@ -195,7 +202,7 @@ void JobWorkerPool::run_slot(Slot& slot) noexcept
 std::expected<JobWorkerPool, std::string> JobWorkerPool::create(
     std::span<JobAdapterRegistry> lane_registries, std::size_t queue_capacity,
     JobCostPolicy cost_policy, std::size_t max_sessions, std::size_t work_quantum,
-    WorkerPlacement placement) noexcept
+    WorkerPlacement placement, JobEventBuffer* events) noexcept
 {
   if (lane_registries.empty() || lane_registries.size() > 8uz)
     return std::unexpected("Generic Relay worker count must be in the range 1..8");
@@ -209,6 +216,7 @@ std::expected<JobWorkerPool, std::string> JobWorkerPool::create(
     JobWorkerPool pool{};
     pool.cost_policy_ = cost_policy;
     pool.work_quantum_ = work_quantum;
+    pool.events_ = events;
     pool.queue_storage_.resize(queue_capacity);
     pool.queue_order_.reserve(queue_capacity);
     pool.free_queue_slots_.reserve(queue_capacity);
@@ -244,8 +252,8 @@ JobWorkerPool::JobWorkerPool(JobWorkerPool&& other) noexcept
       free_queue_slots_{std::move(other.free_queue_slots_)},
       admission_jobs_{std::move(other.admission_jobs_)}, sessions_{std::move(other.sessions_)},
       cost_policy_{other.cost_policy_}, work_quantum_{other.work_quantum_},
-      ready_index_{other.ready_index_}, dispatch_cursor_{other.dispatch_cursor_},
-      ready_cursor_{other.ready_cursor_},
+      ready_index_{other.ready_index_}, events_{other.events_},
+      dispatch_cursor_{other.dispatch_cursor_}, ready_cursor_{other.ready_cursor_},
       failure_count_{other.failure_count_.load(std::memory_order_relaxed)}
 {
   other.ready_index_.reset();
@@ -394,6 +402,24 @@ void JobWorkerPool::publish_rejection(JobResultMessage* destination,
     *destination = {};
     static_cast<void>(make_rejected_job_result(*destination, request, now_ns, code));
   }
+  emit(request.envelope.sequence,
+       JobEventDetails{.event = JobEventKind::kRejected,
+                       .descriptor = request.metadata.descriptor,
+                       .progress = JobProgress{.state = JobState::kFailed,
+                                               .completed_work_units = 0u,
+                                               .remaining_work_units =
+                                                   request.metadata.descriptor.total_work_units},
+                       .timestamp_ns = now_ns == 0u ? monotonic_ns() : now_ns,
+                       .result_code = code});
+}
+
+void JobWorkerPool::emit(std::uint64_t sequence, const JobEventDetails& details) noexcept
+{
+  if (events_ == nullptr)
+    return;
+  JobEventMessage event{};
+  if (make_job_event(event, sequence, details) == ProtocolResult::kSuccess)
+    static_cast<void>(events_->try_push(event));
 }
 
 JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uint64_t now_ns,
@@ -438,6 +464,15 @@ JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uin
     watermark->generation = request.metadata.descriptor.generation;
     cancel_before(watermark->session_id, watermark->generation);
   }
+  emit(request.envelope.sequence,
+       JobEventDetails{.event = JobEventKind::kAdmitted,
+                       .descriptor = request.metadata.descriptor,
+                       .progress = JobProgress{.state = JobState::kReady,
+                                               .completed_work_units = 0u,
+                                               .remaining_work_units =
+                                                   request.metadata.descriptor.total_work_units},
+                       .timestamp_ns = now_ns == 0u ? monotonic_ns() : now_ns,
+                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size())});
   pump();
   return JobSubmitResult::kAccepted;
 }
@@ -468,6 +503,20 @@ void JobWorkerPool::cancel_before(std::uint64_t session_id, std::uint64_t genera
     const LaneState state = slot.state.load(std::memory_order_acquire);
     if (state == LaneState::kRequested || state == LaneState::kRunning) {
       update_max(slot.cancel_generation, watermark->generation);
+      slot.preempted_ns.store(now_ns, std::memory_order_release);
+      const std::uint64_t remaining = slot.remaining_work_units.load(std::memory_order_acquire);
+      emit(slot.request.envelope.sequence,
+           JobEventDetails{.event = JobEventKind::kPreempted,
+                           .descriptor = slot.request.metadata.descriptor,
+                           .progress =
+                               JobProgress{.state = JobState::kRunning,
+                                           .completed_work_units =
+                                               slot.request.metadata.descriptor.total_work_units -
+                                               remaining,
+                                           .remaining_work_units = remaining},
+                           .timestamp_ns = now_ns,
+                           .related_generation = watermark->generation,
+                           .worker_index = static_cast<std::uint32_t>(index)});
     } else if (state == LaneState::kReady) {
       static_cast<void>(make_rejected_job_result(slot.result, slot.request, now_ns,
                                                  JobResultCode::kRejectedStale));
@@ -521,9 +570,23 @@ bool JobWorkerPool::dispatch_one(Slot& slot) noexcept
   slot.remaining_work_units.store(request.metadata.descriptor.total_work_units,
                                   std::memory_order_relaxed);
   slot.cancel_generation.store(0u, std::memory_order_relaxed);
+  slot.preempted_ns.store(0u, std::memory_order_relaxed);
   slot.dispatched_ns.store(dispatched_ns, std::memory_order_relaxed);
   slot.started_ns.store(0u, std::memory_order_relaxed);
   slot.finished_ns.store(0u, std::memory_order_relaxed);
+  slot.events_published = false;
+
+  emit(slot.request.envelope.sequence,
+       JobEventDetails{.event = JobEventKind::kDispatched,
+                       .descriptor = slot.request.metadata.descriptor,
+                       .progress =
+                           JobProgress{.state = JobState::kReady,
+                                       .completed_work_units = 0u,
+                                       .remaining_work_units =
+                                           slot.request.metadata.descriptor.total_work_units},
+                       .timestamp_ns = dispatched_ns,
+                       .worker_index = static_cast<std::uint32_t>(slot.index),
+                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size())});
 
   if (stale(slot.request)) {
     static_cast<void>(make_rejected_job_result(slot.result, slot.request, dispatched_ns,
@@ -582,6 +645,44 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
       ready_cursor_ = (index + 1uz) % slots_.size();
       pump();
       continue;
+    }
+    if (!slot.events_published) {
+      const std::uint64_t started_ns = slot.started_ns.load(std::memory_order_relaxed);
+      const std::uint64_t finished_ns = slot.finished_ns.load(std::memory_order_relaxed);
+      const std::uint64_t preempted_ns = slot.preempted_ns.load(std::memory_order_relaxed);
+      const JobResultCode code = job_result_code(slot.result);
+      if (!rejected(code)) {
+        emit(slot.request.envelope.sequence,
+             JobEventDetails{.event = JobEventKind::kStarted,
+                             .descriptor = slot.request.metadata.descriptor,
+                             .progress =
+                                 JobProgress{.state = JobState::kRunning,
+                                             .completed_work_units = 0u,
+                                             .remaining_work_units =
+                                                 slot.request.metadata.descriptor.total_work_units},
+                             .timestamp_ns = started_ns,
+                             .worker_index = static_cast<std::uint32_t>(index)});
+      }
+      const JobEventKind terminal_event =
+          code == JobResultCode::kComplete    ? JobEventKind::kCompleted
+          : code == JobResultCode::kCancelled ? JobEventKind::kCancelled
+          : rejected(code)                    ? JobEventKind::kRejected
+                                              : JobEventKind::kFailed;
+      emit(slot.result.envelope.sequence,
+           JobEventDetails{
+               .event = terminal_event,
+               .descriptor = slot.result.metadata.descriptor,
+               .progress = slot.result.metadata.progress,
+               .timestamp_ns = finished_ns,
+               .timing = JobEventTiming{.queue_ns =
+                                            elapsed(slot.request.metadata.timestamp_ns, started_ns),
+                                        .execution_ns = elapsed(started_ns, finished_ns),
+                                        .end_to_end_ns = elapsed(slot.request.metadata.timestamp_ns,
+                                                                 finished_ns),
+                                        .cancellation_ns = elapsed(preempted_ns, finished_ns)},
+               .worker_index = static_cast<std::uint32_t>(index),
+               .result_code = code});
+      slot.events_published = true;
     }
     ready_index_ = index;
     return &slot.result;

@@ -24,3 +24,4 @@ outside the lanes.
 - Deadline admission is disabled for an uncalibrated job kind.
 - The current daemon remains specific to FlowEdge condition/action messages; embedders own generic
   adapter registration and transport integration.
+- Optional lifecycle events flow into a caller-owned bounded buffer; ADR 0023 defines export.

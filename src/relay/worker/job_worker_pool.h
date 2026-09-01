@@ -1,6 +1,7 @@
 #pragma once
 
 #include "relay/jobs/job_registry.h"
+#include "relay/telemetry/job_event_buffer.h"
 #include "relay/worker/worker_topology.h"
 
 #include <atomic>
@@ -65,7 +66,8 @@ public:
   [[nodiscard]] static std::expected<JobWorkerPool, std::string> create(
       std::span<JobAdapterRegistry> lane_registries, std::size_t queue_capacity = 32uz,
       JobCostPolicy cost_policy = {}, std::size_t max_sessions = 64uz,
-      std::size_t work_quantum = 1uz, WorkerPlacement placement = WorkerPlacement::kNone) noexcept;
+      std::size_t work_quantum = 1uz, WorkerPlacement placement = WorkerPlacement::kNone,
+      JobEventBuffer* events = nullptr) noexcept;
 
   ~JobWorkerPool();
   JobWorkerPool(const JobWorkerPool&) = delete;
@@ -122,6 +124,7 @@ private:
   [[nodiscard]] bool has_session_capacity(std::uint64_t session_id) const noexcept;
   void publish_rejection(JobResultMessage* destination, const JobRequestMessage& request,
                          std::uint64_t now_ns, JobResultCode code) noexcept;
+  void emit(std::uint64_t sequence, const JobEventDetails& details) noexcept;
 
   std::vector<std::unique_ptr<Slot>> slots_{};
   std::vector<JobRequestMessage> queue_storage_{};
@@ -132,6 +135,7 @@ private:
   JobCostPolicy cost_policy_{};
   std::size_t work_quantum_{1uz};
   std::optional<std::size_t> ready_index_{};
+  JobEventBuffer* events_{};
   std::size_t dispatch_cursor_{};
   std::size_t ready_cursor_{};
   std::atomic<std::uint64_t> failure_count_{};

@@ -1,33 +1,39 @@
 # Roadmap
 
-## Done
+## Current stack
 
-- Mamba backbone with streaming decode.
-- Flow-matching head. Euler, Heun, RK4.
-- CPU kernels. AVX2, NEON, scalar.
-- BF16 weight storage with inline SIMD widening and adaptive threading.
-- C-ABI, Python module, find_package packaging.
-- Checkpoint converter.
-- ULP gate against PyTorch in CI.
-- Cooperative/resumable inference and portable streaming-state snapshots.
-- FlowEdge Relay: typed shared-memory client, EDF admission, cancellation, portable traces, and a
-  preallocated multi-worker pool.
-- Shared immutable checkpoint weights and compact/spread NUMA-aware Relay worker placement.
-- Worker-aware deadline admission over active and queued EDF lanes.
-- Fixed-memory Relay metrics with Prometheus, JSON, and OTLP/HTTP JSON export.
-- Generic allocation-free cooperative jobs, portable state capsules, and iterative, streaming, and
-  speculative workload adapters.
-- Generic variable-size request/result messages and frozen fixed-capacity adapter registration by
-  job kind, model digest, and state schema.
-- Bounded generic-job worker routing with session freshness and per-kind deadline calibration.
+| Layer | Complete |
+|---|---|
+| Core | Mamba, flow head, CPU kernels, BF16 weights, C/C++/Python APIs |
+| State | Resumable flow solving, Mamba snapshots, generic job capsules |
+| Relay service | Shared memory, EDF, cancellation, worker pool, placement |
+| Generic jobs | Contracts, routing, bounded lanes, per-kind admission |
+| Observability | Portable action/job traces; fixed-memory action/job metrics |
 
-## Next
+## Next sequence
 
-- Heads: Diffusion Policy, ACT, VQ-BeT, pi0.
-- Backbone: Transformer. Unlocks the transformer heads.
-- Weight traffic: per-node replication experiments and INT8. See
-  [ADR 0007](decisions/0007-roofline).
-- Relay: add job-aware traces and metrics, then add action-overlap policy.
-- Optional ROS 2, Zenoh, and inference-server adapters over the generic job contract.
-- Backends: CUDA, Tenstorrent.
-- Observation encoders, which every real vision policy needs before it runs end to end. See [ADR 0006](decisions/0006-obs-encoder-out-of-scope).
+```{mermaid}
+flowchart LR
+  T[Generic process transport] --> M[Streaming Mamba adapter]
+  M --> G[Worker draining + migration]
+  G --> A[Action overlap + safety gate]
+  A --> R[ROS 2 / Zenoh adapters]
+```
+
+| Order | Milestone | Why now |
+|---:|---|---|
+| 1 | Generic jobs across the daemon boundary | Makes the local job pool usable by other processes |
+| 2 | Streaming Mamba job adapter | First production model on the generic contract |
+| 3 | Worker draining and live migration | Enables maintenance and failure recovery |
+| 4 | Action overlap, freshness, final safety gate | Robotics-specific output policy |
+| 5 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
+
+## Parallel model/backend work
+
+| Track | Planned |
+|---|---|
+| Heads | Diffusion Policy, ACT, VQ-BeT, π0 |
+| Backbone | Transformer and KV cache |
+| Weight traffic | NUMA replication experiments, INT8 |
+| Backends | CUDA, Tenstorrent |
+| Perception | External observation-encoder integration |

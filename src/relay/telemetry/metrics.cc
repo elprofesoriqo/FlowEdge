@@ -77,6 +77,111 @@ void write_otlp_histogram(std::ostream& output, std::string_view name,
   first = false;
 }
 
+[[nodiscard]] constexpr std::size_t job_kind_index(JobKind kind) noexcept
+{
+  switch (kind) {
+  case JobKind::kIterative:
+    return 0uz;
+  case JobKind::kStreaming:
+    return 1uz;
+  case JobKind::kSpeculative:
+    return 2uz;
+  case JobKind::kUnknown:
+    break;
+  }
+  return 3uz;
+}
+
+[[nodiscard]] constexpr std::string_view job_kind_name(std::size_t index) noexcept
+{
+  constexpr std::array names{"iterative", "streaming", "speculative"};
+  return index < names.size() ? names[index] : "unknown";
+}
+
+void record_job_counters(JobMetricCounters& counters, const JobEventMessage& event) noexcept
+{
+  ++counters.events;
+  const JobEventMetadata& metadata = event.metadata;
+  switch (metadata.event) {
+  case JobEventKind::kAdmitted:
+    ++counters.admitted;
+    counters.queue_high_watermark =
+        std::max(counters.queue_high_watermark, static_cast<std::uint64_t>(metadata.queue_depth));
+    break;
+  case JobEventKind::kDispatched:
+    ++counters.dispatched;
+    break;
+  case JobEventKind::kStarted:
+    ++counters.started;
+    break;
+  case JobEventKind::kProgress:
+    ++counters.progress;
+    break;
+  case JobEventKind::kPreempted:
+    ++counters.preempted;
+    break;
+  case JobEventKind::kMigrationStarted:
+    ++counters.migrations_started;
+    break;
+  case JobEventKind::kMigrationCompleted:
+    ++counters.migrations_completed;
+    break;
+  case JobEventKind::kCompleted:
+    ++counters.completed;
+    break;
+  case JobEventKind::kCancelled:
+    ++counters.cancelled;
+    break;
+  case JobEventKind::kFailed:
+    ++counters.failed;
+    break;
+  case JobEventKind::kRejected:
+    ++counters.rejected;
+    switch (metadata.result_code) {
+    case JobResultCode::kRejectedStale:
+      ++counters.rejected_stale;
+      break;
+    case JobResultCode::kRejectedDeadline:
+      ++counters.rejected_deadline;
+      break;
+    case JobResultCode::kRejectedCapacity:
+      ++counters.rejected_capacity;
+      break;
+    case JobResultCode::kAdapterNotFound:
+      ++counters.adapter_not_found;
+      break;
+    case JobResultCode::kInvalidRequest:
+      ++counters.invalid_request;
+      break;
+    default:
+      break;
+    }
+    break;
+  }
+  if (metadata.event == JobEventKind::kCompleted || metadata.event == JobEventKind::kCancelled ||
+      metadata.event == JobEventKind::kFailed || metadata.event == JobEventKind::kRejected)
+    counters.completed_work_units =
+        saturating_add(counters.completed_work_units, metadata.progress.completed_work_units);
+}
+
+void write_job_kind_counter(std::ostream& output, std::string_view prefix, std::string_view name,
+                            std::string_view kind, std::uint64_t value)
+{
+  output << prefix << '_' << name << "{kind=\"" << kind << "\"} " << value << '\n';
+}
+
+void write_otlp_job_kind_sum(std::ostream& output, std::string_view name, std::string_view kind,
+                             std::uint64_t value, bool& first)
+{
+  output << (first ? "" : ",") << "{\"name\":\"flowedge.relay.job." << name
+         << "\",\"unit\":\"1\",\"sum\":{\"aggregationTemporality\":"
+            "\"AGGREGATION_TEMPORALITY_CUMULATIVE\",\"isMonotonic\":true,"
+            "\"dataPoints\":[{\"attributes\":[{\"key\":\"job.kind\",\"value\":{"
+            "\"stringValue\":\""
+         << kind << "\"}}],\"asInt\":\"" << value << "\"}]}}";
+  first = false;
+}
+
 } // namespace
 
 void LatencyHistogram::observe(std::uint64_t nanoseconds) noexcept
@@ -143,6 +248,42 @@ void RelayMetrics::observe_workers(std::size_t busy, std::uint64_t failures) noe
   counters_.busy_workers_high_watermark =
       std::max(counters_.busy_workers_high_watermark, static_cast<std::uint64_t>(busy));
   counters_.worker_failures = failures;
+}
+
+void JobMetrics::record(const JobEventMessage& event) noexcept
+{
+  if (validate(event) != ProtocolResult::kSuccess)
+    return;
+  record_job_counters(total_, event);
+  const std::size_t index = job_kind_index(event.metadata.descriptor.kind);
+  if (index < kinds_.size())
+    record_job_counters(kinds_[index], event);
+
+  const bool terminal =
+      event.metadata.event == JobEventKind::kCompleted ||
+      event.metadata.event == JobEventKind::kCancelled ||
+      event.metadata.event == JobEventKind::kFailed ||
+      (event.metadata.event == JobEventKind::kRejected && event.metadata.worker_index != kNoWorker);
+  if (terminal) {
+    queue_latency_.observe(event.metadata.timing.queue_ns);
+    execution_latency_.observe(event.metadata.timing.execution_ns);
+    end_to_end_latency_.observe(event.metadata.timing.end_to_end_ns);
+    if (event.metadata.timing.cancellation_ns != 0u)
+      cancellation_latency_.observe(event.metadata.timing.cancellation_ns);
+  }
+}
+
+void JobMetrics::observe_workers(std::size_t busy, std::uint64_t failures) noexcept
+{
+  total_.busy_workers_high_watermark =
+      std::max(total_.busy_workers_high_watermark, static_cast<std::uint64_t>(busy));
+  total_.worker_failures = failures;
+}
+
+const JobMetricCounters* JobMetrics::counters(JobKind kind) const noexcept
+{
+  const std::size_t index = job_kind_index(kind);
+  return index < kinds_.size() ? &kinds_[index] : nullptr;
 }
 
 void write_prometheus(std::ostream& output, const RelayMetrics& metrics, std::string_view prefix)
@@ -235,6 +376,114 @@ void write_otlp_json(std::ostream& output, const RelayMetrics& metrics,
   output << "]}]}]}\n";
 }
 
+void write_prometheus(std::ostream& output, const JobMetrics& metrics, std::string_view prefix)
+{
+  const JobMetricCounters& c = metrics.counters();
+  const std::array totals{
+      std::pair{"events_total", c.events},
+      std::pair{"admitted_total", c.admitted},
+      std::pair{"dispatched_total", c.dispatched},
+      std::pair{"started_total", c.started},
+      std::pair{"progress_total", c.progress},
+      std::pair{"completed_total", c.completed},
+      std::pair{"cancelled_total", c.cancelled},
+      std::pair{"failed_total", c.failed},
+      std::pair{"rejected_total", c.rejected},
+      std::pair{"rejected_stale_total", c.rejected_stale},
+      std::pair{"rejected_deadline_total", c.rejected_deadline},
+      std::pair{"rejected_capacity_total", c.rejected_capacity},
+      std::pair{"adapter_not_found_total", c.adapter_not_found},
+      std::pair{"invalid_request_total", c.invalid_request},
+      std::pair{"preempted_total", c.preempted},
+      std::pair{"migrations_started_total", c.migrations_started},
+      std::pair{"migrations_completed_total", c.migrations_completed},
+      std::pair{"completed_work_units_total", c.completed_work_units},
+      std::pair{"queue_high_watermark", c.queue_high_watermark},
+      std::pair{"busy_workers_high_watermark", c.busy_workers_high_watermark},
+      std::pair{"worker_failures_total", c.worker_failures},
+      std::pair{"events_dropped_total", c.events_dropped},
+  };
+  for (const auto& [name, value] : totals)
+    write_counter(output, prefix, name, value);
+  for (std::size_t index{}; index < 3uz; ++index) {
+    const JobMetricCounters* const kind = metrics.counters(static_cast<JobKind>(index + 1uz));
+    write_job_kind_counter(output, prefix, "completed_by_kind_total", job_kind_name(index),
+                           kind->completed);
+    write_job_kind_counter(output, prefix, "cancelled_by_kind_total", job_kind_name(index),
+                           kind->cancelled);
+    write_job_kind_counter(output, prefix, "failed_by_kind_total", job_kind_name(index),
+                           kind->failed);
+    write_job_kind_counter(output, prefix, "rejected_by_kind_total", job_kind_name(index),
+                           kind->rejected);
+    write_job_kind_counter(output, prefix, "completed_work_units_by_kind_total",
+                           job_kind_name(index), kind->completed_work_units);
+  }
+  write_histogram(output, prefix, "queue_latency_ns", metrics.queue_latency());
+  write_histogram(output, prefix, "execution_latency_ns", metrics.execution_latency());
+  write_histogram(output, prefix, "end_to_end_latency_ns", metrics.end_to_end_latency());
+  write_histogram(output, prefix, "cancellation_latency_ns", metrics.cancellation_latency());
+}
+
+void write_metrics_json(std::ostream& output, const JobMetrics& metrics)
+{
+  const JobMetricCounters& c = metrics.counters();
+  output << "{\"events\":" << c.events << ",\"admitted\":" << c.admitted
+         << ",\"dispatched\":" << c.dispatched << ",\"started\":" << c.started
+         << ",\"completed\":" << c.completed << ",\"cancelled\":" << c.cancelled
+         << ",\"failed\":" << c.failed << ",\"rejected\":" << c.rejected
+         << ",\"preempted\":" << c.preempted << ",\"migrations_started\":" << c.migrations_started
+         << ",\"migrations_completed\":" << c.migrations_completed
+         << ",\"completed_work_units\":" << c.completed_work_units
+         << ",\"events_dropped\":" << c.events_dropped << ",\"kinds\":{";
+  for (std::size_t index{}; index < 3uz; ++index) {
+    const JobMetricCounters* const kind = metrics.counters(static_cast<JobKind>(index + 1uz));
+    output << (index == 0uz ? "" : ",") << '\"' << job_kind_name(index)
+           << "\":{\"completed\":" << kind->completed << ",\"cancelled\":" << kind->cancelled
+           << ",\"failed\":" << kind->failed << ",\"rejected\":" << kind->rejected
+           << ",\"completed_work_units\":" << kind->completed_work_units << '}';
+  }
+  output << "},\"latency_ns\":{" << "\"queue\":{\"count\":" << metrics.queue_latency().count()
+         << ",\"sum\":" << metrics.queue_latency().sum_ns() << "},"
+         << "\"execution\":{\"count\":" << metrics.execution_latency().count()
+         << ",\"sum\":" << metrics.execution_latency().sum_ns() << "},"
+         << "\"end_to_end\":{\"count\":" << metrics.end_to_end_latency().count()
+         << ",\"sum\":" << metrics.end_to_end_latency().sum_ns() << "},"
+         << "\"cancellation\":{\"count\":" << metrics.cancellation_latency().count()
+         << ",\"sum\":" << metrics.cancellation_latency().sum_ns() << "}}}\n";
+}
+
+void write_otlp_json(std::ostream& output, const JobMetrics& metrics, std::string_view service_name)
+{
+  const JobMetricCounters& c = metrics.counters();
+  output << "{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":"
+            "\"service.name\",\"value\":{\"stringValue\":\""
+         << service_name
+         << "\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"flowedge.relay.jobs\"},"
+            "\"metrics\":[";
+  bool first{true};
+  write_otlp_sum(output, "job.events_total", c.events, first);
+  write_otlp_sum(output, "job.admitted_total", c.admitted, first);
+  write_otlp_sum(output, "job.completed_total", c.completed, first);
+  write_otlp_sum(output, "job.cancelled_total", c.cancelled, first);
+  write_otlp_sum(output, "job.failed_total", c.failed, first);
+  write_otlp_sum(output, "job.rejected_total", c.rejected, first);
+  write_otlp_sum(output, "job.preempted_total", c.preempted, first);
+  write_otlp_sum(output, "job.migrations_completed_total", c.migrations_completed, first);
+  write_otlp_sum(output, "job.completed_work_units_total", c.completed_work_units, first);
+  for (std::size_t index{}; index < 3uz; ++index) {
+    const JobMetricCounters* const kind = metrics.counters(static_cast<JobKind>(index + 1uz));
+    write_otlp_job_kind_sum(output, "completed_by_kind_total", job_kind_name(index),
+                            kind->completed, first);
+    write_otlp_job_kind_sum(output, "completed_work_units_by_kind_total", job_kind_name(index),
+                            kind->completed_work_units, first);
+  }
+  write_otlp_histogram(output, "job.queue_latency", metrics.queue_latency(), first);
+  write_otlp_histogram(output, "job.execution_latency", metrics.execution_latency(), first);
+  write_otlp_histogram(output, "job.end_to_end_latency", metrics.end_to_end_latency(), first);
+  write_otlp_histogram(output, "job.cancellation_latency", metrics.cancellation_latency(), first);
+  output << "]}]}]}\n";
+}
+
 std::expected<void, std::string> export_prometheus(std::string_view path,
                                                    const RelayMetrics& metrics) noexcept
 {
@@ -281,6 +530,51 @@ std::expected<void, std::string> export_otlp_json(std::string_view path,
     return {};
   } catch (...) {
     return std::unexpected("exception exporting OTLP JSON metrics");
+  }
+}
+
+std::expected<void, std::string> export_prometheus(std::string_view path,
+                                                   const JobMetrics& metrics) noexcept
+{
+  try {
+    std::ofstream output{std::string{path}, std::ios::trunc};
+    if (!output)
+      return std::unexpected("failed to open generic job Prometheus metrics file");
+    write_prometheus(output, metrics);
+    return output ? std::expected<void, std::string>{}
+                  : std::unexpected("failed to write generic job Prometheus metrics file");
+  } catch (...) {
+    return std::unexpected("exception exporting generic job Prometheus metrics");
+  }
+}
+
+std::expected<void, std::string> export_metrics_json(std::string_view path,
+                                                     const JobMetrics& metrics) noexcept
+{
+  try {
+    std::ofstream output{std::string{path}, std::ios::trunc};
+    if (!output)
+      return std::unexpected("failed to open generic job JSON metrics file");
+    write_metrics_json(output, metrics);
+    return output ? std::expected<void, std::string>{}
+                  : std::unexpected("failed to write generic job JSON metrics file");
+  } catch (...) {
+    return std::unexpected("exception exporting generic job JSON metrics");
+  }
+}
+
+std::expected<void, std::string> export_otlp_json(std::string_view path, const JobMetrics& metrics,
+                                                  std::string_view service_name) noexcept
+{
+  try {
+    std::ofstream output{std::string{path}, std::ios::trunc};
+    if (!output)
+      return std::unexpected("failed to open generic job OTLP JSON metrics file");
+    write_otlp_json(output, metrics, service_name);
+    return output ? std::expected<void, std::string>{}
+                  : std::unexpected("failed to write generic job OTLP JSON metrics file");
+  } catch (...) {
+    return std::unexpected("exception exporting generic job OTLP JSON metrics");
   }
 }
 

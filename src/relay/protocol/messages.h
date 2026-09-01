@@ -34,6 +34,7 @@ enum class MessageKind : std::uint16_t
   kShutdown = 3,
   kJobRequest = 4,
   kJobResult = 5,
+  kJobEvent = 6,
 };
 
 enum class RelayActionCode : std::uint32_t

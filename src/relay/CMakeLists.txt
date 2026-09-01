@@ -6,6 +6,7 @@ add_library(flowedge_relay STATIC
   protocol/trace.cc
   shared_memory/shared_memory_ring.cc
   scheduler/edf_scheduler.cc
+  telemetry/job_event_buffer.cc
   telemetry/metrics.cc
   worker/head_worker.cc
   worker/head_worker_pool.cc

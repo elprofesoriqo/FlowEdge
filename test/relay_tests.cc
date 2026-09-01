@@ -394,7 +394,10 @@ TEST(JobWorkerPool, RoutesJobsAcrossPreallocatedAdapterLanes)
   for (JobAdapterRegistry& registry : registries)
     registry.freeze();
 
-  auto created = JobWorkerPool::create(registries, 4uz, {}, 4uz, 1uz, WorkerPlacement::kSpread);
+  auto events = JobEventBuffer::create(16uz);
+  ASSERT_TRUE(events) << events.error();
+  auto created =
+      JobWorkerPool::create(registries, 4uz, {}, 4uz, 1uz, WorkerPlacement::kSpread, &*events);
   ASSERT_TRUE(created) << created.error();
   JobWorkerPool pool = std::move(*created);
 
@@ -437,6 +440,21 @@ TEST(JobWorkerPool, RoutesJobsAcrossPreallocatedAdapterLanes)
   EXPECT_EQ(pool.failure_count(), 0u);
   EXPECT_EQ(pool.busy_count(), 0uz);
   EXPECT_EQ(pool.queued_count(), 0uz);
+  JobMetrics metrics{};
+  while (const JobEventMessage* event = events->front()) {
+    EXPECT_EQ(validate(*event), ProtocolResult::kSuccess);
+    metrics.record(*event);
+    events->pop();
+  }
+  EXPECT_EQ(metrics.counters().events, 8u);
+  EXPECT_EQ(metrics.counters().admitted, 2u);
+  EXPECT_EQ(metrics.counters().dispatched, 2u);
+  EXPECT_EQ(metrics.counters().started, 2u);
+  EXPECT_EQ(metrics.counters().completed, 2u);
+  EXPECT_EQ(metrics.counters().completed_work_units, 8u);
+  ASSERT_NE(metrics.counters(JobKind::kIterative), nullptr);
+  EXPECT_EQ(metrics.counters(JobKind::kIterative)->completed, 2u);
+  EXPECT_EQ(events->dropped(), 0u);
   EXPECT_TRUE(pool.release_session(first_descriptor.session_id));
   EXPECT_TRUE(pool.release_session(second_descriptor.session_id));
 }
@@ -511,6 +529,126 @@ TEST(JobWorkerPool, AppliesPerKindAdmissionAndSessionFreshness)
             ProtocolResult::kSuccess);
   EXPECT_EQ(pool.submit(*request_message, 0u, rejection.get()), JobSubmitResult::kAdapterNotFound);
   EXPECT_EQ(job_result_code(*rejection), JobResultCode::kAdapterNotFound);
+}
+
+TEST(JobEvents, BuffersValidatedLifecycleRecordsWithoutGrowth)
+{
+  JobDescriptor descriptor = test_job_descriptor(9u);
+  descriptor.kind = JobKind::kStreaming;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = 4u;
+  JobEventMessage admitted{};
+  ASSERT_EQ(make_job_event(admitted, 301u,
+                           JobEventDetails{.event = JobEventKind::kAdmitted,
+                                           .descriptor = descriptor,
+                                           .progress = JobProgress{.state = JobState::kReady,
+                                                                   .completed_work_units = 0u,
+                                                                   .remaining_work_units = 4u},
+                                           .timestamp_ns = 1'000u,
+                                           .queue_depth = 1u}),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(validate(admitted), ProtocolResult::kSuccess);
+
+  auto created = JobEventBuffer::create(1uz);
+  ASSERT_TRUE(created) << created.error();
+  EXPECT_EQ(created->try_push(admitted), JobEventBufferResult::kSuccess);
+  EXPECT_EQ(created->try_push(admitted), JobEventBufferResult::kFull);
+  EXPECT_EQ(created->size(), 1uz);
+  EXPECT_EQ(created->dropped(), 1u);
+  ASSERT_NE(created->front(), nullptr);
+  EXPECT_EQ(created->front()->metadata.event, JobEventKind::kAdmitted);
+  created->pop();
+  EXPECT_TRUE(created->empty());
+
+  admitted.metadata.reserved = 1u;
+  EXPECT_EQ(created->try_push(admitted), JobEventBufferResult::kInvalid);
+  EXPECT_EQ(created->dropped(), 1u);
+}
+
+TEST(JobMetrics, RecordsKindsProgressPreemptionMigrationAndLatency)
+{
+  JobDescriptor descriptor = test_job_descriptor(10u);
+  descriptor.kind = JobKind::kStreaming;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = 4u;
+  JobMetrics metrics{};
+  const auto record = [&](const JobEventDetails& details) {
+    JobEventMessage event{};
+    EXPECT_EQ(make_job_event(event, 401u, details), ProtocolResult::kSuccess);
+    metrics.record(event);
+  };
+  record(JobEventDetails{.event = JobEventKind::kAdmitted,
+                         .descriptor = descriptor,
+                         .progress = JobProgress{.state = JobState::kReady,
+                                                 .completed_work_units = 0u,
+                                                 .remaining_work_units = 4u},
+                         .timestamp_ns = 1'000u,
+                         .queue_depth = 3u});
+  record(JobEventDetails{.event = JobEventKind::kPreempted,
+                         .descriptor = descriptor,
+                         .progress = JobProgress{.state = JobState::kRunning,
+                                                 .completed_work_units = 1u,
+                                                 .remaining_work_units = 3u},
+                         .timestamp_ns = 1'020u,
+                         .related_generation = descriptor.generation + 1u,
+                         .worker_index = 0u});
+  record(JobEventDetails{.event = JobEventKind::kMigrationStarted,
+                         .descriptor = descriptor,
+                         .progress = JobProgress{.state = JobState::kRunning,
+                                                 .completed_work_units = 1u,
+                                                 .remaining_work_units = 3u},
+                         .timestamp_ns = 1'030u,
+                         .worker_index = 0u,
+                         .peer_worker_index = 1u});
+  record(JobEventDetails{.event = JobEventKind::kMigrationCompleted,
+                         .descriptor = descriptor,
+                         .progress = JobProgress{.state = JobState::kRunning,
+                                                 .completed_work_units = 1u,
+                                                 .remaining_work_units = 3u},
+                         .timestamp_ns = 1'040u,
+                         .worker_index = 1u,
+                         .peer_worker_index = 0u});
+  record(JobEventDetails{.event = JobEventKind::kCompleted,
+                         .descriptor = descriptor,
+                         .progress = JobProgress{.state = JobState::kComplete,
+                                                 .completed_work_units = 4u,
+                                                 .remaining_work_units = 0u},
+                         .timestamp_ns = 1'100u,
+                         .timing = JobEventTiming{.queue_ns = 10u,
+                                                  .execution_ns = 80u,
+                                                  .end_to_end_ns = 100u,
+                                                  .cancellation_ns = 70u},
+                         .worker_index = 1u,
+                         .result_code = JobResultCode::kComplete});
+  metrics.observe_workers(2uz, 1u);
+  metrics.record_event_drops(2u);
+
+  EXPECT_EQ(metrics.counters().events, 5u);
+  EXPECT_EQ(metrics.counters().preempted, 1u);
+  EXPECT_EQ(metrics.counters().migrations_completed, 1u);
+  EXPECT_EQ(metrics.counters().completed_work_units, 4u);
+  EXPECT_EQ(metrics.counters().queue_high_watermark, 3u);
+  EXPECT_EQ(metrics.counters().busy_workers_high_watermark, 2u);
+  EXPECT_EQ(metrics.counters().events_dropped, 2u);
+  ASSERT_NE(metrics.counters(JobKind::kStreaming), nullptr);
+  EXPECT_EQ(metrics.counters(JobKind::kStreaming)->completed, 1u);
+  EXPECT_EQ(metrics.queue_latency().sum_ns(), 10u);
+  EXPECT_EQ(metrics.execution_latency().sum_ns(), 80u);
+  EXPECT_EQ(metrics.end_to_end_latency().sum_ns(), 100u);
+  EXPECT_EQ(metrics.cancellation_latency().sum_ns(), 70u);
+
+  std::ostringstream prometheus{};
+  write_prometheus(prometheus, metrics);
+  EXPECT_NE(prometheus.str().find(
+                "flowedge_relay_job_completed_by_kind_total{kind=\"streaming\"} 1"),
+            std::string::npos);
+  std::ostringstream json{};
+  write_metrics_json(json, metrics);
+  EXPECT_NE(json.str().find("\"streaming\":{\"completed\":1"), std::string::npos);
+  std::ostringstream otlp{};
+  write_otlp_json(otlp, metrics);
+  EXPECT_NE(otlp.str().find("\"job.kind\""), std::string::npos);
+  EXPECT_NE(otlp.str().find("flowedge.relay.job.execution_latency"), std::string::npos);
 }
 
 TEST(CooperativeJob, MigratesIterativeStateBitExactly)
@@ -767,12 +905,47 @@ TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
   action.envelope.struct_size = static_cast<std::uint32_t>(wire_size(action));
   action.action[0] = 0.5f;
 
+  JobDescriptor descriptor = test_job_descriptor(11u);
+  descriptor.kind = JobKind::kIterative;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = 2u;
+  std::array<std::byte, sizeof(std::uint64_t)> job_payload{};
+  StateWriter payload_writer{job_payload};
+  ASSERT_TRUE(payload_writer.write(std::uint64_t{42u}));
+  auto job_request = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*job_request, 80u, descriptor, 1'000u, job_payload),
+            ProtocolResult::kSuccess);
+  auto job_result = std::make_unique<JobResultMessage>();
+  ASSERT_EQ(make_job_result(*job_result, 80u, descriptor,
+                            JobProgress{.state = JobState::kComplete,
+                                        .completed_work_units = 2u,
+                                        .remaining_work_units = 0u},
+                            1'100u, JobResultCode::kComplete, job_payload),
+            ProtocolResult::kSuccess);
+  JobEventMessage job_event{};
+  ASSERT_EQ(make_job_event(job_event, 80u,
+                           JobEventDetails{.event = JobEventKind::kCompleted,
+                                           .descriptor = descriptor,
+                                           .progress = JobProgress{.state = JobState::kComplete,
+                                                                   .completed_work_units = 2u,
+                                                                   .remaining_work_units = 0u},
+                                           .timestamp_ns = 1'100u,
+                                           .timing = JobEventTiming{.queue_ns = 10u,
+                                                                    .execution_ns = 80u,
+                                                                    .end_to_end_ns = 100u},
+                                           .worker_index = 1u,
+                                           .result_code = JobResultCode::kComplete}),
+            ProtocolResult::kSuccess);
+
   {
     auto opened = TraceWriter::open(path.string().c_str());
     ASSERT_TRUE(opened) << opened.error();
     TraceWriter writer = std::move(*opened);
     ASSERT_TRUE(writer.append(condition));
     ASSERT_TRUE(writer.append(action));
+    ASSERT_TRUE(writer.append(*job_request));
+    ASSERT_TRUE(writer.append(*job_result));
+    ASSERT_TRUE(writer.append(job_event));
     writer.flush();
   }
 
@@ -814,6 +987,26 @@ TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
   EXPECT_EQ((*second)->sequence, 7u);
   ASSERT_EQ((*second)->message.size(), wire_size(action));
   EXPECT_EQ(std::memcmp((*second)->message.data(), &action, wire_size(action)), 0);
+  const auto third = reader.next();
+  ASSERT_TRUE(third);
+  ASSERT_TRUE(*third);
+  EXPECT_EQ((*third)->kind, MessageKind::kJobRequest);
+  ASSERT_EQ((*third)->message.size(), wire_size(*job_request));
+  EXPECT_EQ(std::memcmp((*third)->message.data(), job_request.get(), wire_size(*job_request)), 0);
+
+  const auto fourth = reader.next();
+  ASSERT_TRUE(fourth);
+  ASSERT_TRUE(*fourth);
+  EXPECT_EQ((*fourth)->kind, MessageKind::kJobResult);
+  ASSERT_EQ((*fourth)->message.size(), wire_size(*job_result));
+  EXPECT_EQ(std::memcmp((*fourth)->message.data(), job_result.get(), wire_size(*job_result)), 0);
+
+  const auto fifth = reader.next();
+  ASSERT_TRUE(fifth);
+  ASSERT_TRUE(*fifth);
+  EXPECT_EQ((*fifth)->kind, MessageKind::kJobEvent);
+  ASSERT_EQ((*fifth)->message.size(), sizeof(job_event));
+  EXPECT_EQ(std::memcmp((*fifth)->message.data(), &job_event, sizeof(job_event)), 0);
   const auto eof = reader.next();
   ASSERT_TRUE(eof);
   EXPECT_FALSE(*eof);

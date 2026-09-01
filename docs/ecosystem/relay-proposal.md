@@ -61,10 +61,9 @@ The current MVP provides:
 - validated variable-size generic job request/result messages; and
 - frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema.
 
-Generic messages and registered adapters are not yet dispatched by `flowedge-relayd`; connecting them
-to its worker pool, action-overlap policies, and concrete ROS 2, Zenoh, and inference-server adapters
-remain later milestones. They should be justified by real traces rather than expanding the hot-path
-dependency footprint speculatively.
+Generic jobs now emit bounded lifecycle records and fixed-cardinality metrics. They are not yet
+dispatched by `flowedge-relayd`; process transport, a production model adapter, and action-overlap
+policy are the next milestones.
 
 ## Repository boundary
 
@@ -170,7 +169,8 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
 
 The runtime-neutral job layer has no model or transport dependency beyond Relay. `JobWorkerPool`
-routes registered adapters through bounded EDF lanes with per-kind work costs. The examples cover
+routes registered adapters through bounded EDF lanes with per-kind work costs and lifecycle events.
+The examples cover
 migration, streaming cancellation, speculative classification, and queued execution:
 
 ```bash

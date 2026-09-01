@@ -102,8 +102,8 @@ single-worker and multi-worker paths. The daemon accepts `--workers 1..8` indepe
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
 Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
 `cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
-`routed_job_sample` demonstrates typed request/result messages and bounded adapter lookup; and
-`flowedge_cooperative_job_bench` enforces zero allocations across both paths.
+`routed_job_sample` demonstrates bounded adapter lanes and lifecycle metrics; and
+`flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>

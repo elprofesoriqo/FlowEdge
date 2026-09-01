@@ -106,7 +106,7 @@ serving framework.
 - [x] Route registered job adapters through a bounded preallocated worker pool and multi-lane admission model.
 - [x] Add bounded adapter registration with stable model/schema identity.
 - [x] Add per-kind work-cost calibration rather than assuming one NFE cost.
-- [ ] Extend traces and metrics with job kind, schema, work progress, migration, and preemption events.
+- [x] Extend traces and metrics with job kind, schema, work progress, migration, and preemption events.
 
 ### Robotics adapters
 
@@ -204,6 +204,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADR 0020: generic cooperative jobs and portable capsules.
 - ADR 0021: generic job messages and frozen adapter registration.
 - ADR 0022: bounded generic-job worker routing and per-kind admission.
+- ADR 0023: bounded generic-job events, portable traces, and fixed-cardinality metrics.
 
 ## Development branch
 

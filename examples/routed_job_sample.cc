@@ -1,19 +1,31 @@
 #include "relay/adapters/routed_adapters.h"
 #include "relay/jobs/state_codec.h"
+#include "relay/protocol/trace.h"
+#include "relay/telemetry/metrics.h"
 #include "relay/worker/job_worker_pool.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <span>
 #include <thread>
 
 namespace {
 
 using namespace fe::relay;
+
+[[nodiscard]] std::uint64_t monotonic_ns() noexcept
+{
+  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch())
+                                        .count());
+}
 
 struct RefinementBackend
 {
@@ -102,15 +114,32 @@ struct RefinementBackend
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+  if (argc > 2) {
+    std::cerr << "usage: routed_job_sample [trace-file]\n";
+    return 2;
+  }
+  std::optional<TraceWriter> trace{};
+  std::unique_ptr<JobResultMessage> trace_result{};
+  if (argc == 2) {
+    auto opened = TraceWriter::open(argv[1]);
+    if (!opened) {
+      std::cerr << opened.error() << '\n';
+      return 1;
+    }
+    trace.emplace(std::move(*opened));
+    trace_result = std::make_unique<JobResultMessage>();
+  }
+
   std::array<std::byte, sizeof(std::uint64_t)> input{};
   StateWriter input_writer{input};
   if (!input_writer.write(std::uint64_t{5u}))
     return 1;
 
   auto request = std::make_unique<JobRequestMessage>();
-  if (make_job_request(*request, 1u, descriptor(), 100u, input) != ProtocolResult::kSuccess)
+  const std::uint64_t submitted_ns = monotonic_ns();
+  if (make_job_request(*request, 1u, descriptor(), submitted_ns, input) != ProtocolResult::kSuccess)
     return 1;
 
   RefinementBackend backend{};
@@ -122,11 +151,16 @@ int main()
   registry.freeze();
 
   std::array<JobAdapterRegistry, 1> lanes{registry};
-  auto created = JobWorkerPool::create(lanes, 4uz, {}, 4uz, 2uz);
+  auto events = JobEventBuffer::create(8uz);
+  if (!events)
+    return 1;
+  auto created = JobWorkerPool::create(lanes, 4uz, {}, 4uz, 2uz, WorkerPlacement::kNone, &*events);
   if (!created)
     return 1;
   JobWorkerPool pool = std::move(*created);
-  if (pool.submit(*request) != JobSubmitResult::kAccepted)
+  if (trace && !trace->append(*request))
+    return 1;
+  if (pool.submit(*request, submitted_ns) != JobSubmitResult::kAccepted)
     return 1;
 
   const JobResultMessage* result{};
@@ -141,11 +175,30 @@ int main()
   const auto value = result_reader.read<std::uint64_t>();
   if (!value)
     return 1;
+  if (trace_result)
+    std::memcpy(trace_result.get(), result, wire_size(*result));
 
   std::cout << "route=iterative sequence=" << result->envelope.sequence
             << " outcome=" << to_string(job_result_code(*result))
             << " completed=" << result->metadata.progress.completed_work_units
-            << " result=" << *value << '\n';
+            << " result=" << *value;
   pool.release_ready_result();
-  return pool.release_session(descriptor().session_id) ? 0 : 1;
+  JobMetrics metrics{};
+  while (const JobEventMessage* event = events->front()) {
+    metrics.record(*event);
+    if (trace && !trace->append(*event))
+      return 1;
+    events->pop();
+  }
+  if (trace && !trace->append(*trace_result))
+    return 1;
+  if (trace)
+    trace->flush();
+  std::cout << " events=" << metrics.counters().events
+            << " work_units=" << metrics.counters().completed_work_units;
+  if (argc == 2)
+    std::cout << " trace=" << argv[1];
+  std::cout << '\n';
+  return pool.release_session(descriptor().session_id) && metrics.counters().completed == 1u ? 0
+                                                                                             : 1;
 }
