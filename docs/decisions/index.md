@@ -27,4 +27,5 @@ A pull request that makes an architectural choice adds an ADR.
 0019-fixed-memory-relay-metrics
 0020-generic-cooperative-jobs
 0021-generic-job-routing-contract
+0022-generic-job-worker-pool
 ```

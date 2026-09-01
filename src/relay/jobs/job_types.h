@@ -85,8 +85,7 @@ struct JobError
 {
   if (!valid_job_state(progress.state) ||
       progress.completed_work_units > descriptor.total_work_units ||
-      progress.remaining_work_units !=
-          descriptor.total_work_units - progress.completed_work_units)
+      progress.remaining_work_units != descriptor.total_work_units - progress.completed_work_units)
     return false;
   if (progress.state == JobState::kReady)
     return progress.completed_work_units == 0u;

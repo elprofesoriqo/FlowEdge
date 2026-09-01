@@ -1,10 +1,12 @@
 #include "api/engine.h"
 #include "relay/adapters/routed_adapters.h"
 #include "relay/scheduler/edf_scheduler.h"
+#include "relay/worker/job_worker_pool.h"
 
 #include <array>
 #include <cstddef>
 #include <span>
+#include <thread>
 
 namespace {
 
@@ -59,8 +61,22 @@ int main()
   if (!routed || !routed->start())
     return 1;
   const auto routed_complete = routed->advance(1uz);
-  return scheduler.capacity() == 1uz && complete && routed_complete &&
-                 complete->state == fe::relay::JobState::kComplete &&
+  std::array<fe::relay::JobAdapterRegistry, 1> lanes{registry};
+  auto created = fe::relay::JobWorkerPool::create(lanes, 1uz, {}, 1uz);
+  if (!created || created->submit(request) != fe::relay::JobSubmitResult::kAccepted)
+    return 1;
+  const fe::relay::JobResultMessage* pooled{};
+  while (pooled == nullptr) {
+    pooled = created->ready_result();
+    if (pooled == nullptr)
+      std::this_thread::yield();
+  }
+  const bool pooled_complete =
+      fe::relay::job_result_code(*pooled) == fe::relay::JobResultCode::kComplete;
+  created->release_ready_result();
+  const bool session_released = created->release_session(descriptor.session_id);
+  return scheduler.capacity() == 1uz && complete && routed_complete && pooled_complete &&
+                 session_released && complete->state == fe::relay::JobState::kComplete &&
                  routed_complete->state == fe::relay::JobState::kComplete
              ? 0
              : 1;

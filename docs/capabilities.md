@@ -87,11 +87,13 @@ engines for independent sessions.
   work progress.
 - Build validated variable-size job requests/results and resolve them through a frozen,
   caller-provisioned adapter registry.
+- Route generic jobs through a bounded EDF queue and 1–8 preallocated adapter lanes.
+- Calibrate iterative, streaming, and speculative work-unit costs independently.
 
 Generic messages already traverse the checksummed shared-memory ring, and `JobAdapterRegistry` binds
-them to pre-provisioned execution lanes without allocation. The existing daemon still serves only the
-FlowEdge action-head protocol; connecting generic registry entries to its worker pool and admission
-loop is the next systems milestone.
+them to pre-provisioned execution lanes without allocation. `JobWorkerPool` adds bounded queueing,
+session freshness, cooperative cancellation, typed rejection, and per-kind deadline admission. The
+existing daemon still serves only the FlowEdge action-head protocol.
 
 ### Local inference service
 

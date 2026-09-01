@@ -1,9 +1,11 @@
 # Performance
 
-Measured 2026-08-31 on an Intel i7-9750H (6C/12T), Release. Comparisons use one CPU thread and
-PyTorch 2.13 CPU. Lower latency is better.
+Intel i7-9750H (6C/12T), Release. Comparisons use one CPU thread and PyTorch 2.13 CPU. Lower latency
+is better.
 
 ## FlowEdge vs PyTorch
+
+Measured 2026-08-31.
 
 ### Backbone forward
 
@@ -54,7 +56,7 @@ Windows PowerShell:
 
 ## Relay
 
-Smoke checkpoint, Heun 6 steps, 5,000 requests.
+Measured 2026-08-31. Smoke checkpoint, Heun 6 steps, 5,000 requests.
 
 | Benchmark | Windows | Linux |
 |---|---:|---:|
@@ -80,12 +82,13 @@ Windows PowerShell:
 
 ## Cooperative jobs
 
-One million tiny counter jobs; framework overhead only.
+Measured 2026-09-01. One million tiny counter jobs; framework overhead only.
 
 | Benchmark | Windows | Linux |
 |---|---:|---:|
-| Migrate and finish | 179.23 ns/job | 306.52 ns/job |
-| Route, run, and return | 85.86 ns/job | 92.51 ns/job |
+| Migrate and finish | 168.87 ns/job | 242.33 ns/job |
+| Direct route, run, and return | 79.18 ns/job | 78.97 ns/job |
+| EDF pool route, run, and return | 2.26 us/job | 2.29 us/job |
 
 Linux:
 

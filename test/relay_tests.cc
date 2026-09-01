@@ -9,6 +9,7 @@
 #include "relay/telemetry/metrics.h"
 #include "relay/worker/head_worker.h"
 #include "relay/worker/head_worker_pool.h"
+#include "relay/worker/job_worker_pool.h"
 
 #include <array>
 #include <chrono>
@@ -369,6 +370,147 @@ TEST(GenericJobRouting, ValidatesMessagesAndRoutesThroughFrozenRegistry)
             RingResult::kSuccess);
   EXPECT_EQ(received_bytes, wire_size(*result_message));
   EXPECT_EQ(validate(*received_result), ProtocolResult::kSuccess);
+}
+
+TEST(JobWorkerPool, RoutesJobsAcrossPreallocatedAdapterLanes)
+{
+  JobDescriptor first_descriptor = test_job_descriptor(7u);
+  first_descriptor.kind = JobKind::kIterative;
+  first_descriptor.deadline_ns = 0u;
+  first_descriptor.total_work_units = TestRoutedBackend::kTotalSteps;
+  JobDescriptor second_descriptor = first_descriptor;
+  second_descriptor.session_id += 1u;
+
+  TestRoutedBackend first_backend{};
+  TestRoutedBackend second_backend{};
+  std::array<JobAdapterRegistration, 1> first_entries{};
+  std::array<JobAdapterRegistration, 1> second_entries{};
+  std::array<JobAdapterRegistry, 2> registries{JobAdapterRegistry{first_entries},
+                                               JobAdapterRegistry{second_entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(first_backend, job_route(first_descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  ASSERT_TRUE(registries[1].add(make_routed_adapter(second_backend, job_route(first_descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  for (JobAdapterRegistry& registry : registries)
+    registry.freeze();
+
+  auto created = JobWorkerPool::create(registries, 4uz, {}, 4uz, 1uz, WorkerPlacement::kSpread);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+
+  std::array<std::byte, sizeof(std::uint64_t)> first_input{};
+  std::array<std::byte, sizeof(std::uint64_t)> second_input{};
+  StateWriter first_writer{first_input};
+  StateWriter second_writer{second_input};
+  ASSERT_TRUE(first_writer.write(std::uint64_t{5u}));
+  ASSERT_TRUE(second_writer.write(std::uint64_t{11u}));
+  auto first_request = std::make_unique<JobRequestMessage>();
+  auto second_request = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*first_request, 101u, first_descriptor, 0u, first_input),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(make_job_request(*second_request, 102u, second_descriptor, 0u, second_input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(pool.submit(*first_request), JobSubmitResult::kAccepted);
+  EXPECT_EQ(pool.submit(*second_request), JobSubmitResult::kAccepted);
+
+  std::array<bool, 2> received{};
+  std::size_t completed{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (completed < received.size() && std::chrono::steady_clock::now() < timeout) {
+    const JobResultMessage* const result = pool.ready_result();
+    if (result == nullptr) {
+      std::this_thread::yield();
+      continue;
+    }
+    ASSERT_EQ(validate(*result), ProtocolResult::kSuccess);
+    EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+    EXPECT_EQ(result->metadata.progress.completed_work_units, TestRoutedBackend::kTotalSteps);
+    ASSERT_GE(result->envelope.sequence, 101u);
+    ASSERT_LE(result->envelope.sequence, 102u);
+    const std::size_t index = static_cast<std::size_t>(result->envelope.sequence - 101u);
+    EXPECT_FALSE(received[index]);
+    received[index] = true;
+    ++completed;
+    pool.release_ready_result();
+  }
+  EXPECT_EQ(completed, received.size());
+  EXPECT_EQ(pool.failure_count(), 0u);
+  EXPECT_EQ(pool.busy_count(), 0uz);
+  EXPECT_EQ(pool.queued_count(), 0uz);
+  EXPECT_TRUE(pool.release_session(first_descriptor.session_id));
+  EXPECT_TRUE(pool.release_session(second_descriptor.session_id));
+}
+
+TEST(JobWorkerPool, AppliesPerKindAdmissionAndSessionFreshness)
+{
+  JobDescriptor descriptor = test_job_descriptor(8u);
+  descriptor.kind = JobKind::kIterative;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = TestRoutedBackend::kTotalSteps;
+  TestRoutedBackend backend{};
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(backend, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  registries[0].freeze();
+  auto created = JobWorkerPool::create(registries, 2uz,
+                                       JobCostPolicy{.iterative_ns = 100u,
+                                                     .streaming_ns = 10u,
+                                                     .speculative_ns = 20u},
+                                       2uz);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter writer{input};
+  ASSERT_TRUE(writer.write(std::uint64_t{3u}));
+  auto request_message = std::make_unique<JobRequestMessage>();
+  auto rejection = std::make_unique<JobResultMessage>();
+  constexpr std::uint64_t now_ns = 1'000u;
+  descriptor.deadline_ns = 0u;
+  ASSERT_EQ(make_job_request(*request_message, 200u, descriptor, now_ns, input),
+            ProtocolResult::kSuccess);
+  request_message->envelope.magic = 0u;
+  EXPECT_EQ(pool.submit(*request_message, now_ns, rejection.get()), JobSubmitResult::kInvalid);
+  EXPECT_EQ(validate(*rejection), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*rejection), JobResultCode::kInvalidRequest);
+
+  descriptor.deadline_ns = now_ns + 399u;
+  ASSERT_EQ(make_job_request(*request_message, 201u, descriptor, now_ns, input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(pool.submit(*request_message, now_ns, rejection.get()),
+            JobSubmitResult::kDeadlineUnreachable);
+  EXPECT_EQ(validate(*rejection), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*rejection), JobResultCode::kRejectedDeadline);
+
+  descriptor.deadline_ns = 0u;
+  ASSERT_EQ(make_job_request(*request_message, 202u, descriptor, 0u, input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(pool.submit(*request_message), JobSubmitResult::kAccepted);
+  EXPECT_FALSE(pool.release_session(descriptor.session_id));
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  const JobResultMessage* completed{};
+  while (completed == nullptr && std::chrono::steady_clock::now() < timeout) {
+    completed = pool.ready_result();
+    if (completed == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(completed, nullptr);
+  EXPECT_EQ(job_result_code(*completed), JobResultCode::kComplete);
+  pool.release_ready_result();
+
+  --descriptor.generation;
+  ASSERT_EQ(make_job_request(*request_message, 203u, descriptor, 0u, input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(pool.submit(*request_message, 0u, rejection.get()), JobSubmitResult::kStale);
+  EXPECT_EQ(job_result_code(*rejection), JobResultCode::kRejectedStale);
+
+  descriptor.generation += 2u;
+  ++descriptor.state_schema;
+  ASSERT_EQ(make_job_request(*request_message, 204u, descriptor, 0u, input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(pool.submit(*request_message, 0u, rejection.get()), JobSubmitResult::kAdapterNotFound);
+  EXPECT_EQ(job_result_code(*rejection), JobResultCode::kAdapterNotFound);
 }
 
 TEST(CooperativeJob, MigratesIterativeStateBitExactly)

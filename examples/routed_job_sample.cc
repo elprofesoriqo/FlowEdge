@@ -1,5 +1,6 @@
 #include "relay/adapters/routed_adapters.h"
 #include "relay/jobs/state_codec.h"
+#include "relay/worker/job_worker_pool.h"
 
 #include <algorithm>
 #include <array>
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <memory>
 #include <span>
+#include <thread>
 
 namespace {
 
@@ -119,13 +121,21 @@ int main()
     return 1;
   registry.freeze();
 
-  auto routed = registry.bind(*request);
-  if (!routed || !routed->start() || !routed->advance(2uz) || !routed->advance(2uz))
+  std::array<JobAdapterRegistry, 1> lanes{registry};
+  auto created = JobWorkerPool::create(lanes, 4uz, {}, 4uz, 2uz);
+  if (!created)
+    return 1;
+  JobWorkerPool pool = std::move(*created);
+  if (pool.submit(*request) != JobSubmitResult::kAccepted)
     return 1;
 
-  auto result = std::make_unique<JobResultMessage>();
-  if (routed->write_result(*result, 200u) != ProtocolResult::kSuccess ||
-      validate(*result) != ProtocolResult::kSuccess)
+  const JobResultMessage* result{};
+  while (result == nullptr) {
+    result = pool.ready_result();
+    if (result == nullptr)
+      std::this_thread::yield();
+  }
+  if (validate(*result) != ProtocolResult::kSuccess)
     return 1;
   StateReader result_reader{result->payload_values()};
   const auto value = result_reader.read<std::uint64_t>();
@@ -136,5 +146,6 @@ int main()
             << " outcome=" << to_string(job_result_code(*result))
             << " completed=" << result->metadata.progress.completed_work_units
             << " result=" << *value << '\n';
-  return 0;
+  pool.release_ready_result();
+  return pool.release_session(descriptor().session_id) ? 0 : 1;
 }

@@ -34,5 +34,5 @@ Freezing must happen before publishing the registry to worker threads.
 - Route lookup, binding, execution, and result creation allocate no heap memory after setup.
 - Large tensors should normally remain in backend-owned or out-of-band memory; increasing the fixed
   inline payload also increases the maximum ring-slot footprint.
-- The current daemon does not consume generic message kinds yet. Pool dispatch, per-kind admission,
-  traces, and metrics remain the next integration step.
+- ADR 0022 adds pool dispatch and per-kind admission. The current daemon remains specific to flow
+  messages; job-aware traces, metrics, and optional transports remain follow-up integrations.

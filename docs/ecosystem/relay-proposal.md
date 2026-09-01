@@ -169,9 +169,9 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 
 The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
 
-The runtime-neutral job layer has no model or transport dependency beyond Relay. Its example performs
-a partial iterative run, exports canonical state, restores it into a second instance, and also covers
-streaming cancellation and speculative classification:
+The runtime-neutral job layer has no model or transport dependency beyond Relay. `JobWorkerPool`
+routes registered adapters through bounded EDF lanes with per-kind work costs. The examples cover
+migration, streaming cancellation, speculative classification, and queued execution:
 
 ```bash
 ./build/cooperative_job_sample

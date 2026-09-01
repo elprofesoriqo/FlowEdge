@@ -1,6 +1,7 @@
 #include "relay/adapters/cooperative_adapters.h"
 #include "relay/adapters/routed_adapters.h"
 #include "relay/jobs/state_codec.h"
+#include "relay/worker/job_worker_pool.h"
 
 #include <algorithm>
 #include <array>
@@ -14,6 +15,7 @@
 #include <new>
 #include <span>
 #include <string_view>
+#include <thread>
 
 namespace {
 
@@ -210,10 +212,49 @@ int main(int argc, char** argv)
       std::chrono::duration_cast<std::chrono::nanoseconds>(routed_elapsed).count());
   const double ns_per_routed_job = routed_ns / static_cast<double>(iterations);
 
+  std::array<JobAdapterRegistry, 1> lane_registries{registry};
+  auto pool_result =
+      JobWorkerPool::create(lane_registries, 1uz, {}, 1uz, CounterBackend::kWorkUnits);
+  if (!pool_result)
+    return 1;
+  JobWorkerPool pool = std::move(*pool_result);
+  std::uint64_t pooled_checksum{};
+  const std::size_t pooled_allocations_before = g_allocations.load(std::memory_order_relaxed);
+  const auto pooled_start = std::chrono::steady_clock::now();
+  for (std::size_t iteration{}; iteration < iterations; ++iteration) {
+    if (pool.submit(request) != JobSubmitResult::kAccepted)
+      return 1;
+    const JobResultMessage* pooled_result{};
+    while (pooled_result == nullptr) {
+      pooled_result = pool.ready_result();
+      if (pooled_result == nullptr)
+        std::this_thread::yield();
+    }
+    if (validate(*pooled_result) != ProtocolResult::kSuccess ||
+        job_result_code(*pooled_result) != JobResultCode::kComplete)
+      return 1;
+    StateReader pooled_reader{pooled_result->payload_values()};
+    const auto pooled_value = pooled_reader.read<std::uint64_t>();
+    if (!pooled_value)
+      return 1;
+    pooled_checksum ^= *pooled_value + iteration;
+    pool.release_ready_result();
+  }
+  const auto pooled_elapsed = std::chrono::steady_clock::now() - pooled_start;
+  const std::size_t pooled_allocations =
+      g_allocations.load(std::memory_order_relaxed) - pooled_allocations_before;
+  const double pooled_ns = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(pooled_elapsed).count());
+  const double ns_per_pooled_job = pooled_ns / static_cast<double>(iterations);
+  if (!pool.release_session(descriptor().session_id))
+    return 1;
+
   std::cout << "iterations=" << iterations << " ns_per_migrated_job=" << ns_per_iteration
             << " ns_per_work_unit=" << ns_per_work_unit << " hot_path_allocations=" << allocations
             << " checksum=" << checksum << " ns_per_routed_job=" << ns_per_routed_job
             << " routed_hot_path_allocations=" << routed_allocations
-            << " routed_checksum=" << routed_checksum << '\n';
-  return allocations == 0uz && routed_allocations == 0uz ? 0 : 1;
+            << " routed_checksum=" << routed_checksum << " ns_per_pooled_job=" << ns_per_pooled_job
+            << " pooled_hot_path_allocations=" << pooled_allocations
+            << " pooled_checksum=" << pooled_checksum << '\n';
+  return allocations == 0uz && routed_allocations == 0uz && pooled_allocations == 0uz ? 0 : 1;
 }

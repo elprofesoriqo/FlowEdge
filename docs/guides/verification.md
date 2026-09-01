@@ -63,6 +63,10 @@ exercise the threaded pool rather than a test-only executor.
 generation gate and the output-backpressure race where a newer generation arrives while an older
 result is borrowed by the transport loop.
 
+`JobWorkerPool.RoutesJobsAcrossPreallocatedAdapterLanes` covers parallel generic routing.
+`JobWorkerPool.AppliesPerKindAdmissionAndSessionFreshness` covers calibrated work-unit costs, stale
+sessions, missing adapters, and typed rejection results.
+
 ## Installed package consumer
 
 Validate the exported targets with a real downstream C++ configure, link, and run rather than

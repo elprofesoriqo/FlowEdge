@@ -19,6 +19,7 @@
   speculative workload adapters.
 - Generic variable-size request/result messages and frozen fixed-capacity adapter registration by
   job kind, model digest, and state schema.
+- Bounded generic-job worker routing with session freshness and per-kind deadline calibration.
 
 ## Next
 
@@ -26,8 +27,7 @@
 - Backbone: Transformer. Unlocks the transformer heads.
 - Weight traffic: per-node replication experiments and INT8. See
   [ADR 0007](decisions/0007-roofline).
-- Relay: connect registered generic jobs to worker pools and multi-lane admission, then add
-  action-overlap policy.
+- Relay: add job-aware traces and metrics, then add action-overlap policy.
 - Optional ROS 2, Zenoh, and inference-server adapters over the generic job contract.
 - Backends: CUDA, Tenstorrent.
 - Observation encoders, which every real vision policy needs before it runs end to end. See [ADR 0006](decisions/0006-obs-encoder-out-of-scope).

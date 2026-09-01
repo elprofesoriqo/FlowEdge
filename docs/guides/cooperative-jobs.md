@@ -83,49 +83,60 @@ std::span<const std::byte> result() const noexcept;
 output for copying into a typed result message. The C++23 `RoutedBackend` concept checks the complete
 eight-operation surface.
 
-Provision adapter entries and mutable backends during initialization, then freeze before worker
-threads can see the registry:
+Provision one mutable backend and frozen registry per concurrent lane:
 
 ```cpp
-Backend backend;
-std::array<JobAdapterRegistration, 4> entries{};
-JobAdapterRegistry registry{entries};
+std::array<Backend, 2> backends;
+std::array<JobAdapterRegistration, 4> first_entries{};
+std::array<JobAdapterRegistration, 4> second_entries{};
+std::array<JobAdapterRegistry, 2> lanes{
+    JobAdapterRegistry{first_entries}, JobAdapterRegistry{second_entries}};
 
-registry.add(make_routed_adapter(
-    backend, job_route(descriptor), max_input_bytes, max_output_bytes));
-registry.freeze();
+for (std::size_t lane = 0; lane < lanes.size(); ++lane) {
+  lanes[lane].add(make_routed_adapter(
+      backends[lane], job_route(descriptor), max_input_bytes, max_output_bytes));
+  lanes[lane].freeze();
+}
+
+auto pool = JobWorkerPool::create(
+    lanes, 32,
+    JobCostPolicy{.iterative_ns = measured_step_ns,
+                  .streaming_ns = measured_token_ns,
+                  .speculative_ns = measured_quantum_ns});
 
 JobRequestMessage request;
 make_job_request(request, sequence, descriptor, now_ns, encoded_input);
-auto job = registry.bind(request).value();
-job.start();
-job.advance(descriptor.total_work_units);
+pool->submit(request, now_ns);
 
-JobResultMessage result;
-job.write_result(result, finished_ns);
+const JobResultMessage* result = nullptr;
+while ((result = pool->ready_result()) == nullptr)
+  std::this_thread::yield();
+consume(*result);
+pool->release_ready_result();
+pool->release_session(descriptor.session_id);
 ```
 
-The lookup key is the exact `(kind, model_digest, state_schema)` tuple. Unknown routes, duplicate
-registration, malformed messages, and adapter-specific payload overflows are typed failures. One
-registration owns one mutable backend lane; provision a backend/registry per concurrent lane while
-sharing immutable model weights outside it.
+The lookup key is the exact `(kind, model_digest, state_schema)` tuple. Unknown routes, stale
+generations, unreachable deadlines, capacity limits, malformed messages, and payload overflows are
+typed results. Registries and backends must outlive the pool. Share immutable model weights outside
+the lanes. `max_sessions` bounds retained freshness state; release a finished session explicitly.
 
 ```{mermaid}
 sequenceDiagram
   participant Client
   participant Message as JobRequestMessage
-  participant Registry as Frozen registry
-  participant Backend as Adapter backend
+  participant Pool as JobWorkerPool
+  participant Lane as Frozen adapter lane
   Client->>Message: make_job_request(descriptor, payload)
-  Client->>Registry: bind(validated message)
-  Registry->>Backend: prepare(payload)
-  Registry-->>Client: RoutedJob
+  Client->>Pool: submit(message, now)
+  Pool->>Pool: freshness + EDF admission
+  Pool->>Lane: prepare(payload)
   loop bounded safe points
-    Client->>Backend: advance(work budget)
-    Backend-->>Client: checked progress
+    Pool->>Lane: advance(work quantum)
+    Lane-->>Pool: checked progress
   end
-  Client->>Backend: result()
-  Client->>Message: write typed JobResultMessage
+  Lane-->>Pool: typed JobResultMessage
+  Pool-->>Client: ready_result()
 ```
 
 Generic messages default to a 64 KiB inline payload, configurable with
@@ -142,10 +153,9 @@ possible; raising the inline limit increases each maximum ring slot.
 | Speculative | One draft or verification quantum | accepted prefix, branch cursor, rollback state |
 
 Run `cooperative_job_sample` for migration, streaming cancellation, and speculative classification.
-Run `routed_job_sample` for request creation, frozen-registry lookup, execution, and typed result
-encoding. `flowedge_cooperative_job_bench` measures both complete lifecycles and fails if either path
-allocates.
+Run `routed_job_sample` for queued worker execution and typed results.
+`flowedge_cooperative_job_bench` measures direct and pooled routing and fails on a runtime allocation.
 
 Generic messages can traverse an appropriately sized `SharedMemoryRing`, but `flowedge-relayd` does
-not consume them yet. Worker-pool dispatch, action overlap, ROS 2, Zenoh, and inference-server
-adapters will build on this foundation without adding those dependencies to Core.
+not consume them yet. Transport integration, action overlap, ROS 2, Zenoh, and inference-server
+adapters build on this pool without adding those dependencies to Core.

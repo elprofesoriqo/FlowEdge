@@ -33,6 +33,7 @@ enum class JobResultCode : std::uint32_t
   kRejectedDeadline = 5u,
   kRejectedCapacity = 6u,
   kAdapterNotFound = 7u,
+  kInvalidRequest = 8u,
 };
 
 struct JobRequestMetadata
@@ -120,7 +121,7 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
 
 [[nodiscard]] constexpr bool valid_job_result_code(JobResultCode code) noexcept
 {
-  return code >= JobResultCode::kProgress && code <= JobResultCode::kAdapterNotFound;
+  return code >= JobResultCode::kProgress && code <= JobResultCode::kInvalidRequest;
 }
 
 [[nodiscard]] constexpr bool compatible(JobResultCode code, JobState state) noexcept
@@ -169,6 +170,8 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
     return "rejected_capacity";
   case JobResultCode::kAdapterNotFound:
     return "adapter_not_found";
+  case JobResultCode::kInvalidRequest:
+    return "invalid_request";
   }
   return "unknown";
 }
@@ -259,6 +262,23 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
   destination.envelope.struct_size = static_cast<std::uint32_t>(wire_size(destination));
   std::ranges::copy(payload, destination.payload.begin());
   return ProtocolResult::kSuccess;
+}
+
+[[nodiscard]] inline ProtocolResult make_rejected_job_result(JobResultMessage& destination,
+                                                             const JobRequestMessage& request,
+                                                             std::uint64_t timestamp_ns,
+                                                             JobResultCode code) noexcept
+{
+  if (code != JobResultCode::kRejectedStale && code != JobResultCode::kRejectedDeadline &&
+      code != JobResultCode::kRejectedCapacity && code != JobResultCode::kAdapterNotFound &&
+      code != JobResultCode::kInvalidRequest)
+    return ProtocolResult::kInvalidMetadata;
+  return make_job_result(destination, request.envelope.sequence, request.metadata.descriptor,
+                         JobProgress{.state = JobState::kFailed,
+                                     .completed_work_units = 0u,
+                                     .remaining_work_units =
+                                         request.metadata.descriptor.total_work_units},
+                         timestamp_ns, code);
 }
 
 static_assert(std::is_trivially_copyable_v<JobRequestMetadata>);

@@ -75,7 +75,7 @@ CONSUMER="$CONSUMER_DIR/flowedge_install_consumer"
 if [[ "$PYTHON_OPTION" == ON ]]; then
   export PYTHONPATH="$BUILD_DIR${PYTHONPATH:+:$PYTHONPATH}"
   if "$PYTHON" -c 'import numpy, safetensors' >/dev/null 2>&1; then
-    "$PYTHON" "$ROOT/scripts/verify_external_head.py" --extension-dir "$BUILD_DIR"
+    "$PYTHON" "$ROOT/scripts/verify_external_head.py" "$BUILD_DIR"
   else
     echo "note: Python extension built; numpy+safetensors verification dependencies unavailable"
   fi
