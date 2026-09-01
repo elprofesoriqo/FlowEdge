@@ -6,6 +6,7 @@
 #include "models/mamba/mamba.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -77,6 +78,31 @@ TEST(ThreadPool, ParallelForCompletesAllSlices)
 
   for (std::size_t i{0uz}; i < counts.size(); ++i)
     EXPECT_EQ(counts[i], i + 1uz);
+}
+
+TEST(ThreadPool, ParallelForHonorsTaskBudget)
+{
+  std::vector<fe::Task> ring(8uz);
+  std::vector<std::size_t> sequence(8uz);
+  std::vector<std::jthread> workers(8uz);
+  fe::ThreadPool pool{ring, sequence, workers, 8u};
+  std::atomic<unsigned> calls{0u};
+  fe::parallel_for(pool, 1024uz, 4u, [&](std::size_t, std::size_t) noexcept {
+    calls.fetch_add(1u, std::memory_order_relaxed);
+  });
+  EXPECT_EQ(calls.load(std::memory_order_relaxed), 4u);
+}
+
+TEST(Matmul, AdaptiveTaskSelectionUsesUsefulPowerOfTwoTiers)
+{
+  using enum fe::MatmulWeightType;
+  EXPECT_EQ(fe::matmul_task_count(8u, 4uz, 48uz, 48uz, kF32), 1u);
+  EXPECT_EQ(fe::matmul_task_count(8u, 1uz, 768uz, 3072uz, kF32), 2u);
+  EXPECT_EQ(fe::matmul_task_count(8u, 4uz, 1536uz, 768uz, kF32), 4u);
+  EXPECT_EQ(fe::matmul_task_count(8u, 4uz, 768uz, 3072uz, kF32), 8u);
+  EXPECT_EQ(fe::matmul_task_count(8u, 4uz, 1536uz, 768uz, kBF16), 8u);
+  EXPECT_EQ(fe::matmul_task_count(2u, 4uz, 768uz, 3072uz, kF32), 2u);
+  EXPECT_EQ(fe::matmul_task_count(4u, 4uz, 768uz, 3072uz, kF32), 4u);
 }
 
 TEST(ThreadPool, WakesAfterIdlePark)

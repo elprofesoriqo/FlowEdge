@@ -23,9 +23,11 @@ PY="${PYTHON:-$(command -v python3 || command -v python || command -v py)}"
 
 exe_l="$BENCH/flowedge_latency_bench"
 exe_k="$BENCH/flowedge_kernels_bench"
+exe_m="$BENCH/flowedge_model_latency_bench"
 if [[ -f "$BENCH/flowedge_latency_bench.exe" ]]; then
     exe_l="$BENCH/flowedge_latency_bench.exe"
     exe_k="$BENCH/flowedge_kernels_bench.exe"
+    exe_m="$BENCH/flowedge_model_latency_bench.exe"
 fi
 
 echo "== Action-head Real-time Latency (us) [Euler, N=10] =="
@@ -42,6 +44,20 @@ echo "== kernel microbenchmarks =="
 
 echo "== FlowEdge (C-ABI) =="
 FLOWEDGE_MODEL="$MODEL" "$BENCH/flowedge_engine_bench"
+
+F32_MODEL="${FLOWEDGE_MODEL_F32:-$ROOT/models/mamba.safetensors}"
+BF16_MODEL="${FLOWEDGE_MODEL_BF16:-$ROOT/models/mamba_bf16_bench.safetensors}"
+if [[ -f "$F32_MODEL" && ! -f "$BF16_MODEL" ]] && \
+   "$PY" -c "import torch, safetensors" >/dev/null 2>&1; then
+    "$PY" "$ROOT/convert/convert.py" "$F32_MODEL" "$BF16_MODEL" --arch mamba --dtype bf16
+fi
+if [[ -f "$F32_MODEL" && -f "$BF16_MODEL" ]]; then
+    echo "== Matched FP32/BF16 model latency =="
+    "$exe_m" "$F32_MODEL" "$BF16_MODEL" \
+      "${FLOWEDGE_MODEL_LATENCY_ITERS:-100}"
+else
+    echo "note: matched FP32/BF16 latency requires a convertible checkpoint and torch+safetensors"
+fi
 
 echo "== PyTorch =="
 "$PY" "$ROOT/scripts/torch_ref.py" bench "$MODEL" 1 || echo "PyTorch forward: (requires torch/numpy)"

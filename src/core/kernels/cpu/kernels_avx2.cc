@@ -382,12 +382,12 @@ void FE_FORCE_ALIGN matmul(std::span<const float> in, std::span<const float> w,
                            std::span<float> out, std::size_t rows, std::size_t in_dim,
                            std::size_t out_dim, ThreadPool* pool) noexcept
 {
-  const unsigned n = (pool != nullptr) ? pool->nthreads() : 0u;
+  const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kF32);
   if (rows == 1uz) { // single vector
     MatmulF32Row1Ctx ctx{.in = in, .w = w, .out = out, .in_dim = in_dim};
     MatmulF32Row1Op op{&ctx};
-    if (pool != nullptr && n > 0u && (out_dim / n) >= 32uz)
-      parallel_for(*pool, out_dim, op);
+    if (pool != nullptr && tasks > 1u)
+      parallel_for(*pool, out_dim, tasks, op);
     else
       op(0uz, out_dim);
     return;
@@ -396,8 +396,8 @@ void FE_FORCE_ALIGN matmul(std::span<const float> in, std::span<const float> w,
   MatmulF32RowNCtx ctx{
       .in = in, .w = w, .out = out, .rows = rows, .in_dim = in_dim, .out_dim = out_dim};
   MatmulF32RowNOp op{&ctx};
-  if (pool != nullptr && rows > 1uz && n > 0u && (out_dim / n) >= 32uz)
-    parallel_for(*pool, out_dim, op);
+  if (pool != nullptr && tasks > 1u)
+    parallel_for(*pool, out_dim, tasks, op);
   else
     op(0uz, out_dim);
 }
@@ -406,12 +406,12 @@ void FE_FORCE_ALIGN matmul(std::span<const float> in, std::span<const uint16_t> 
                            std::span<float> out, std::size_t rows, std::size_t in_dim,
                            std::size_t out_dim, ThreadPool* pool) noexcept
 {
-  const unsigned n = (pool != nullptr) ? pool->nthreads() : 0u;
+  const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kBF16);
   if (rows == 1uz) { // single vector
     MatmulU16Row1Ctx ctx{.in = in, .w = w, .out = out, .in_dim = in_dim};
     MatmulU16Row1Op op{&ctx};
-    if (pool != nullptr && n > 0u && (out_dim / n) >= 32uz)
-      parallel_for(*pool, out_dim, op);
+    if (pool != nullptr && tasks > 1u)
+      parallel_for(*pool, out_dim, tasks, op);
     else
       op(0uz, out_dim);
     return;
@@ -420,8 +420,8 @@ void FE_FORCE_ALIGN matmul(std::span<const float> in, std::span<const uint16_t> 
   MatmulU16RowNCtx ctx{
       .in = in, .w = w, .out = out, .rows = rows, .in_dim = in_dim, .out_dim = out_dim};
   MatmulU16RowNOp op{&ctx};
-  if (pool != nullptr && rows > 1uz && n > 0u && (out_dim / n) >= 32uz)
-    parallel_for(*pool, out_dim, op);
+  if (pool != nullptr && tasks > 1u)
+    parallel_for(*pool, out_dim, tasks, op);
   else
     op(0uz, out_dim);
 }

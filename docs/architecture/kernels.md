@@ -71,6 +71,12 @@ cores where the platform allows it. The task ring and worker storage are
 arena-carved, power-of-two sized, and isolated on destructive-interference
 boundaries.
 
+Pool capacity and per-kernel parallelism are separate. The runtime defaults to at most four
+workers, while an explicit override can provision up to eight. Each matrix uses a C++23
+power-of-two task selector based on rows, input width, output width, and F32 versus BF16 work.
+Small projections stay on the caller thread; large projections use only the useful 2/4/8 tier.
+This avoids dispatch-dominated kernels and SMT/virtualization oversubscription.
+
 ## BF16 Weight Widening
 
 `in_proj`, `out_proj`, and Mamba projection weights may be stored as `BF16` in

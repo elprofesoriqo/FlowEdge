@@ -32,6 +32,15 @@ const char* fe_engine_last_error(void);
 fe_engine* fe_engine_load(const char* path);
 
 /**
+ * @brief Load a model with an exact number of background worker threads.
+ *
+ * Passing 0 selects caller-thread-only execution. Values above 8 are rejected.
+ * fe_engine_load() instead uses FLOWEDGE_THREADS when set, otherwise a
+ * bandwidth-aware automatic default.
+ */
+fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads);
+
+/**
  * @brief Get the underlying backbone model dimensions.
  * @param engine The engine instance.
  * @param d_model Output pointer for the model dimension (can be NULL).

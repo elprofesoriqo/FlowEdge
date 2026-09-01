@@ -7,11 +7,13 @@ BASELINE_REF="main"
 FILTER=""
 RUNS=9
 THRESHOLD=5
+RENAMES=()
+ALLOWED_REMOVED=()
 BACKEND="${FLOWEDGE_BACKEND:-cpu}"
 RESULT_ROOT="${FLOWEDGE_BENCH_RESULTS_DIR:-$ROOT/bench-results}"
 
 usage() {
-  echo "usage: $0 [--baseline-ref REF] [--filter REGEX] [--runs N] [--threshold PERCENT]" >&2
+  echo "usage: $0 [--baseline-ref REF] [--filter REGEX] [--runs N] [--threshold PERCENT] [--rename OLD=NEW] [--allow-removed REGEX]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -20,6 +22,8 @@ while [[ $# -gt 0 ]]; do
     --filter) FILTER="$2"; shift 2 ;;
     --runs) RUNS="$2"; shift 2 ;;
     --threshold) THRESHOLD="$2"; shift 2 ;;
+    --rename) RENAMES+=(--rename "$2"); shift 2 ;;
+    --allow-removed) ALLOWED_REMOVED+=(--allow-removed "$2"); shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -77,6 +81,8 @@ PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py)}"
   --baseline "$OUT/baseline-kernels.json" \
   --candidate "$OUT/candidate-kernels.json" \
   --threshold "$THRESHOLD" \
+  "${RENAMES[@]}" \
+  "${ALLOWED_REMOVED[@]}" \
   --report "$OUT/report.md"
 
 echo "Artifacts: $OUT"

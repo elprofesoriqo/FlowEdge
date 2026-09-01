@@ -3,13 +3,16 @@
 #include "arena/cpu.h"
 #include "arena/spmc_ring.h"
 
+#include <algorithm>
 #include <atomic>
 #include <concepts>
 #include <cstddef>
+#include <memory>
 #include <new>
 #include <span>
 #include <thread>
 #include <type_traits>
+#include <utility>
 
 namespace fe {
 
@@ -63,10 +66,10 @@ FE_STACK_ALIGN inline void trampoline(void* ctx, std::size_t lo, std::size_t hi)
 
 template<typename Fn>
   requires std::invocable<Fn, std::size_t, std::size_t>
-void parallel_for(ThreadPool& pool, std::size_t total, Fn&& fn) noexcept
+void parallel_for(ThreadPool& pool, std::size_t total, unsigned task_count, Fn&& fn) noexcept
 {
-  const std::size_t n = pool.nthreads();
-  if (n == 0uz) {
+  const std::size_t n = std::min<std::size_t>({pool.nthreads(), task_count, total});
+  if (n <= 1uz) {
     fn(0uz, total);
     return;
   }
@@ -74,10 +77,18 @@ void parallel_for(ThreadPool& pool, std::size_t total, Fn&& fn) noexcept
   for (std::size_t i{0uz}; i < n && (i * sz) < total; ++i) {
     const std::size_t lo = i * sz;
     const std::size_t hi = (lo + sz < total) ? (lo + sz) : total;
-    while (!pool.enqueue({trampoline<Fn>, static_cast<void*>(&fn), lo, hi}))
+    void* const context = const_cast<void*>(static_cast<const void*>(std::addressof(fn)));
+    while (!pool.enqueue({trampoline<Fn>, context, lo, hi}))
       cpu_pause();
   }
   pool.wait();
+}
+
+template<typename Fn>
+  requires std::invocable<Fn, std::size_t, std::size_t>
+void parallel_for(ThreadPool& pool, std::size_t total, Fn&& fn) noexcept
+{
+  parallel_for(pool, total, pool.nthreads(), std::forward<Fn>(fn));
 }
 
 } // namespace fe

@@ -20,9 +20,13 @@ namespace fe {
 class EngineRuntime
 {
 public:
-  [[nodiscard]] static std::size_t required_slab_bytes(std::string_view path) noexcept;
+  static constexpr unsigned kMaxPoolThreads = 8u;
 
-  EngineRuntime(std::string_view path, std::size_t slab_bytes, const char*& error);
+  [[nodiscard]] static std::size_t required_slab_bytes(std::string_view path) noexcept;
+  [[nodiscard]] static unsigned recommended_thread_count() noexcept;
+
+  EngineRuntime(std::string_view path, std::size_t slab_bytes, unsigned worker_threads,
+                const char*& error);
   ~EngineRuntime();
 
   EngineRuntime(const EngineRuntime&) = delete;
@@ -57,7 +61,6 @@ public:
 
 private:
   static constexpr std::size_t kMaxTensors = 1024uz;
-  static constexpr unsigned kMaxPoolThreads = 8u;
   static constexpr std::size_t kThreadRingSlots = 128uz;
 
   [[nodiscard]] std::size_t load_views(std::string_view path, const char*& error) noexcept;

@@ -4,7 +4,9 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -95,7 +97,9 @@ int method_id(std::string_view method)
 class Engine
 {
 public:
-  explicit Engine(const std::string& path) : engine_{fe_engine_load(path.c_str())}
+  explicit Engine(const std::string& path, std::optional<unsigned> threads)
+      : engine_{threads ? fe_engine_load_with_threads(path.c_str(), *threads)
+                        : fe_engine_load(path.c_str())}
   {
     if (engine_ == nullptr)
       throw std::runtime_error("FlowEdge: cannot load " + path + ": " + fe_engine_last_error());
@@ -106,6 +110,7 @@ public:
 
   [[nodiscard]] std::size_t action_dim() const { return fe_engine_action_dim(engine_); }
   [[nodiscard]] std::size_t condition_dim() const { return fe_engine_condition_dim(engine_); }
+  [[nodiscard]] unsigned thread_count() const { return fe_engine_thread_count(engine_); }
   [[nodiscard]] std::size_t d_model() const
   {
     std::size_t dm{0uz};
@@ -314,10 +319,12 @@ PYBIND11_MODULE(flowedge, m)
   m.doc() = "FlowEdge: flow-matching action-head inference";
 
   py::class_<Engine>(m, "Engine")
-      .def(py::init<const std::string&>(), py::arg("path"))
+      .def(py::init<const std::string&, std::optional<unsigned>>(), py::arg("path"),
+           py::arg("threads") = py::none())
       .def_property_readonly("action_dim", &Engine::action_dim)
       .def_property_readonly("condition_dim", &Engine::condition_dim)
       .def_property_readonly("d_model", &Engine::d_model)
+      .def_property_readonly("thread_count", &Engine::thread_count)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("run_into", &Engine::run_into, py::arg("tokens"), py::arg("output"))
       .def("step", &Engine::step, py::arg("token"))

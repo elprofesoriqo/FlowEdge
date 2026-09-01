@@ -1,11 +1,57 @@
 #pragma once
 
+#include "arena/thread_pool.h"
+
+#include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 // Mamba CPU kernels. Buffers are caller-owned and 64B-aligned (arena).
 namespace fe {
+
+enum class MatmulWeightType : std::uint8_t
+{
+  kF32,
+  kBF16,
+};
+
+// Choose a power-of-two task count from the available pool capacity. This keeps
+// dispatch overhead out of small/cache-resident projections and avoids creating
+// more output slices than can do useful work.
+[[nodiscard]] constexpr unsigned matmul_task_count(unsigned available, std::size_t rows,
+                                                   std::size_t in_dim, std::size_t out_dim,
+                                                   MatmulWeightType weight_type) noexcept
+{
+  if (available < 2u || rows == 0uz || in_dim == 0uz || out_dim < 128uz)
+    return 1u;
+
+  constexpr std::size_t kMinOutputsPerTask = 64uz;
+  constexpr std::size_t kF32WorkPerTask = 786'432uz;
+  constexpr std::size_t kBF16WorkPerTask = 524'288uz;
+  constexpr std::size_t kMax = std::numeric_limits<std::size_t>::max();
+  const auto saturating_mul = [](std::size_t lhs, std::size_t rhs) constexpr noexcept {
+    return (lhs != 0uz && rhs > (kMax / lhs)) ? kMax : lhs * rhs;
+  };
+  const std::size_t work = saturating_mul(saturating_mul(rows, in_dim), out_dim);
+  const std::size_t work_per_task =
+      (weight_type == MatmulWeightType::kBF16) ? kBF16WorkPerTask : kF32WorkPerTask;
+  const std::size_t work_limited = 1uz + ((work - 1uz) / work_per_task);
+  const std::size_t output_limited = out_dim / kMinOutputsPerTask;
+  const auto useful =
+      static_cast<unsigned>(std::min<std::size_t>({available, work_limited, output_limited}));
+  return useful >= 2u ? std::bit_floor(useful) : 1u;
+}
+
+[[nodiscard]] inline unsigned matmul_task_count(const ThreadPool* pool, std::size_t rows,
+                                                std::size_t in_dim, std::size_t out_dim,
+                                                MatmulWeightType weight_type) noexcept
+{
+  return matmul_task_count(pool != nullptr ? pool->nthreads() : 0u, rows, in_dim, out_dim,
+                           weight_type);
+}
 
 #if defined(_WIN32) && defined(__GNUC__)
 #define FE_FORCE_ALIGN __attribute__((force_align_arg_pointer))
@@ -52,8 +98,8 @@ FE_FORCE_ALIGN void discretize_and_scan(std::span<const float> delta, std::span<
 
 FE_FORCE_ALIGN void matmul(std::span<const float> in, std::span<const float> w,
                            std::span<float> out, std::size_t rows, std::size_t in_dim,
-                           std::size_t out_dim, class ThreadPool* pool = nullptr) noexcept;
+                           std::size_t out_dim, ThreadPool* pool = nullptr) noexcept;
 FE_FORCE_ALIGN void matmul(std::span<const float> in, std::span<const uint16_t> w,
                            std::span<float> out, std::size_t rows, std::size_t in_dim,
-                           std::size_t out_dim, class ThreadPool* pool = nullptr) noexcept;
+                           std::size_t out_dim, ThreadPool* pool = nullptr) noexcept;
 } // namespace fe

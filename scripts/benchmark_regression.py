@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,9 +76,14 @@ def render_report(
     candidate_context: dict[str, Any],
     baseline: dict[str, Measurement],
     candidate: dict[str, Measurement],
+    allowed_removed: list[re.Pattern[str]],
 ) -> tuple[str, bool]:
     shared = sorted(set(baseline) & set(candidate))
-    missing_from_candidate = sorted(set(baseline) - set(candidate))
+    removed = sorted(set(baseline) - set(candidate))
+    missing_from_candidate = [
+        name for name in removed if not any(pattern.search(name) for pattern in allowed_removed)
+    ]
+    allowed_from_candidate = [name for name in removed if name not in missing_from_candidate]
     missing_from_baseline = sorted(set(candidate) - set(baseline))
     regressed = False
     lines = [
@@ -105,6 +111,15 @@ def render_report(
     if missing_from_candidate:
         lines.extend(["", "## Missing from candidate", "", *[f"- `{name}`" for name in missing_from_candidate]])
         regressed = True
+    if allowed_from_candidate:
+        lines.extend(
+            [
+                "",
+                "## Intentionally retired or fused",
+                "",
+                *[f"- `{name}`" for name in allowed_from_candidate],
+            ]
+        )
     if missing_from_baseline:
         lines.extend(["", "## New in candidate", "", *[f"- `{name}`" for name in missing_from_baseline]])
     lines.extend(
@@ -124,17 +139,49 @@ def main() -> int:
     parser.add_argument("--threshold", type=float, default=5.0, help="allowed CPU-time increase in percent")
     parser.add_argument("--report", type=Path, help="write Markdown report to this path")
     parser.add_argument("--no-fail", action="store_true", help="always exit zero after writing the report")
+    parser.add_argument(
+        "--rename",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="map a renamed baseline benchmark to its candidate name (repeatable)",
+    )
+    parser.add_argument(
+        "--allow-removed",
+        action="append",
+        default=[],
+        metavar="REGEX",
+        help="allow a removed baseline benchmark, for example after kernel fusion",
+    )
     args = parser.parse_args()
     if args.threshold < 0:
         parser.error("--threshold must be non-negative")
     try:
         base_context, baseline = read_measurements(args.baseline)
         candidate_context, candidate = read_measurements(args.candidate)
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+        for mapping in args.rename:
+            old, separator, new = mapping.partition("=")
+            if not separator or not old or not new:
+                raise ValueError(f"invalid --rename {mapping!r}; expected OLD=NEW")
+            if old not in baseline:
+                raise ValueError(f"--rename baseline name not found: {old}")
+            if new in baseline and new != old:
+                raise ValueError(f"--rename target already exists in baseline: {new}")
+            measurement = baseline.pop(old)
+            baseline[new] = Measurement(new, measurement.cpu_ns, measurement.iterations)
+        allowed_removed = [re.compile(pattern) for pattern in args.allow_removed]
+    except (OSError, ValueError, re.error, json.JSONDecodeError) as error:
         print(f"benchmark comparison failed: {error}", file=sys.stderr)
         return 2
     report, regressed = render_report(
-        args.baseline, args.candidate, args.threshold, base_context, candidate_context, baseline, candidate
+        args.baseline,
+        args.candidate,
+        args.threshold,
+        base_context,
+        candidate_context,
+        baseline,
+        candidate,
+        allowed_removed,
     )
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

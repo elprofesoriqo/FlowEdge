@@ -10,7 +10,7 @@ pip install .
 import numpy as np, flowedge
 
 e = flowedge.Engine("models/mamba_flow.safetensors")
-print(e.action_dim, e.condition_dim, e.d_model)
+print(e.action_dim, e.condition_dim, e.d_model, e.thread_count)
 
 tokens = np.array([1, 2, 3, 4], dtype=np.int32)
 hidden = e.run(tokens)
@@ -36,6 +36,13 @@ e.sample_into(tokens, noise, action, steps=10, method="euler")
 ```
 
 All inference calls release the GIL while C++ runs.
+
+Pass `threads=0..8` to override the automatic worker pool for a specific engine. If omitted,
+`FLOWEDGE_THREADS` is honored and then the automatic default is used:
+
+```python
+single_threaded = flowedge.Engine("models/mamba_flow.safetensors", threads=0)
+```
 
 ## External encoders and cooperative solving
 

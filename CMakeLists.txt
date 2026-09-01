@@ -56,6 +56,9 @@ if(FLOWEDGE_BENCH)
   add_executable(flowedge_latency_bench bench/latency_bench.cc)
   target_link_libraries(flowedge_latency_bench PRIVATE FlowEdge::Core)
 
+  add_executable(flowedge_model_latency_bench bench/model_latency_bench.cc)
+  target_link_libraries(flowedge_model_latency_bench PRIVATE FlowEdge::Core)
+
   add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
   target_link_libraries(flowedge_threaded_matmul_bench PRIVATE FlowEdge::Core benchmark::benchmark_main Threads::Threads)
 endif()

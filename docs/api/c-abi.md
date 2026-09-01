@@ -4,11 +4,13 @@ The only public surface. C linkage, opaque handle.
 
 ```c
 fe_engine* fe_engine_load(const char* path);
+fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads);
 void       fe_engine_free(fe_engine* e);
 
 void   fe_engine_dims(const fe_engine*, size_t* d_model, size_t* n_layers);
 size_t fe_engine_action_dim(const fe_engine*);
 size_t fe_engine_condition_dim(const fe_engine*);
+unsigned fe_engine_thread_count(const fe_engine*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
@@ -36,6 +38,9 @@ Rules:
 
 - Everything runtime-relevant is a parameter. Nothing is baked in.
 - The handle owns the whole runtime. Free it with `fe_engine_free`.
+- `fe_engine_load` reads `FLOWEDGE_THREADS=0..8` when present and otherwise uses a
+  bandwidth-aware automatic default. `fe_engine_load_with_threads` bypasses the environment;
+  zero selects caller-thread-only execution.
 - No exception crosses the boundary. Errors return `nullptr` or a non-zero code.
 - `method` is 0 for Euler, 1 for Heun, 2 for RK4.
 - Prefer the named constants `FE_SOLVER_EULER`, `FE_SOLVER_HEUN`, and `FE_SOLVER_RK4` from
