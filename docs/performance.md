@@ -86,9 +86,10 @@ Measured 2026-09-01. One million tiny counter jobs; framework overhead only.
 
 | Benchmark | Windows | Linux |
 |---|---:|---:|
-| Migrate and finish | 171.27 ns/job | 243.34 ns/job |
-| Direct route, run, and return | 77.23 ns/job | 109.89 ns/job |
-| EDF pool + lifecycle metrics | 2.63 us/job | 2.61 us/job |
+| Migrate and finish | 478.56 ns/job | 292.08 ns/job |
+| Direct route, run, and return | 274.80 ns/job | 88.94 ns/job |
+| EDF pool + lifecycle metrics | 3.49 us/job | 1.19 us/job |
+| Shared-memory client/service + pool + metrics | 4.60 us/job | 1.78 us/job |
 
 Linux:
 

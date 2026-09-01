@@ -1,7 +1,9 @@
 #include "relay/adapters/cooperative_adapters.h"
 #include "relay/adapters/routed_adapters.h"
+#include "relay/client/job_client.h"
 #include "relay/jobs/state_codec.h"
 #include "relay/telemetry/metrics.h"
+#include "relay/worker/job_service.h"
 #include "relay/worker/job_worker_pool.h"
 
 #include <algorithm>
@@ -15,8 +17,10 @@
 #include <iostream>
 #include <new>
 #include <span>
+#include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -259,6 +263,60 @@ int main(int argc, char** argv)
   if (!pool.release_session(descriptor().session_id))
     return 1;
 
+  const std::string transport_id =
+      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  auto client_result = JobClient::create("flowedge-bench-request-" + transport_id,
+                                         "flowedge-bench-result-" + transport_id, 2u);
+  if (!client_result)
+    return 1;
+  JobClient client = std::move(*client_result);
+  auto service_result = JobService::connect("flowedge-bench-request-" + transport_id,
+                                            "flowedge-bench-result-" + transport_id, pool);
+  if (!service_result)
+    return 1;
+  JobService service = std::move(*service_result);
+  JobResultMessage transported_result{};
+  JobMetrics transport_metrics{};
+  std::uint64_t transported_checksum{};
+  const std::size_t transport_allocations_before = g_allocations.load(std::memory_order_relaxed);
+  const auto transport_start = std::chrono::steady_clock::now();
+  for (std::size_t iteration{}; iteration < iterations; ++iteration) {
+    if (client.try_submit(request) != ClientResult::kSuccess)
+      return 1;
+    ClientResult received{ClientResult::kEmpty};
+    while (received == ClientResult::kEmpty) {
+      const JobServiceResult pumped = service.poll();
+      if (pumped == JobServiceResult::kCorruptInput ||
+          pumped == JobServiceResult::kTransportError || pumped == JobServiceResult::kStopped)
+        return 1;
+      received = client.try_receive(transported_result);
+      if (received == ClientResult::kEmpty)
+        std::this_thread::yield();
+    }
+    if (received != ClientResult::kSuccess ||
+        job_result_code(transported_result) != JobResultCode::kComplete)
+      return 1;
+    StateReader transported_reader{transported_result.payload_values()};
+    const auto transported_value = transported_reader.read<std::uint64_t>();
+    if (!transported_value)
+      return 1;
+    transported_checksum ^= *transported_value + iteration;
+    while (const JobEventMessage* event = events->front()) {
+      transport_metrics.record(*event);
+      events->pop();
+    }
+  }
+  const auto transport_elapsed = std::chrono::steady_clock::now() - transport_start;
+  const std::size_t transport_allocations =
+      g_allocations.load(std::memory_order_relaxed) - transport_allocations_before;
+  const double transport_ns = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(transport_elapsed).count());
+  const double ns_per_transported_job = transport_ns / static_cast<double>(iterations);
+  if (client.try_shutdown(2u, descriptor().session_id) != ClientResult::kSuccess ||
+      service.poll() != JobServiceResult::kStopped ||
+      !pool.release_session(descriptor().session_id))
+    return 1;
+
   std::cout << "iterations=" << iterations << " ns_per_migrated_job=" << ns_per_iteration
             << " ns_per_work_unit=" << ns_per_work_unit << " hot_path_allocations=" << allocations
             << " checksum=" << checksum << " ns_per_routed_job=" << ns_per_routed_job
@@ -267,6 +325,13 @@ int main(int argc, char** argv)
             << " pooled_hot_path_allocations=" << pooled_allocations
             << " pooled_checksum=" << pooled_checksum
             << " pooled_events=" << pooled_metrics.counters().events
-            << " pooled_event_drops=" << events->dropped() << '\n';
-  return allocations == 0uz && routed_allocations == 0uz && pooled_allocations == 0uz ? 0 : 1;
+            << " pooled_event_drops=" << events->dropped()
+            << " ns_per_transported_job=" << ns_per_transported_job
+            << " transport_hot_path_allocations=" << transport_allocations
+            << " transported_checksum=" << transported_checksum
+            << " transported_events=" << transport_metrics.counters().events << '\n';
+  return allocations == 0uz && routed_allocations == 0uz && pooled_allocations == 0uz &&
+                 transport_allocations == 0uz
+             ? 0
+             : 1;
 }

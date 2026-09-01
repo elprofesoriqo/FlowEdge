@@ -1,7 +1,9 @@
 #include "relay/adapters/routed_adapters.h"
+#include "relay/client/job_client.h"
 #include "relay/jobs/state_codec.h"
 #include "relay/protocol/trace.h"
 #include "relay/telemetry/metrics.h"
+#include "relay/worker/job_service.h"
 #include "relay/worker/job_worker_pool.h"
 
 #include <algorithm>
@@ -9,11 +11,11 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <iostream>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <thread>
 
 namespace {
@@ -121,7 +123,6 @@ int main(int argc, char** argv)
     return 2;
   }
   std::optional<TraceWriter> trace{};
-  std::unique_ptr<JobResultMessage> trace_result{};
   if (argc == 2) {
     auto opened = TraceWriter::open(argv[1]);
     if (!opened) {
@@ -129,7 +130,6 @@ int main(int argc, char** argv)
       return 1;
     }
     trace.emplace(std::move(*opened));
-    trace_result = std::make_unique<JobResultMessage>();
   }
 
   std::array<std::byte, sizeof(std::uint64_t)> input{};
@@ -158,31 +158,45 @@ int main(int argc, char** argv)
   if (!created)
     return 1;
   JobWorkerPool pool = std::move(*created);
+  const std::string transport_id = std::to_string(submitted_ns);
+  const std::string request_name = "flowedge-routed-request-" + transport_id;
+  const std::string result_name = "flowedge-routed-result-" + transport_id;
+  auto created_client = JobClient::create(request_name, result_name, 4u);
+  if (!created_client)
+    return 1;
+  JobClient client = std::move(*created_client);
+  auto connected_service = JobService::connect(request_name, result_name, pool);
+  if (!connected_service)
+    return 1;
+  JobService service = std::move(*connected_service);
+
   if (trace && !trace->append(*request))
     return 1;
-  if (pool.submit(*request, submitted_ns) != JobSubmitResult::kAccepted)
+  if (client.try_submit(*request) != ClientResult::kSuccess)
     return 1;
 
-  const JobResultMessage* result{};
-  while (result == nullptr) {
-    result = pool.ready_result();
-    if (result == nullptr)
+  auto result = std::make_unique<JobResultMessage>();
+  ClientResult received{ClientResult::kEmpty};
+  while (received == ClientResult::kEmpty) {
+    const JobServiceResult pumped = service.poll(submitted_ns);
+    if (pumped == JobServiceResult::kCorruptInput || pumped == JobServiceResult::kTransportError ||
+        pumped == JobServiceResult::kStopped)
+      return 1;
+    received = client.try_receive(*result);
+    if (received == ClientResult::kEmpty)
       std::this_thread::yield();
   }
-  if (validate(*result) != ProtocolResult::kSuccess)
+  if (received != ClientResult::kSuccess || validate(*result) != ProtocolResult::kSuccess)
     return 1;
   StateReader result_reader{result->payload_values()};
   const auto value = result_reader.read<std::uint64_t>();
   if (!value)
     return 1;
-  if (trace_result)
-    std::memcpy(trace_result.get(), result, wire_size(*result));
 
   std::cout << "route=iterative sequence=" << result->envelope.sequence
             << " outcome=" << to_string(job_result_code(*result))
             << " completed=" << result->metadata.progress.completed_work_units
             << " result=" << *value;
-  pool.release_ready_result();
   JobMetrics metrics{};
   while (const JobEventMessage* event = events->front()) {
     metrics.record(*event);
@@ -190,15 +204,21 @@ int main(int argc, char** argv)
       return 1;
     events->pop();
   }
-  if (trace && !trace->append(*trace_result))
+  if (trace && !trace->append(*result))
     return 1;
   if (trace)
     trace->flush();
   std::cout << " events=" << metrics.counters().events
-            << " work_units=" << metrics.counters().completed_work_units;
+            << " work_units=" << metrics.counters().completed_work_units
+            << " transported=" << service.stats().results_published;
   if (argc == 2)
     std::cout << " trace=" << argv[1];
   std::cout << '\n';
-  return pool.release_session(descriptor().session_id) && metrics.counters().completed == 1u ? 0
-                                                                                             : 1;
+  if (client.try_shutdown(2u, descriptor().session_id) != ClientResult::kSuccess ||
+      service.poll() != JobServiceResult::kStopped)
+    return 1;
+  return pool.release_session(descriptor().session_id) && metrics.counters().completed == 1u &&
+                 service.stats().requests_accepted == 1u
+             ? 0
+             : 1;
 }

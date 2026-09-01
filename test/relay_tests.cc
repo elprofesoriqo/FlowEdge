@@ -1,5 +1,6 @@
 #include "relay/adapters/cooperative_adapters.h"
 #include "relay/adapters/routed_adapters.h"
+#include "relay/client/job_client.h"
 #include "relay/jobs/state_capsule.h"
 #include "relay/jobs/state_codec.h"
 #include "relay/protocol/messages.h"
@@ -9,6 +10,7 @@
 #include "relay/telemetry/metrics.h"
 #include "relay/worker/head_worker.h"
 #include "relay/worker/head_worker_pool.h"
+#include "relay/worker/job_service.h"
 #include "relay/worker/job_worker_pool.h"
 
 #include <array>
@@ -529,6 +531,101 @@ TEST(JobWorkerPool, AppliesPerKindAdmissionAndSessionFreshness)
             ProtocolResult::kSuccess);
   EXPECT_EQ(pool.submit(*request_message, 0u, rejection.get()), JobSubmitResult::kAdapterNotFound);
   EXPECT_EQ(job_result_code(*rejection), JobResultCode::kAdapterNotFound);
+}
+
+TEST(JobTransport, PreservesTypedResultsAcrossOutputBackpressure)
+{
+  JobDescriptor descriptor = test_job_descriptor(11u);
+  descriptor.kind = JobKind::kIterative;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = TestRoutedBackend::kTotalSteps;
+
+  TestRoutedBackend backend{};
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(backend, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  registries[0].freeze();
+  auto created_pool = JobWorkerPool::create(registries, 4uz, {}, 4uz, 1uz);
+  ASSERT_TRUE(created_pool) << created_pool.error();
+  JobWorkerPool pool = std::move(*created_pool);
+
+  const std::string request_name = unique_name("flowedge-job-service-requests");
+  const std::string result_name = unique_name("flowedge-job-service-results");
+  auto created_service = JobService::create(request_name, result_name, pool, 2u);
+  ASSERT_TRUE(created_service) << created_service.error();
+  JobService service = std::move(*created_service);
+  auto connected = JobClient::connect(request_name, result_name);
+  ASSERT_TRUE(connected) << connected.error();
+  JobClient client = std::move(*connected);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter writer{input};
+  ASSERT_TRUE(writer.write(std::uint64_t{5u}));
+  auto request_message = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*request_message, 500u, descriptor, 0u, input),
+            ProtocolResult::kSuccess);
+  EXPECT_EQ(client.try_submit(*request_message), ClientResult::kSuccess);
+
+  auto result = std::make_unique<JobResultMessage>();
+  ClientResult received{ClientResult::kEmpty};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (received == ClientResult::kEmpty && std::chrono::steady_clock::now() < timeout) {
+    const JobServiceResult pumped = service.poll();
+    ASSERT_NE(pumped, JobServiceResult::kTransportError);
+    ASSERT_NE(pumped, JobServiceResult::kCorruptInput);
+    received = client.try_receive(*result);
+    if (received == ClientResult::kEmpty)
+      std::this_thread::yield();
+  }
+  ASSERT_EQ(received, ClientResult::kSuccess);
+  EXPECT_EQ(result->envelope.sequence, 500u);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+
+  JobDescriptor missing = descriptor;
+  ++missing.state_schema;
+  for (std::uint64_t sequence{501u}; sequence <= 503u; ++sequence) {
+    ASSERT_EQ(make_job_request(*request_message, sequence, missing, 0u, input),
+              ProtocolResult::kSuccess);
+    ASSERT_EQ(client.try_submit(*request_message), ClientResult::kSuccess);
+    const JobServiceResult pumped = service.poll();
+    EXPECT_TRUE(pumped == JobServiceResult::kProgress ||
+                pumped == JobServiceResult::kBackpressured);
+  }
+  EXPECT_EQ(service.poll(), JobServiceResult::kBackpressured);
+  EXPECT_GT(service.stats().publish_blocked, 0u);
+
+  std::array<bool, 3> rejected{};
+  std::size_t rejected_count{};
+  const auto rejection_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (rejected_count < rejected.size() && std::chrono::steady_clock::now() < rejection_timeout) {
+    received = client.try_receive(*result);
+    if (received == ClientResult::kSuccess) {
+      ASSERT_GE(result->envelope.sequence, 501u);
+      ASSERT_LE(result->envelope.sequence, 503u);
+      const std::size_t index = static_cast<std::size_t>(result->envelope.sequence - 501u);
+      EXPECT_FALSE(rejected[index]);
+      rejected[index] = true;
+      ++rejected_count;
+      EXPECT_EQ(job_result_code(*result), JobResultCode::kAdapterNotFound);
+    } else {
+      ASSERT_EQ(received, ClientResult::kEmpty);
+    }
+    const JobServiceResult pumped = service.poll();
+    ASSERT_NE(pumped, JobServiceResult::kTransportError);
+    ASSERT_NE(pumped, JobServiceResult::kCorruptInput);
+  }
+  EXPECT_EQ(rejected_count, rejected.size());
+  EXPECT_EQ(service.stats().requests_received, 4u);
+  EXPECT_EQ(service.stats().requests_accepted, 1u);
+  EXPECT_EQ(service.stats().requests_rejected, 3u);
+  EXPECT_EQ(service.stats().results_published, 4u);
+
+  request_message->envelope.magic = 0u;
+  EXPECT_EQ(client.try_submit(*request_message), ClientResult::kInvalidRequest);
+  EXPECT_EQ(client.try_shutdown(504u, descriptor.session_id), ClientResult::kSuccess);
+  EXPECT_EQ(service.poll(), JobServiceResult::kStopped);
+  EXPECT_TRUE(service.stopped());
 }
 
 TEST(JobEvents, BuffersValidatedLifecycleRecordsWithoutGrowth)

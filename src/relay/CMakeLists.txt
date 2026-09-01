@@ -1,4 +1,5 @@
 add_library(flowedge_relay STATIC
+  client/job_client.cc
   client/relay_client.cc
   jobs/cooperative_job.cc
   jobs/job_registry.cc
@@ -10,6 +11,7 @@ add_library(flowedge_relay STATIC
   telemetry/metrics.cc
   worker/head_worker.cc
   worker/head_worker_pool.cc
+  worker/job_service.cc
   worker/job_worker_pool.cc
   worker/worker_topology.cc
 )

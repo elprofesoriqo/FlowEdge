@@ -1,10 +1,15 @@
+#include "relay/client/job_client.h"
 #include "relay/client/relay_client.h"
+#include "relay/jobs/state_codec.h"
 #include "relay/worker/head_worker.h"
 
+#include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <gtest/gtest.h>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -92,6 +97,40 @@ public:
       execl(executable.c_str(), executable.c_str(), "--model", model.c_str(), "--condition-shm",
             condition_name.c_str(), "--action-shm", action_name.c_str(), "--capacity", "8",
             "--workers", "2", "--threads", "0", "--nfe-ns", "1000000000", "--create",
+            static_cast<char*>(nullptr));
+      _exit(127);
+    }
+    return ChildDaemon{process};
+#endif
+  }
+
+  [[nodiscard]] static std::optional<ChildDaemon> start_job_service(
+      const std::filesystem::path& executable, const std::string& request_name,
+      const std::string& result_name)
+  {
+#ifdef _WIN32
+    const auto quote = [](std::wstring_view argument) {
+      return L"\"" + std::wstring{argument} + L"\"";
+    };
+    const auto widen_ascii = [](std::string_view value) {
+      return std::wstring{value.begin(), value.end()};
+    };
+    std::wstring command = quote(executable.wstring()) + L" " + quote(widen_ascii(request_name)) +
+                           L" " + quote(widen_ascii(result_name));
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0u, nullptr, nullptr,
+                       &startup, &process) == FALSE)
+      return std::nullopt;
+    CloseHandle(process.hThread);
+    return ChildDaemon{process.hProcess};
+#else
+    const pid_t process = fork();
+    if (process < 0)
+      return std::nullopt;
+    if (process == 0) {
+      execl(executable.c_str(), executable.c_str(), request_name.c_str(), result_name.c_str(),
             static_cast<char*>(nullptr));
       _exit(127);
     }
@@ -271,6 +310,86 @@ TEST(RelayProcess, ExchangesRequestWithDaemonAcrossProcessBoundary)
 
   const auto exit_code = daemon->wait_for(std::chrono::seconds{5});
   ASSERT_TRUE(exit_code) << "flowedge-relayd did not stop after its shutdown control message";
+  EXPECT_EQ(*exit_code, 0);
+}
+
+TEST(RelayProcess, ExchangesGenericJobWithServiceAcrossProcessBoundary)
+{
+  const std::string request_name = unique_name("flowedge-job-process-request");
+  const std::string result_name = unique_name("flowedge-job-process-result");
+  auto daemon =
+      ChildDaemon::start_job_service(std::filesystem::path{FLOWEDGE_JOB_SERVICE_FIXTURE_PATH},
+                                     request_name, result_name);
+  ASSERT_TRUE(daemon) << "Failed to launch generic job service fixture";
+
+  std::optional<JobClient> client{};
+  std::string connect_error{};
+  const auto connect_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  do {
+    auto connected = JobClient::connect(request_name, result_name);
+    if (connected) {
+      client.emplace(std::move(*connected));
+      break;
+    }
+    connect_error = connected.error();
+    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+  } while (std::chrono::steady_clock::now() < connect_timeout);
+  ASSERT_TRUE(client) << connect_error;
+
+  JobDescriptor descriptor{};
+  descriptor.kind = JobKind::kIterative;
+  for (std::size_t index{}; index < descriptor.model_digest.size(); ++index)
+    descriptor.model_digest[index] = static_cast<std::uint8_t>(index + 1uz);
+  descriptor.state_schema = 0x726f7574652d7631u; // "route-v1"
+  descriptor.session_id = 71u;
+  descriptor.generation = 3u;
+  descriptor.total_work_units = 4u;
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter input_writer{input};
+  ASSERT_TRUE(input_writer.write(std::uint64_t{5u}));
+  auto request = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*request, 61u, descriptor, monotonic_ns(), input),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(client->try_submit(*request), ClientResult::kSuccess);
+
+  auto result = std::make_unique<JobResultMessage>();
+  ClientResult received{ClientResult::kEmpty};
+  const auto response_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  do {
+    received = client->try_receive(*result);
+    if (received != ClientResult::kEmpty)
+      break;
+    std::this_thread::yield();
+  } while (std::chrono::steady_clock::now() < response_timeout);
+  ASSERT_EQ(received, ClientResult::kSuccess) << to_string(received);
+  EXPECT_EQ(result->envelope.sequence, 61u);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  StateReader result_reader{result->payload_values()};
+  const auto value = result_reader.read<std::uint64_t>();
+  ASSERT_TRUE(value);
+  EXPECT_EQ(*value, 463u);
+
+  ++descriptor.state_schema;
+  ++descriptor.generation;
+  ASSERT_EQ(make_job_request(*request, 62u, descriptor, monotonic_ns(), input),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(client->try_submit(*request), ClientResult::kSuccess);
+  received = ClientResult::kEmpty;
+  const auto rejection_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  do {
+    received = client->try_receive(*result);
+    if (received != ClientResult::kEmpty)
+      break;
+    std::this_thread::yield();
+  } while (std::chrono::steady_clock::now() < rejection_timeout);
+  ASSERT_EQ(received, ClientResult::kSuccess) << to_string(received);
+  EXPECT_EQ(result->envelope.sequence, 62u);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kAdapterNotFound);
+
+  ASSERT_EQ(client->try_shutdown(63u, descriptor.session_id), ClientResult::kSuccess);
+  const auto exit_code = daemon->wait_for(std::chrono::seconds{5});
+  ASSERT_TRUE(exit_code) << "generic job service did not stop after shutdown";
   EXPECT_EQ(*exit_code, 0);
 }
 

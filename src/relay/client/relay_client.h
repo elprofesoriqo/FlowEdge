@@ -1,5 +1,6 @@
 #pragma once
 
+#include "relay/client/client_result.h"
 #include "relay/protocol/messages.h"
 #include "relay/shared_memory/shared_memory_ring.h"
 
@@ -24,17 +25,6 @@ struct RelayRequest
   std::uint32_t solver{1u};
   std::span<const float> condition{};
   std::span<const float> noise{};
-};
-
-enum class ClientResult : std::uint8_t
-{
-  kSuccess,
-  kEmpty,
-  kFull,
-  kInvalidRequest,
-  kIncompatible,
-  kCorrupt,
-  kTransportError,
 };
 
 // Allocation-free SPSC endpoint for one Relay producer/action consumer. A
@@ -83,7 +73,5 @@ private:
   fe_model_metadata model_{};
   ConditionMessage outbound_{};
 };
-
-[[nodiscard]] std::string_view to_string(ClientResult result) noexcept;
 
 } // namespace fe::relay

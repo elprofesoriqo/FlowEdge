@@ -146,7 +146,8 @@ void JobWorkerPool::run_slot(Slot& slot) noexcept
       continue;
     }
 
-    slot.result = {};
+    slot.result.envelope = {};
+    slot.result.metadata = {};
     slot.execution_failed = false;
     slot.started_ns.store(monotonic_ns(), std::memory_order_relaxed);
     auto routed = slot.registry->bind(slot.request);
@@ -399,7 +400,8 @@ void JobWorkerPool::publish_rejection(JobResultMessage* destination,
                                       JobResultCode code) noexcept
 {
   if (destination != nullptr) {
-    *destination = {};
+    destination->envelope = {};
+    destination->metadata = {};
     static_cast<void>(make_rejected_job_result(*destination, request, now_ns, code));
   }
   emit(request.envelope.sequence,

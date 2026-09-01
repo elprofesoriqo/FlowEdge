@@ -27,8 +27,8 @@ on predictable edge-robotics latency and zero dynamic allocations on supported h
 
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
-typed client, worker-aware EDF admission, portable traces and state capsules, generic iterative,
-streaming, and speculative adapters, and preallocated parallel head workers. Core does not depend on
+typed action and job clients, worker-aware EDF admission, portable traces and state capsules, generic
+iterative, streaming, and speculative adapters, and preallocated parallel workers. Core does not depend on
 transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
@@ -102,7 +102,8 @@ single-worker and multi-worker paths. The daemon accepts `--workers 1..8` indepe
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
 Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
 `cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
-`routed_job_sample` demonstrates bounded adapter lanes and lifecycle metrics; and
+`routed_job_sample` demonstrates process-compatible job transport, bounded adapter lanes, and
+lifecycle metrics; and
 `flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.

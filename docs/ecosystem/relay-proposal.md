@@ -58,12 +58,13 @@ The current MVP provides:
 - a non-owning C++23 cooperative-job contract with checked work budgets;
 - canonical state capsules bound to job kind, model digest, schema, session, generation, and progress;
 - concept-based iterative, streaming, and speculative adapters for external runtimes;
-- validated variable-size generic job request/result messages; and
-- frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema.
+- validated variable-size generic job request/result messages;
+- frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema; and
+- `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings.
 
-Generic jobs now emit bounded lifecycle records and fixed-cardinality metrics. They are not yet
-dispatched by `flowedge-relayd`; process transport, a production model adapter, and action-overlap
-policy are the next milestones.
+Generic jobs now cross a real process boundary with retained-result backpressure and emit bounded
+lifecycle records and fixed-cardinality metrics. A production Mamba adapter and action-overlap policy
+are the next milestones.
 
 ## Repository boundary
 
@@ -168,8 +169,9 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 
 The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
 
-The runtime-neutral job layer has no model or transport dependency beyond Relay. `JobWorkerPool`
-routes registered adapters through bounded EDF lanes with per-kind work costs and lifecycle events.
+The runtime-neutral job layer has no model dependency beyond Relay. `JobClient` and `JobService`
+carry typed records across process-compatible rings; `JobWorkerPool` routes them through bounded EDF
+lanes with per-kind work costs and lifecycle events.
 The examples cover
 migration, streaming cancellation, speculative classification, and queued execution:
 

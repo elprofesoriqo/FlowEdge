@@ -7,6 +7,7 @@
 | Kernel/unit tests | C++ kernels match independent references |
 | PyTorch parity | Same checkpoint/input stays within ULP and relative-error limits |
 | Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
+| Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
 | Worker-pool tests | Parallel lanes, freshness, admission, typed failures |
 | Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
 | Trace round-trip | Canonical bytes for action and generic job records |
@@ -55,6 +56,7 @@ Python checks run when their dependencies are available.
 | Invariant | Coverage |
 |---|---|
 | Older generations cannot publish as current | Scheduler, head-pool, job-pool cancellation tests |
+| Full result rings cannot lose work | `JobTransport.PreservesTypedResultsAcrossOutputBackpressure` |
 | Admission includes active and queued lanes | Multi-lane EDF tests |
 | Migration is exact and corruption-safe | Cooperative capsule tests |
 | Trace bytes are portable | Representative little-endian byte assertions |

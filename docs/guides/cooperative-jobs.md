@@ -46,10 +46,14 @@ over-reported progress, early completion, incompatible state, and work beyond th
 ```{mermaid}
 sequenceDiagram
   participant App
+  participant Client as JobClient
+  participant Service as JobService
   participant Pool as JobWorkerPool
   participant Lane as Frozen adapter lane
   participant Events as JobEventBuffer
-  App->>Pool: submit(request, now)
+  App->>Client: try_submit(request)
+  Client->>Service: checksummed shared-memory ring
+  Service->>Pool: submit(request, now)
   Pool->>Pool: identity + freshness + EDF admission
   Pool->>Lane: prepare(payload)
   loop bounded work
@@ -57,7 +61,9 @@ sequenceDiagram
   end
   Lane-->>Pool: JobResultMessage
   Pool-->>Events: lifecycle + timing
-  Pool-->>App: ready_result()
+  Pool-->>Service: ready_result()
+  Service-->>Client: result ring
+  Client-->>App: try_receive(result)
 ```
 
 Provision one backend and frozen registry per lane:
@@ -89,8 +95,19 @@ pool.release_ready_result();
 pool.release_session(descriptor.session_id);
 ```
 
-Drain `events` into `JobMetrics` or `TraceWriter` outside compute. See
-[Observability](observability).
+For another process, connect the same pool to a typed service:
+
+```cpp
+auto service = JobService::create("jobs-in", "jobs-out", pool, 32).value();
+while (!service.stopped()) {
+  if (service.poll() == JobServiceResult::kIdle)
+    std::this_thread::yield();
+}
+```
+
+The producer uses `JobClient::connect`, `try_submit`, and `try_receive`. Full output rings retain the
+result inside the service or worker lane. Drain `events` into `JobMetrics` or `TraceWriter` outside
+compute. See [Observability](observability).
 
 ## Move a running job
 
@@ -117,7 +134,7 @@ committed. Use `StateWriter`/`StateReader` for adapter payloads.
 | Registries | Frozen before pool creation; lookup is `(kind, model, schema)` |
 | Sessions | Fixed capacity; call `release_session` after consuming results |
 | Mutable backend | Never shared concurrently; immutable weights may be shared |
-| Generic transport | Messages cross a ring; daemon dispatch is the next milestone |
+| Generic transport | Separate SPSC request/result rings; `JobService::poll()` is single-coordinator |
 
 ## Run
 
@@ -128,5 +145,5 @@ committed. Use `StateWriter`/`StateReader` for adapter payloads.
 ./build/flowedge_cooperative_job_bench 1000000
 ```
 
-The benchmark covers migration, direct routing, pooled routing, lifecycle metrics, and runtime
-allocation checks.
+The benchmark covers migration, direct and pooled routing, process-compatible transport, lifecycle
+metrics, and runtime allocation checks.

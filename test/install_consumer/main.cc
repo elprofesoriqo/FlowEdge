@@ -1,13 +1,18 @@
 #include "api/engine.h"
 #include "relay/adapters/routed_adapters.h"
+#include "relay/client/job_client.h"
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/telemetry/metrics.h"
+#include "relay/worker/job_service.h"
 #include "relay/worker/job_worker_pool.h"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <span>
+#include <string>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -68,22 +73,42 @@ int main()
     return 1;
   auto created = fe::relay::JobWorkerPool::create(lanes, 1uz, {}, 1uz, 1uz,
                                                   fe::relay::WorkerPlacement::kNone, &*events);
-  if (!created || created->submit(request) != fe::relay::JobSubmitResult::kAccepted)
+  if (!created)
     return 1;
-  const fe::relay::JobResultMessage* pooled{};
-  while (pooled == nullptr) {
-    pooled = created->ready_result();
-    if (pooled == nullptr)
+  const std::string suffix =
+      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  const std::string request_name = "flowedge-install-request-" + suffix;
+  const std::string result_name = "flowedge-install-result-" + suffix;
+  auto client_result = fe::relay::JobClient::create(request_name, result_name, 2u);
+  auto service_result = fe::relay::JobService::connect(request_name, result_name, *created);
+  if (!client_result || !service_result)
+    return 1;
+  fe::relay::JobClient client = std::move(*client_result);
+  fe::relay::JobService service = std::move(*service_result);
+  if (client.try_submit(request) != fe::relay::ClientResult::kSuccess)
+    return 1;
+  fe::relay::JobResultMessage pooled{};
+  fe::relay::ClientResult received{fe::relay::ClientResult::kEmpty};
+  while (received == fe::relay::ClientResult::kEmpty) {
+    const fe::relay::JobServiceResult pumped = service.poll();
+    if (pumped == fe::relay::JobServiceResult::kCorruptInput ||
+        pumped == fe::relay::JobServiceResult::kTransportError)
+      return 1;
+    received = client.try_receive(pooled);
+    if (received == fe::relay::ClientResult::kEmpty)
       std::this_thread::yield();
   }
   const bool pooled_complete =
-      fe::relay::job_result_code(*pooled) == fe::relay::JobResultCode::kComplete;
-  created->release_ready_result();
+      received == fe::relay::ClientResult::kSuccess &&
+      fe::relay::job_result_code(pooled) == fe::relay::JobResultCode::kComplete;
   fe::relay::JobMetrics metrics{};
   while (const fe::relay::JobEventMessage* event = events->front()) {
     metrics.record(*event);
     events->pop();
   }
+  if (client.try_shutdown(2u, descriptor.session_id) != fe::relay::ClientResult::kSuccess ||
+      service.poll() != fe::relay::JobServiceResult::kStopped)
+    return 1;
   const bool session_released = created->release_session(descriptor.session_id);
   return scheduler.capacity() == 1uz && complete && routed_complete && pooled_complete &&
                  session_released && metrics.counters().completed == 1u &&

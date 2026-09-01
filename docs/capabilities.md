@@ -13,7 +13,7 @@ cooperative jobs, replay, and telemetry.
 | Move model state | `streaming_snapshot` | Exact continuation in another engine |
 | Serve actions across processes | `scripts/relay_demo.sh` | Client, daemon, deadlines, replay, metrics |
 | Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
-| Route custom work on EDF lanes | `routed_job_sample` | Typed result plus lifecycle metrics |
+| Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
 | Compare with PyTorch | [Performance](performance) | Matched inputs and exact commands |
 
 ## Execution map
@@ -24,8 +24,10 @@ flowchart LR
   A --> R[Relay client]
   R --> D[flowedge-relayd]
   D --> C
-  A --> J[Job registry]
-  J --> P[JobWorkerPool]
+  A --> J[JobClient]
+  J --> S[Shared-memory rings]
+  S --> V[JobService]
+  V --> P[JobWorkerPool]
   P --> B[Caller-owned backends]
   P --> E[Bounded event buffer]
   E --> T[Trace]
@@ -41,7 +43,7 @@ flowchart LR
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
 | Relay | Shared memory; EDF admission; 1–8 workers; generation cancellation |
-| Generic jobs | Iterative, streaming, speculative; model/schema routing; per-kind costs |
+| Generic jobs | Iterative, streaming, speculative; process IPC; model/schema routing; per-kind costs |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
 
@@ -60,12 +62,11 @@ flowchart LR
 
 | Area | Status |
 |---|---|
-| Generic jobs through a daemon | Local pool complete; process transport next |
-| Production generic model adapter | Streaming Mamba adapter next |
+| Production generic model service | Streaming Mamba adapter next |
 | Transformer and KV cache | Planned in issue #10 |
 | Diffusion Policy, DiT, π0 | Planned in issues #9 and #11 |
 | CUDA, Metal, Vulkan, TTNN | Planned backends |
-| ROS 2 and Zenoh | Optional Relay adapters after generic transport |
+| ROS 2 and Zenoh | Optional Relay adapters after the production model service |
 | Distributed scheduling | Deferred until local traces justify it |
 
 FlowEdge is not an arbitrary graph runtime, training framework, or safety controller. Validate your
