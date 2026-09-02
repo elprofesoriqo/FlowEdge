@@ -15,6 +15,7 @@
 #include "relay/worker/job_worker_pool.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -215,6 +216,86 @@ struct TestRoutedBackend
 };
 
 static_assert(RoutedBackend<TestRoutedBackend>);
+
+struct DrainBackend
+{
+  [[nodiscard]] bool prepare(std::span<const std::byte> request) noexcept
+  {
+    StateReader reader{request};
+    const auto decoded = reader.read<std::uint64_t>();
+    if (!decoded || reader.remaining() != 0uz)
+      return false;
+    seed = *decoded;
+    return true;
+  }
+
+  [[nodiscard]] bool begin() noexcept
+  {
+    completed = 0u;
+    value = seed;
+    update_result();
+    return true;
+  }
+
+  [[nodiscard]] BackendAdvance advance(std::size_t budget) noexcept
+  {
+    const std::size_t count =
+        static_cast<std::size_t>(std::min<std::uint64_t>(budget, kTotalSteps - completed));
+    for (std::size_t index{}; index < count; ++index) {
+      value = (value * 5u) + completed + 1u;
+      ++completed;
+      if (gate_first_boundary && completed == 1u) {
+        boundary_reached->store(true, std::memory_order_release);
+        boundary_reached->notify_one();
+        bool closed{false};
+        while (!release_boundary->load(std::memory_order_acquire))
+          release_boundary->wait(closed, std::memory_order_relaxed);
+      }
+    }
+    update_result();
+    return {.step = completed == kTotalSteps ? BackendStep::kComplete : BackendStep::kInProgress,
+            .completed_work_units = count};
+  }
+
+  void cancel() noexcept {}
+  [[nodiscard]] std::size_t state_bytes() const noexcept { return 16uz; }
+  [[nodiscard]] bool save_state(std::span<std::byte> destination) const noexcept
+  {
+    StateWriter writer{destination};
+    return writer.write(completed) && writer.write(value) && writer.remaining() == 0uz;
+  }
+  [[nodiscard]] bool load_state(std::span<const std::byte> source) noexcept
+  {
+    StateReader reader{source};
+    const auto next_completed = reader.read<std::uint64_t>();
+    const auto next_value = reader.read<std::uint64_t>();
+    if (!next_completed || !next_value || *next_completed > kTotalSteps ||
+        reader.remaining() != 0uz)
+      return false;
+    completed = *next_completed;
+    value = *next_value;
+    update_result();
+    return true;
+  }
+  [[nodiscard]] std::span<const std::byte> result() const noexcept { return encoded_result; }
+
+  void update_result() noexcept
+  {
+    StateWriter writer{encoded_result};
+    static_cast<void>(writer.write(value));
+  }
+
+  static constexpr std::uint64_t kTotalSteps = 6u;
+  std::atomic_bool* boundary_reached{};
+  std::atomic_bool* release_boundary{};
+  bool gate_first_boundary{};
+  std::uint64_t seed{};
+  std::uint64_t completed{};
+  std::uint64_t value{};
+  std::array<std::byte, sizeof(std::uint64_t)> encoded_result{};
+};
+
+static_assert(RoutedBackend<DrainBackend>);
 
 [[nodiscard]] JobDescriptor test_job_descriptor(std::uint64_t generation = 7u)
 {
@@ -481,6 +562,211 @@ TEST(JobWorkerPool, RoutesJobsAcrossPreallocatedAdapterLanes)
   EXPECT_EQ(events->dropped(), 0u);
   EXPECT_TRUE(pool.release_session(first_descriptor.session_id));
   EXPECT_TRUE(pool.release_session(second_descriptor.session_id));
+}
+
+TEST(JobWorkerPool, DrainsActiveLaneByMigratingAtWorkBoundary)
+{
+  JobDescriptor descriptor = test_job_descriptor(9u);
+  descriptor.kind = JobKind::kStreaming;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = DrainBackend::kTotalSteps;
+  std::atomic_bool boundary_reached{false};
+  std::atomic_bool release_boundary{false};
+  DrainBackend source{.boundary_reached = &boundary_reached,
+                      .release_boundary = &release_boundary,
+                      .gate_first_boundary = true};
+  DrainBackend destination{};
+  std::array<JobAdapterRegistration, 1> source_entries{};
+  std::array<JobAdapterRegistration, 1> destination_entries{};
+  std::array<JobAdapterRegistry, 2> registries{JobAdapterRegistry{source_entries},
+                                               JobAdapterRegistry{destination_entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(source, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  ASSERT_TRUE(registries[1].add(make_routed_adapter(destination, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  for (JobAdapterRegistry& registry : registries)
+    registry.freeze();
+  auto events = JobEventBuffer::create(16uz);
+  ASSERT_TRUE(events) << events.error();
+  auto created =
+      JobWorkerPool::create(registries, 2uz, {}, 2uz, 1uz, WorkerPlacement::kNone, &*events, 256uz);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+  EXPECT_EQ(pool.migration_capacity_bytes(), 256uz);
+  EXPECT_EQ(pool.accepting_worker_count(), 2uz);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter writer{input};
+  ASSERT_TRUE(writer.write(std::uint64_t{3u}));
+  JobRequestMessage request_message{};
+  ASSERT_EQ(make_job_request(request_message, 601u, descriptor, 0u, input),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(pool.submit(request_message), JobSubmitResult::kAccepted);
+  const auto boundary_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (!boundary_reached.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < boundary_timeout)
+    std::this_thread::yield();
+  ASSERT_TRUE(boundary_reached.load(std::memory_order_acquire));
+  EXPECT_EQ(pool.request_worker_drain(0uz), WorkerDrainResult::kStarted);
+  EXPECT_EQ(pool.request_worker_drain(0uz), WorkerDrainResult::kAlreadyDraining);
+  EXPECT_EQ(pool.request_worker_drain(9uz), WorkerDrainResult::kInvalidWorker);
+  release_boundary.store(true, std::memory_order_release);
+  release_boundary.notify_one();
+
+  const JobResultMessage* result{};
+  const auto result_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (result == nullptr && std::chrono::steady_clock::now() < result_timeout) {
+    result = pool.ready_result();
+    if (result == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(validate(*result), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  EXPECT_EQ(result->metadata.progress.completed_work_units, DrainBackend::kTotalSteps);
+  StateReader result_reader{result->payload_values()};
+  const auto migrated_value = result_reader.read<std::uint64_t>();
+  ASSERT_TRUE(migrated_value);
+  EXPECT_EQ(*migrated_value, destination.value);
+  EXPECT_EQ(source.completed, 1u);
+  EXPECT_EQ(destination.completed, DrainBackend::kTotalSteps);
+  EXPECT_TRUE(pool.worker_drained(0uz));
+  EXPECT_TRUE(pool.worker_draining(0uz));
+  EXPECT_EQ(pool.accepting_worker_count(), 1uz);
+  pool.release_ready_result();
+  EXPECT_TRUE(pool.release_session(descriptor.session_id));
+
+  JobMetrics metrics{};
+  while (const JobEventMessage* event = events->front()) {
+    EXPECT_EQ(validate(*event), ProtocolResult::kSuccess);
+    metrics.record(*event);
+    events->pop();
+  }
+  EXPECT_EQ(metrics.counters().migrations_started, 1u);
+  EXPECT_EQ(metrics.counters().migrations_completed, 1u);
+  EXPECT_EQ(metrics.counters().completed, 1u);
+  EXPECT_EQ(pool.request_worker_drain(1uz), WorkerDrainResult::kStarted);
+  EXPECT_TRUE(pool.worker_drained(1uz));
+  JobResultMessage rejection{};
+  EXPECT_EQ(pool.submit(request_message, 0u, &rejection), JobSubmitResult::kFull);
+  EXPECT_EQ(job_result_code(rejection), JobResultCode::kRejectedCapacity);
+  EXPECT_TRUE(pool.resume_worker(0uz));
+  EXPECT_TRUE(pool.resume_worker(1uz));
+  EXPECT_FALSE(pool.worker_draining(0uz));
+  EXPECT_EQ(pool.accepting_worker_count(), 2uz);
+  EXPECT_FALSE(pool.resume_worker(0uz));
+}
+
+TEST(JobWorkerPool, RefusesToDrainTheOnlyLaneForAcceptedWork)
+{
+  JobDescriptor descriptor = test_job_descriptor(10u);
+  descriptor.kind = JobKind::kStreaming;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = DrainBackend::kTotalSteps;
+  std::atomic_bool boundary_reached{false};
+  std::atomic_bool release_boundary{false};
+  DrainBackend backend{.boundary_reached = &boundary_reached,
+                       .release_boundary = &release_boundary,
+                       .gate_first_boundary = true};
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(backend, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  registries[0].freeze();
+  auto created =
+      JobWorkerPool::create(registries, 2uz, {}, 2uz, 1uz, WorkerPlacement::kNone, nullptr, 256uz);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter writer{input};
+  ASSERT_TRUE(writer.write(std::uint64_t{4u}));
+  JobRequestMessage first{};
+  JobRequestMessage second{};
+  ASSERT_EQ(make_job_request(first, 701u, descriptor, 0u, input), ProtocolResult::kSuccess);
+  ++descriptor.session_id;
+  ASSERT_EQ(make_job_request(second, 702u, descriptor, 0u, input), ProtocolResult::kSuccess);
+  ASSERT_EQ(pool.submit(first), JobSubmitResult::kAccepted);
+  ASSERT_EQ(pool.submit(second), JobSubmitResult::kAccepted);
+  const auto boundary_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (!boundary_reached.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < boundary_timeout)
+    std::this_thread::yield();
+  ASSERT_TRUE(boundary_reached.load(std::memory_order_acquire));
+  EXPECT_EQ(pool.request_worker_drain(0uz), WorkerDrainResult::kWouldStrandWork);
+  EXPECT_FALSE(pool.worker_draining(0uz));
+  release_boundary.store(true, std::memory_order_release);
+  release_boundary.notify_one();
+
+  std::size_t completed{};
+  const auto result_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (completed < 2uz && std::chrono::steady_clock::now() < result_timeout) {
+    const JobResultMessage* const result = pool.ready_result();
+    if (result == nullptr) {
+      std::this_thread::yield();
+      continue;
+    }
+    EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+    pool.release_ready_result();
+    ++completed;
+  }
+  EXPECT_EQ(completed, 2uz);
+  EXPECT_TRUE(pool.release_session(first.metadata.descriptor.session_id));
+  EXPECT_TRUE(pool.release_session(second.metadata.descriptor.session_id));
+}
+
+TEST(JobWorkerPool, FinishesActiveWorkLocallyWhenLiveHandoffIsDisabled)
+{
+  JobDescriptor descriptor = test_job_descriptor(11u);
+  descriptor.kind = JobKind::kStreaming;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = DrainBackend::kTotalSteps;
+  std::atomic_bool boundary_reached{false};
+  std::atomic_bool release_boundary{false};
+  DrainBackend backend{.boundary_reached = &boundary_reached,
+                       .release_boundary = &release_boundary,
+                       .gate_first_boundary = true};
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(backend, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  registries[0].freeze();
+  auto created = JobWorkerPool::create(registries, 1uz, {}, 1uz);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+  EXPECT_EQ(pool.migration_capacity_bytes(), 0uz);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter writer{input};
+  ASSERT_TRUE(writer.write(std::uint64_t{4u}));
+  JobRequestMessage request_message{};
+  ASSERT_EQ(make_job_request(request_message, 703u, descriptor, 0u, input),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(pool.submit(request_message), JobSubmitResult::kAccepted);
+  const auto boundary_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (!boundary_reached.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < boundary_timeout)
+    std::this_thread::yield();
+  ASSERT_TRUE(boundary_reached.load(std::memory_order_acquire));
+  EXPECT_EQ(pool.request_worker_drain(0uz), WorkerDrainResult::kStarted);
+  release_boundary.store(true, std::memory_order_release);
+  release_boundary.notify_one();
+
+  const JobResultMessage* result{};
+  const auto result_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (result == nullptr && std::chrono::steady_clock::now() < result_timeout) {
+    result = pool.ready_result();
+    if (result == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  EXPECT_EQ(backend.completed, DrainBackend::kTotalSteps);
+  EXPECT_FALSE(pool.worker_drained(0uz));
+  pool.release_ready_result();
+  EXPECT_TRUE(pool.worker_drained(0uz));
+  EXPECT_TRUE(pool.release_session(descriptor.session_id));
+  EXPECT_TRUE(pool.resume_worker(0uz));
 }
 
 TEST(JobWorkerPool, AppliesPerKindAdmissionAndSessionFreshness)
@@ -873,20 +1159,30 @@ TEST(MambaStreamAdapter, MigratesExactCoreStateAndMatchesUninterruptedExecution)
             0);
 }
 
-TEST(MambaStreamAdapter, RoutesRealModelThroughWorkerPool)
+TEST(MambaStreamAdapter, DrainsAndMigratesRealModelThroughWorkerPool)
 {
   const std::filesystem::path model =
       std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
   if (!std::filesystem::exists(model))
     GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
 
-  constexpr std::array<std::int32_t, 4> tokens{1, 2, 3, 4};
-  auto opened = MambaStreamAdapter::open(model.string(), tokens.size(), 0u);
-  auto opened_reference = MambaStreamAdapter::open(model.string(), tokens.size(), 0u);
+  std::array<std::int32_t, 512> tokens{};
+  for (std::size_t index{}; index < tokens.size(); ++index)
+    tokens[index] = static_cast<std::int32_t>((index % 31uz) + 1uz);
+  std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{fe_weights_load(
+                                                                      model.string().c_str()),
+                                                                  fe_weights_free};
+  ASSERT_NE(weights, nullptr) << fe_engine_last_error();
+  auto opened = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_destination = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_reference = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
   ASSERT_TRUE(opened) << opened.error();
+  ASSERT_TRUE(opened_destination) << opened_destination.error();
   ASSERT_TRUE(opened_reference) << opened_reference.error();
   MambaStreamAdapter adapter = std::move(*opened);
+  MambaStreamAdapter destination = std::move(*opened_destination);
   MambaStreamAdapter reference = std::move(*opened_reference);
+  weights.reset();
   std::array<std::byte, tokens.size() * sizeof(std::int32_t)> request_bytes{};
   const auto encoded = encode_mamba_stream_request(tokens, request_bytes);
   ASSERT_TRUE(encoded) << encoded.error();
@@ -900,17 +1196,26 @@ TEST(MambaStreamAdapter, RoutesRealModelThroughWorkerPool)
   ASSERT_TRUE(reference_job.start());
   ASSERT_TRUE(reference_job.advance(tokens.size()));
 
-  std::array<JobAdapterRegistration, 1> entries{};
-  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  std::array<JobAdapterRegistration, 1> source_entries{};
+  std::array<JobAdapterRegistration, 1> destination_entries{};
+  std::array<JobAdapterRegistry, 2> registries{JobAdapterRegistry{source_entries},
+                                               JobAdapterRegistry{destination_entries}};
   ASSERT_TRUE(registries[0].add(adapter.registration()));
-  registries[0].freeze();
-  auto created = JobWorkerPool::create(registries, 2uz, {}, 2uz, 1uz);
+  ASSERT_TRUE(registries[1].add(destination.registration()));
+  for (JobAdapterRegistry& registry : registries)
+    registry.freeze();
+  auto events = JobEventBuffer::create(16uz);
+  ASSERT_TRUE(events) << events.error();
+  const std::size_t migration_capacity = state_capsule_bytes(adapter.max_state_bytes());
+  auto created = JobWorkerPool::create(registries, 2uz, {}, 2uz, 1uz, WorkerPlacement::kNone,
+                                       &*events, migration_capacity);
   ASSERT_TRUE(created) << created.error();
   JobWorkerPool pool = std::move(*created);
   auto request_message = std::make_unique<JobRequestMessage>();
   ASSERT_EQ(make_job_request(*request_message, 501u, descriptor, 0u, payload),
             ProtocolResult::kSuccess);
   ASSERT_EQ(pool.submit(*request_message), JobSubmitResult::kAccepted);
+  ASSERT_EQ(pool.request_worker_drain(0uz), WorkerDrainResult::kStarted);
 
   const JobResultMessage* result{};
   const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
@@ -927,8 +1232,16 @@ TEST(MambaStreamAdapter, RoutesRealModelThroughWorkerPool)
   EXPECT_EQ(std::memcmp(result->payload_values().data(), reference.result().data(),
                         reference.result().size()),
             0);
+  EXPECT_TRUE(pool.worker_drained(0uz));
   pool.release_ready_result();
   EXPECT_TRUE(pool.release_session(descriptor.session_id));
+  JobMetrics metrics{};
+  while (const JobEventMessage* event = events->front()) {
+    metrics.record(*event);
+    events->pop();
+  }
+  EXPECT_EQ(metrics.counters().migrations_started, 1u);
+  EXPECT_EQ(metrics.counters().migrations_completed, 1u);
 }
 
 TEST(CooperativeJob, RejectsCorruptAndIncompatibleCapsulesBeforeRestore)

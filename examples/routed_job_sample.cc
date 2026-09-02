@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -56,6 +57,13 @@ struct RefinementBackend
     for (std::size_t index{}; index < count; ++index) {
       value = (value * 3u) + completed + 1u;
       ++completed;
+      if (gate_first_boundary && completed == 1u) {
+        boundary_reached->store(true, std::memory_order_release);
+        boundary_reached->notify_one();
+        bool closed{false};
+        while (!release_boundary->load(std::memory_order_acquire))
+          release_boundary->wait(closed, std::memory_order_relaxed);
+      }
     }
     encode_result();
     return {
@@ -95,6 +103,9 @@ struct RefinementBackend
   }
 
   static constexpr std::uint64_t kWorkUnits = 4u;
+  std::atomic_bool* boundary_reached{};
+  std::atomic_bool* release_boundary{};
+  bool gate_first_boundary{};
   std::uint64_t seed{};
   std::uint64_t completed{};
   std::uint64_t value{};
@@ -142,19 +153,28 @@ int main(int argc, char** argv)
   if (make_job_request(*request, 1u, descriptor(), submitted_ns, input) != ProtocolResult::kSuccess)
     return 1;
 
-  RefinementBackend backend{};
-  std::array<JobAdapterRegistration, 1> registrations{};
-  JobAdapterRegistry registry{registrations};
-  if (!registry.add(make_routed_adapter(backend, job_route(descriptor()), input.size(),
+  std::atomic_bool boundary_reached{false};
+  std::atomic_bool release_boundary{false};
+  RefinementBackend source{.boundary_reached = &boundary_reached,
+                           .release_boundary = &release_boundary,
+                           .gate_first_boundary = true};
+  RefinementBackend destination{};
+  std::array<JobAdapterRegistration, 1> source_registrations{};
+  std::array<JobAdapterRegistration, 1> destination_registrations{};
+  std::array<JobAdapterRegistry, 2> lanes{JobAdapterRegistry{source_registrations},
+                                          JobAdapterRegistry{destination_registrations}};
+  if (!lanes[0].add(make_routed_adapter(source, job_route(descriptor()), input.size(),
+                                        sizeof(std::uint64_t))) ||
+      !lanes[1].add(make_routed_adapter(destination, job_route(descriptor()), input.size(),
                                         sizeof(std::uint64_t))))
     return 1;
-  registry.freeze();
-
-  std::array<JobAdapterRegistry, 1> lanes{registry};
+  for (JobAdapterRegistry& lane : lanes)
+    lane.freeze();
   auto events = JobEventBuffer::create(8uz);
   if (!events)
     return 1;
-  auto created = JobWorkerPool::create(lanes, 4uz, {}, 4uz, 2uz, WorkerPlacement::kNone, &*events);
+  auto created =
+      JobWorkerPool::create(lanes, 4uz, {}, 4uz, 2uz, WorkerPlacement::kNone, &*events, 256uz);
   if (!created)
     return 1;
   JobWorkerPool pool = std::move(*created);
@@ -174,6 +194,15 @@ int main(int argc, char** argv)
     return 1;
   if (client.try_submit(*request) != ClientResult::kSuccess)
     return 1;
+  if (service.poll(submitted_ns) != JobServiceResult::kProgress)
+    return 1;
+  bool waiting{false};
+  while (!boundary_reached.load(std::memory_order_acquire))
+    boundary_reached.wait(waiting, std::memory_order_relaxed);
+  if (pool.request_worker_drain(0uz) != WorkerDrainResult::kStarted)
+    return 1;
+  release_boundary.store(true, std::memory_order_release);
+  release_boundary.notify_one();
 
   auto result = std::make_unique<JobResultMessage>();
   ClientResult received{ClientResult::kEmpty};
@@ -210,6 +239,7 @@ int main(int argc, char** argv)
     trace->flush();
   std::cout << " events=" << metrics.counters().events
             << " work_units=" << metrics.counters().completed_work_units
+            << " migrations=" << metrics.counters().migrations_completed
             << " transported=" << service.stats().results_published;
   if (argc == 2)
     std::cout << " trace=" << argv[1];
@@ -217,7 +247,9 @@ int main(int argc, char** argv)
   if (client.try_shutdown(2u, descriptor().session_id) != ClientResult::kSuccess ||
       service.poll() != JobServiceResult::kStopped)
     return 1;
-  return pool.release_session(descriptor().session_id) && metrics.counters().completed == 1u &&
+  return pool.release_session(descriptor().session_id) && pool.worker_drained(0uz) &&
+                 pool.resume_worker(0uz) && metrics.counters().completed == 1u &&
+                 metrics.counters().migrations_completed == 1u &&
                  service.stats().requests_accepted == 1u
              ? 0
              : 1;

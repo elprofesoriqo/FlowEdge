@@ -135,6 +135,11 @@ JobAdapterRegistration MambaStreamAdapter::registration() noexcept
   return make_routed_adapter(*this, route(), max_request_bytes(), max_result_bytes());
 }
 
+std::size_t MambaStreamAdapter::max_state_bytes() const noexcept
+{
+  return kStateHeaderBytes + max_request_bytes() + max_result_bytes() + snapshot_bytes_;
+}
+
 bool MambaStreamAdapter::prepare(std::span<const std::byte> request) noexcept
 {
   if (request.empty() || request.size() % sizeof(std::int32_t) != 0uz ||
@@ -184,8 +189,8 @@ std::size_t MambaStreamAdapter::state_bytes() const noexcept
 {
   if (!prepared_)
     return 0uz;
-  return kStateHeaderBytes + (token_count_ * sizeof(std::int32_t)) +
-         (hidden_.size() * sizeof(float)) + snapshot_bytes_;
+  return kStateHeaderBytes + mamba_stream_request_bytes(token_count_) + max_result_bytes() +
+         snapshot_bytes_;
 }
 
 bool MambaStreamAdapter::save_state(std::span<std::byte> destination) const noexcept

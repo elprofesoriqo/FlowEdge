@@ -54,6 +54,7 @@ public:
   {
     return hidden_.size() * sizeof(float);
   }
+  [[nodiscard]] std::size_t max_state_bytes() const noexcept;
   [[nodiscard]] JobRoute route() const noexcept;
   [[nodiscard]] JobDescriptor make_descriptor(std::uint64_t session_id, std::uint64_t generation,
                                               std::size_t token_count,

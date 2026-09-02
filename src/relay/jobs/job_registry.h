@@ -83,6 +83,17 @@ public:
   {
     return job_.cancel_before(generation);
   }
+  [[nodiscard]] std::size_t capsule_bytes() const noexcept { return job_.capsule_bytes(); }
+  [[nodiscard]] std::expected<std::size_t, JobError> export_capsule(
+      std::span<std::byte> destination) const noexcept
+  {
+    return job_.export_capsule(destination);
+  }
+  [[nodiscard]] std::expected<JobProgress, JobError> restore_capsule(
+      std::span<const std::byte> source) noexcept
+  {
+    return job_.restore_capsule(source);
+  }
   [[nodiscard]] ProtocolResult write_result(JobResultMessage& destination,
                                             std::uint64_t timestamp_ns) const noexcept;
 

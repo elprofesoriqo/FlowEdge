@@ -49,6 +49,14 @@ enum class JobSubmitResult : std::uint8_t
   kFull,
 };
 
+enum class WorkerDrainResult : std::uint8_t
+{
+  kStarted,
+  kAlreadyDraining,
+  kWouldStrandWork,
+  kInvalidWorker,
+};
+
 struct JobWorkerTiming
 {
   std::uint64_t dispatched_ns{};
@@ -59,15 +67,16 @@ struct JobWorkerTiming
 // Bounded EDF execution for caller-owned cooperative backends. Each lane owns
 // one frozen registry and therefore one mutable backend instance per route.
 // Initialization allocates the slots and queue; submit, polling, cancellation,
-// execution, and result release do not allocate.
+// execution, migration, and result release do not allocate.
 class JobWorkerPool
 {
 public:
+  // Migration capacity is reserved per lane; zero keeps drain local to the lane.
   [[nodiscard]] static std::expected<JobWorkerPool, std::string> create(
       std::span<JobAdapterRegistry> lane_registries, std::size_t queue_capacity = 32uz,
       JobCostPolicy cost_policy = {}, std::size_t max_sessions = 64uz,
       std::size_t work_quantum = 1uz, WorkerPlacement placement = WorkerPlacement::kNone,
-      JobEventBuffer* events = nullptr) noexcept;
+      JobEventBuffer* events = nullptr, std::size_t migration_capacity_bytes = 0uz) noexcept;
 
   ~JobWorkerPool();
   JobWorkerPool(const JobWorkerPool&) = delete;
@@ -85,6 +94,17 @@ public:
     return failure_count_.load(std::memory_order_relaxed);
   }
   [[nodiscard]] WorkerBinding worker_binding(std::size_t index) const noexcept;
+  [[nodiscard]] std::size_t migration_capacity_bytes() const noexcept
+  {
+    return migration_capacity_bytes_;
+  }
+  [[nodiscard]] std::size_t accepting_worker_count() const noexcept;
+  [[nodiscard]] bool worker_busy(std::size_t index) const noexcept;
+  [[nodiscard]] bool worker_draining(std::size_t index) const noexcept;
+  [[nodiscard]] bool worker_drained(std::size_t index) const noexcept;
+  // Drain and resume share the coordinator-thread ownership of submit/poll/release.
+  [[nodiscard]] WorkerDrainResult request_worker_drain(std::size_t index) noexcept;
+  [[nodiscard]] bool resume_worker(std::size_t index) noexcept;
 
   // A non-null rejection receives a typed result when the valid request is
   // rejected before enqueue. The coordinator calls submit/poll/release from one
@@ -115,9 +135,11 @@ private:
   static void run_slot(Slot& slot) noexcept;
   void stop() noexcept;
   void pump() noexcept;
+  void handoff_migrations() noexcept;
   [[nodiscard]] bool dispatch_one(Slot& slot) noexcept;
   [[nodiscard]] bool admissible(const JobRequestMessage& request, std::uint64_t now_ns) noexcept;
   [[nodiscard]] bool supports_any(const JobRequestMessage& request) const noexcept;
+  [[nodiscard]] bool has_accepting_worker(const JobRequestMessage& request) const noexcept;
   [[nodiscard]] bool stale(const JobRequestMessage& request) const noexcept;
   [[nodiscard]] SessionWatermark* find_session(std::uint64_t session_id) noexcept;
   [[nodiscard]] const SessionWatermark* find_session(std::uint64_t session_id) const noexcept;
@@ -138,6 +160,7 @@ private:
   JobEventBuffer* events_{};
   std::size_t dispatch_cursor_{};
   std::size_t ready_cursor_{};
+  std::size_t migration_capacity_bytes_{};
   std::atomic<std::uint64_t> failure_count_{};
 };
 

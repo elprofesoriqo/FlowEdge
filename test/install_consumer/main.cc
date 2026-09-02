@@ -112,8 +112,13 @@ int main()
       service.poll() != fe::relay::JobServiceResult::kStopped)
     return 1;
   const bool session_released = created->release_session(descriptor.session_id);
+  const bool drain_started =
+      created->request_worker_drain(0uz) == fe::relay::WorkerDrainResult::kStarted;
+  const bool drained = created->worker_drained(0uz) && created->accepting_worker_count() == 0uz;
+  const bool resumed = created->resume_worker(0uz);
   return scheduler.capacity() == 1uz && complete && routed_complete && pooled_complete &&
-                 session_released && metrics.counters().completed == 1u &&
+                 session_released && drain_started && drained && resumed &&
+                 metrics.counters().completed == 1u &&
                  fe::relay::mamba_stream_request_bytes(4uz) == 4uz * sizeof(std::int32_t) &&
                  complete->state == fe::relay::JobState::kComplete &&
                  routed_complete->state == fe::relay::JobState::kComplete
