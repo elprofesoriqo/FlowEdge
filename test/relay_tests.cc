@@ -1,4 +1,5 @@
 #include "relay/adapters/cooperative_adapters.h"
+#include "relay/adapters/mamba_stream_adapter.h"
 #include "relay/adapters/routed_adapters.h"
 #include "relay/client/job_client.h"
 #include "relay/jobs/state_capsule.h"
@@ -227,6 +228,27 @@ static_assert(RoutedBackend<TestRoutedBackend>);
   descriptor.deadline_ns = 1'000'000u;
   descriptor.total_work_units = TestCooperativeBackend::kTotalSteps;
   return descriptor;
+}
+
+TEST(StateCodec, PreservesCanonicalLittleEndianBits)
+{
+  std::array<std::byte, 12> encoded{};
+  StateWriter writer{encoded};
+  ASSERT_TRUE(writer.write(std::uint32_t{0x78563412u}));
+  ASSERT_TRUE(writer.write(std::int32_t{-2}));
+  ASSERT_TRUE(writer.write_float(1.0F));
+  EXPECT_EQ(std::to_integer<std::uint8_t>(encoded[0]), 0x12u);
+  EXPECT_EQ(std::to_integer<std::uint8_t>(encoded[3]), 0x78u);
+  EXPECT_EQ(std::to_integer<std::uint8_t>(encoded[4]), 0xfeu);
+  EXPECT_EQ(std::to_integer<std::uint8_t>(encoded[7]), 0xffu);
+  EXPECT_EQ(std::to_integer<std::uint8_t>(encoded[10]), 0x80u);
+  EXPECT_EQ(std::to_integer<std::uint8_t>(encoded[11]), 0x3fu);
+
+  StateReader reader{encoded};
+  EXPECT_EQ(reader.read<std::uint32_t>(), 0x78563412u);
+  EXPECT_EQ(reader.read<std::int32_t>(), -2);
+  EXPECT_EQ(reader.read_float(), 1.0F);
+  EXPECT_FALSE(reader.read<std::uint8_t>());
 }
 
 TEST(RelayProtocol, BuildsAndValidatesVersionedCondition)
@@ -783,6 +805,130 @@ TEST(CooperativeJob, MigratesIterativeStateBitExactly)
   EXPECT_EQ(migrated_complete->state, JobState::kComplete);
   EXPECT_EQ(source_backend.step, migrated_backend.step);
   EXPECT_EQ(source_backend.values, migrated_backend.values);
+}
+
+TEST(MambaStreamAdapter, MigratesExactCoreStateAndMatchesUninterruptedExecution)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  constexpr std::array<std::int32_t, 4> tokens{1, 2, 3, 4};
+  std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{fe_weights_load(
+                                                                      model.string().c_str()),
+                                                                  fe_weights_free};
+  ASSERT_NE(weights, nullptr) << fe_engine_last_error();
+  auto opened_source = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_destination = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_reference = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  ASSERT_TRUE(opened_source) << opened_source.error();
+  ASSERT_TRUE(opened_destination) << opened_destination.error();
+  ASSERT_TRUE(opened_reference) << opened_reference.error();
+  MambaStreamAdapter source = std::move(*opened_source);
+  MambaStreamAdapter destination = std::move(*opened_destination);
+  MambaStreamAdapter reference = std::move(*opened_reference);
+  weights.reset();
+
+  std::array<std::byte, tokens.size() * sizeof(std::int32_t)> request_bytes{};
+  const auto encoded = encode_mamba_stream_request(tokens, request_bytes);
+  ASSERT_TRUE(encoded) << encoded.error();
+  const auto request = std::span{request_bytes}.first(*encoded);
+  const JobDescriptor descriptor = source.make_descriptor(41u, 3u, tokens.size());
+  ASSERT_TRUE(source.prepare(request));
+  auto source_job_result = make_streaming_job(source, descriptor);
+  ASSERT_TRUE(source_job_result) << source_job_result.error().message;
+  CooperativeJob source_job = *source_job_result;
+  ASSERT_TRUE(source_job.start());
+  const auto partial = source_job.advance(2uz);
+  ASSERT_TRUE(partial) << partial.error().message;
+  EXPECT_EQ(partial->completed_work_units, 2u);
+
+  std::vector<std::byte> capsule(source_job.capsule_bytes());
+  const auto exported = source_job.export_capsule(capsule);
+  ASSERT_TRUE(exported) << exported.error().message;
+  EXPECT_EQ(*exported, capsule.size());
+
+  auto destination_job_result = make_streaming_job(destination, descriptor);
+  ASSERT_TRUE(destination_job_result) << destination_job_result.error().message;
+  CooperativeJob destination_job = *destination_job_result;
+  const auto restored = destination_job.restore_capsule(capsule);
+  ASSERT_TRUE(restored) << restored.error().message;
+  EXPECT_EQ(restored->completed_work_units, 2u);
+  const auto migrated_complete = destination_job.advance(2uz);
+  ASSERT_TRUE(migrated_complete) << migrated_complete.error().message;
+  EXPECT_EQ(migrated_complete->state, JobState::kComplete);
+
+  ASSERT_TRUE(reference.prepare(request));
+  auto reference_job_result = make_streaming_job(reference, descriptor);
+  ASSERT_TRUE(reference_job_result) << reference_job_result.error().message;
+  CooperativeJob reference_job = *reference_job_result;
+  ASSERT_TRUE(reference_job.start());
+  const auto reference_complete = reference_job.advance(tokens.size());
+  ASSERT_TRUE(reference_complete) << reference_complete.error().message;
+  ASSERT_EQ(reference_complete->state, JobState::kComplete);
+  ASSERT_EQ(destination.result().size(), reference.result().size());
+  EXPECT_EQ(std::memcmp(destination.result().data(), reference.result().data(),
+                        reference.result().size()),
+            0);
+}
+
+TEST(MambaStreamAdapter, RoutesRealModelThroughWorkerPool)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  constexpr std::array<std::int32_t, 4> tokens{1, 2, 3, 4};
+  auto opened = MambaStreamAdapter::open(model.string(), tokens.size(), 0u);
+  auto opened_reference = MambaStreamAdapter::open(model.string(), tokens.size(), 0u);
+  ASSERT_TRUE(opened) << opened.error();
+  ASSERT_TRUE(opened_reference) << opened_reference.error();
+  MambaStreamAdapter adapter = std::move(*opened);
+  MambaStreamAdapter reference = std::move(*opened_reference);
+  std::array<std::byte, tokens.size() * sizeof(std::int32_t)> request_bytes{};
+  const auto encoded = encode_mamba_stream_request(tokens, request_bytes);
+  ASSERT_TRUE(encoded) << encoded.error();
+  const auto payload = std::span{request_bytes}.first(*encoded);
+  const JobDescriptor descriptor = adapter.make_descriptor(42u, 1u, tokens.size());
+
+  ASSERT_TRUE(reference.prepare(payload));
+  auto reference_job_result = make_streaming_job(reference, descriptor);
+  ASSERT_TRUE(reference_job_result) << reference_job_result.error().message;
+  CooperativeJob reference_job = *reference_job_result;
+  ASSERT_TRUE(reference_job.start());
+  ASSERT_TRUE(reference_job.advance(tokens.size()));
+
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(adapter.registration()));
+  registries[0].freeze();
+  auto created = JobWorkerPool::create(registries, 2uz, {}, 2uz, 1uz);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+  auto request_message = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*request_message, 501u, descriptor, 0u, payload),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(pool.submit(*request_message), JobSubmitResult::kAccepted);
+
+  const JobResultMessage* result{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (result == nullptr && std::chrono::steady_clock::now() < timeout) {
+    result = pool.ready_result();
+    if (result == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(validate(*result), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  EXPECT_EQ(result->metadata.progress.completed_work_units, tokens.size());
+  ASSERT_EQ(result->payload_values().size(), reference.result().size());
+  EXPECT_EQ(std::memcmp(result->payload_values().data(), reference.result().data(),
+                        reference.result().size()),
+            0);
+  pool.release_ready_result();
+  EXPECT_TRUE(pool.release_session(descriptor.session_id));
 }
 
 TEST(CooperativeJob, RejectsCorruptAndIncompatibleCapsulesBeforeRestore)

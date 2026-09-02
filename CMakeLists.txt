@@ -45,6 +45,9 @@ if(FLOWEDGE_RELAY)
 
   add_executable(routed_job_sample examples/routed_job_sample.cc)
   target_link_libraries(routed_job_sample PRIVATE FlowEdge::Relay)
+
+  add_executable(mamba_relay_stream examples/mamba_relay_stream.cc)
+  target_link_libraries(mamba_relay_stream PRIVATE FlowEdge::Relay)
 endif()
 
 # BENCHMARKS
@@ -94,6 +97,9 @@ if(FLOWEDGE_BENCH)
 
     add_executable(flowedge_job_queue_bench bench/job_queue_bench.cc)
     target_link_libraries(flowedge_job_queue_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_mamba_stream_bench bench/mamba_stream_bench.cc)
+    target_link_libraries(flowedge_mamba_stream_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 

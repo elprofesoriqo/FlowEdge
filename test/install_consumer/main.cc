@@ -1,4 +1,5 @@
 #include "api/engine.h"
+#include "relay/adapters/mamba_stream_adapter.h"
 #include "relay/adapters/routed_adapters.h"
 #include "relay/client/job_client.h"
 #include "relay/scheduler/edf_scheduler.h"
@@ -36,6 +37,7 @@ struct InstalledBackend
 
 static_assert(fe::relay::CooperativeBackend<InstalledBackend>);
 static_assert(fe::relay::RoutedBackend<InstalledBackend>);
+static_assert(fe::relay::RoutedBackend<fe::relay::MambaStreamAdapter>);
 
 } // namespace
 
@@ -112,6 +114,7 @@ int main()
   const bool session_released = created->release_session(descriptor.session_id);
   return scheduler.capacity() == 1uz && complete && routed_complete && pooled_complete &&
                  session_released && metrics.counters().completed == 1u &&
+                 fe::relay::mamba_stream_request_bytes(4uz) == 4uz * sizeof(std::int32_t) &&
                  complete->state == fe::relay::JobState::kComplete &&
                  routed_complete->state == fe::relay::JobState::kComplete
              ? 0

@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <expected>
 #include <limits>
 #include <span>
@@ -28,11 +29,12 @@ public:
     if (remaining() < sizeof(Integer))
       return false;
     using Unsigned = std::make_unsigned_t<Integer>;
-    const auto bits = static_cast<Unsigned>(value);
-    for (std::size_t index{}; index < sizeof(Integer); ++index) {
-      destination_[position_ + index] = static_cast<std::byte>(
-          (bits >> (index * 8uz)) & Unsigned{0xffu}); // NOLINT(bugprone-signed-bitwise)
-    }
+    auto bits = static_cast<Unsigned>(value);
+    if constexpr (std::endian::native == std::endian::big && sizeof(Integer) > 1uz)
+      bits = std::byteswap(bits);
+    static_assert(std::endian::native == std::endian::little ||
+                  std::endian::native == std::endian::big);
+    std::memcpy(destination_.data() + position_, &bits, sizeof(bits));
     position_ += sizeof(Integer);
     return true;
   }
@@ -72,13 +74,13 @@ public:
       return std::unexpected(StateCodecError::kTruncated);
     using Unsigned = std::make_unsigned_t<Integer>;
     Unsigned value{};
-    for (std::size_t index{}; index < sizeof(Integer); ++index) {
-      // NOLINTNEXTLINE(bugprone-signed-bitwise): accumulation uses the unsigned representation.
-      value |= static_cast<Unsigned>(std::to_integer<std::uint8_t>(source_[position_ + index]))
-               << (index * 8uz);
-    }
+    std::memcpy(&value, source_.data() + position_, sizeof(value));
+    if constexpr (std::endian::native == std::endian::big && sizeof(Integer) > 1uz)
+      value = std::byteswap(value);
+    static_assert(std::endian::native == std::endian::little ||
+                  std::endian::native == std::endian::big);
     position_ += sizeof(Integer);
-    return static_cast<Integer>(value);
+    return std::bit_cast<Integer>(value);
   }
 
   [[nodiscard]] std::expected<float, StateCodecError> read_float() noexcept
