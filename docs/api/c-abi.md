@@ -11,6 +11,7 @@ void   fe_engine_dims(const fe_engine*, size_t* d_model, size_t* n_layers);
 size_t fe_engine_action_dim(const fe_engine*);
 size_t fe_engine_condition_dim(const fe_engine*);
 unsigned fe_engine_thread_count(const fe_engine*);
+int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
@@ -23,6 +24,15 @@ int fe_engine_flow_begin(fe_engine*, const float* condition,
                          const float* noise, size_t steps, int method);
 int fe_engine_flow_advance(fe_engine*, size_t step_budget, float* action,
                            size_t* steps_remaining);
+int fe_engine_make_condition_metadata(const fe_engine*, uint64_t timestamp_ns,
+                                      uint64_t deadline_ns, uint64_t generation,
+                                      size_t steps, int method,
+                                      fe_condition_metadata*);
+int fe_engine_flow_begin_request(fe_engine*, const float* condition,
+                                 const float* noise,
+                                 const fe_condition_metadata*);
+void fe_engine_cancel_before(fe_engine*, uint64_t generation);
+int fe_engine_flow_action_metadata(const fe_engine*, fe_action_metadata*);
 
 int  fe_engine_step(fe_engine*, int32_t token, float* out);
 void fe_engine_reset(fe_engine*);
@@ -50,10 +60,19 @@ Rules:
 - `fe_engine_flow_begin` projects the condition once. Each `fe_engine_flow_advance` executes at
   most `step_budget` complete solver steps and reports how many remain. Starting a new solve
   replaces the previous one.
-- Decode snapshots are raw, allocation-free state copies. Restore them only into an engine loaded
-  from the identical checkpoint; they do not contain a schema or model digest.
+- `fe_engine_make_condition_metadata` fills protocol version, model digest, dimensions, solver,
+  generation, timestamps, and initial NFE. `fe_engine_flow_begin_request` validates every field.
+  `fe_engine_cancel_before` atomically makes older generations stale; an advance notices this
+  between complete solver steps and returns code 8.
+- `fe_engine_flow_action_metadata` preserves the source timestamp/deadline/generation and reports
+  running, complete, cancelled, or failed status plus remaining NFE.
+- Decode snapshots remain caller-owned and allocation-free, but are no longer raw floats. The
+  fixed little-endian envelope contains a version, architecture, precision, dimensions, model
+  digest, payload size, and checksum. Imports reject incompatible, truncated, and corrupt data
+  before modifying engine state.
 - One handle has mutable scratch and sampler state and is not safe for concurrent calls. Use one
-  engine per concurrently executing session.
+  engine per concurrently executing session. `fe_engine_cancel_before` is the sole operation
+  designed for a concurrent scheduler thread.
 - Prefill and token-conditioned sampling accept 1 to 512 tokens per call; streaming `step` has no
   growing sequence buffer.
 
@@ -64,4 +83,6 @@ find_package(FlowEdge REQUIRED)
 target_link_libraries(my_node PRIVATE FlowEdge::Core)
 ```
 
-Source: `src/core/api/engine.h`. See [ADR 0003](../decisions/0003-api-boundary).
+Source: `src/core/api/engine.h` and `src/core/protocol/contracts.h`. See
+[ADR 0003](../decisions/0003-api-boundary) and
+[ADR 0011](../decisions/0011-versioned-state-contracts).

@@ -1,6 +1,8 @@
 #ifndef FE_ENGINE_H
 #define FE_ENGINE_H
 
+#include "protocol/contracts.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -80,6 +82,9 @@ void fe_engine_reset(fe_engine* engine);
  */
 unsigned fe_engine_thread_count(const fe_engine* engine);
 
+/** Fill versioned architecture, precision, dimension, and model-digest metadata. */
+int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadata);
+
 /**
  * @brief Get the action dimension of the flow-matching head.
  * @param engine The engine instance.
@@ -142,6 +147,24 @@ int fe_engine_flow_begin(fe_engine* engine, const float* condition, const float*
                          size_t steps, int method);
 
 /**
+ * Fill condition metadata for a generation-tracked request.
+ * `remaining_nfe` is derived from solver steps and method.
+ */
+int fe_engine_make_condition_metadata(const fe_engine* engine, uint64_t timestamp_ns,
+                                      uint64_t deadline_ns, uint64_t generation, size_t steps,
+                                      int method, fe_condition_metadata* metadata);
+
+/** Begin a solve after validating the complete versioned request metadata. */
+int fe_engine_flow_begin_request(fe_engine* engine, const float* condition, const float* noise,
+                                 const fe_condition_metadata* metadata);
+
+/**
+ * Atomically cancel active work whose generation is lower than `generation`.
+ * This is the only engine operation safe to call concurrently with flow advance.
+ */
+void fe_engine_cancel_before(fe_engine* engine, uint64_t generation);
+
+/**
  * @brief Advance a resumable solve by at most `step_budget` complete ODE steps.
  *
  * The current solver state is copied to `action`; publish it as a final action
@@ -156,10 +179,13 @@ int fe_engine_flow_begin(fe_engine* engine, const float* condition, const float*
 int fe_engine_flow_advance(fe_engine* engine, size_t step_budget, float* action,
                            size_t* steps_remaining);
 
+/** Return metadata for the current action candidate or completed action. */
+int fe_engine_flow_action_metadata(const fe_engine* engine, fe_action_metadata* metadata);
+
 /**
  * @brief Return the byte size of the model's streaming decode state.
  *
- * A snapshot is valid only for another engine loaded from the same checkpoint.
+ * The returned size includes a versioned, checksummed compatibility header.
  */
 size_t fe_engine_decode_state_bytes(const fe_engine* engine);
 
@@ -170,7 +196,7 @@ size_t fe_engine_decode_state_bytes(const fe_engine* engine);
 int fe_engine_export_decode_state(const fe_engine* engine, void* destination, size_t bytes);
 
 /**
- * @brief Restore a streaming state previously exported from the same model.
+ * @brief Restore a validated streaming state from the same model.
  * @param source Snapshot buffer of exactly fe_engine_decode_state_bytes() bytes.
  */
 int fe_engine_import_decode_state(fe_engine* engine, const void* source, size_t bytes);

@@ -5,8 +5,10 @@
 #include "heads/flow/flow.h"
 #include "loader/safetensors.h"
 #include "models/mamba/mamba.h"
+#include "protocol/model_identity.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -15,6 +17,16 @@
 #include <vector>
 
 namespace fe {
+
+struct FlowRequestMetadata
+{
+  std::uint64_t timestamp_ns{};
+  std::uint64_t deadline_ns{};
+  std::uint64_t generation{};
+  std::size_t steps{};
+  FlowHead::Method method{FlowHead::kEuler};
+  bool generation_tracking{false};
+};
 
 // Owns the allocation-free policy runtime behind the C ABI.
 class EngineRuntime
@@ -38,12 +50,16 @@ public:
   [[nodiscard]] bool has_compatible_flow_head() const noexcept;
   [[nodiscard]] const MambaConfig& config() const noexcept { return model_.config(); }
   [[nodiscard]] unsigned thread_count() const noexcept;
+  [[nodiscard]] const ModelIdentity& identity() const noexcept { return identity_; }
+  [[nodiscard]] const FlowRequestMetadata& flow_request_metadata() const noexcept
+  {
+    return flow_request_;
+  }
+  [[nodiscard]] std::uint32_t flow_action_status() const noexcept;
+  [[nodiscard]] std::uint64_t flow_remaining_nfe() const noexcept;
   [[nodiscard]] std::size_t action_dim() const noexcept;
   [[nodiscard]] std::size_t condition_dim() const noexcept;
-  [[nodiscard]] std::size_t decode_state_bytes() const noexcept
-  {
-    return decode_state_.size_bytes();
-  }
+  [[nodiscard]] std::size_t decode_state_bytes() const noexcept;
 
   int run(const std::int32_t* tokens, std::size_t seq_len, float* out, const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
@@ -54,8 +70,11 @@ public:
                        FlowHead::Method method, float* action, const char*& error) noexcept;
   int flow_begin(const float* condition, const float* noise, std::size_t steps,
                  FlowHead::Method method, const char*& error) noexcept;
+  int flow_begin_request(const float* condition, const float* noise,
+                         const FlowRequestMetadata& metadata, const char*& error) noexcept;
   int flow_advance(std::size_t step_budget, float* action, std::size_t& steps_remaining,
                    const char*& error) noexcept;
+  void cancel_before(std::uint64_t generation) noexcept;
   int export_decode_state(std::span<std::byte> destination, const char*& error) const noexcept;
   int import_decode_state(std::span<const std::byte> source, const char*& error) noexcept;
 
@@ -73,11 +92,14 @@ private:
   std::size_t tensor_count_{};
   Mamba model_;
   FlowHead flow_;
+  ModelIdentity identity_{};
   ThreadPool* pool_{};
   std::span<std::jthread> workers_{};
   std::span<float> decode_state_{};
   std::span<float> flow_workspace_{};
   FlowHead::SamplerState flow_state_{};
+  FlowRequestMetadata flow_request_{};
+  std::atomic<std::uint64_t> latest_generation_{0u};
 };
 
 } // namespace fe

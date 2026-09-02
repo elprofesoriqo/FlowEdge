@@ -4,6 +4,8 @@
 #include "kernels/kernels.h"
 #include "loader/safetensors.h"
 #include "models/mamba/mamba.h"
+#include "protocol/model_identity.h"
+#include "protocol/snapshot.h"
 
 #include <array>
 #include <atomic>
@@ -266,6 +268,7 @@ struct FlowFixture
     v.dtype = fe::TensorView::Dtype::BF16;
     v.shape[0] = r;
     v.shape[1] = c;
+    v.bytes = r * c * sizeof(std::uint16_t);
     v.ndim = 2;
     std::size_t j{0uz};
     for (const char* p = name; (*p != '\0') && (j + 1uz < v.name.size()); ++p)
@@ -280,6 +283,7 @@ struct FlowFixture
     v.dtype = fe::TensorView::Dtype::F32;
     v.shape[0] = r;
     v.shape[1] = c;
+    v.bytes = r * c * sizeof(float);
     v.ndim = 2;
     std::size_t j{0uz};
     for (const char* p = name; (*p != '\0') && (j + 1uz < v.name.size()); ++p)
@@ -352,6 +356,9 @@ struct MambaFixture
     std::size_t axis{0uz};
     for (const std::size_t extent : shape)
       v.shape[axis++] = extent;
+    v.bytes = sizeof(float);
+    for (const std::size_t extent : shape)
+      v.bytes *= extent;
     std::size_t j{0uz};
     for (const char* p = name; (*p != '\0') && (j + 1uz < v.name.size()); ++p)
       v.name[j++] = *p;
@@ -405,6 +412,59 @@ TEST(Mamba, StreamingStateCanBeSnapshottedAndRestored)
   for (std::size_t i{0uz}; i < branch_a.size(); ++i)
     continuation_delta += std::fabs(branch_a[i] - fresh_out[i]);
   EXPECT_GT(continuation_delta, 0.0F);
+}
+
+TEST(SnapshotProtocol, RoundTripsAndRejectsMismatchTruncationAndCorruption)
+{
+  fe::ModelIdentity identity{};
+  for (std::size_t i{0uz}; i < identity.digest.size(); ++i)
+    identity.digest[i] = static_cast<std::uint8_t>(3uz * i + 1uz);
+  identity.architecture = FE_ARCH_MAMBA;
+  identity.precision = FE_PRECISION_MIXED;
+  identity.d_model = 64u;
+  identity.n_layers = 4u;
+  identity.d_inner = 128u;
+  identity.d_state = 16u;
+  identity.d_conv = 4u;
+
+  const std::array<float, 7> state{0.25F, -1.0F, 4.0F, 2.5F, 0.0F, 8.0F, -3.0F};
+  std::vector<std::byte> encoded(fe::decode_snapshot_bytes(sizeof(state)));
+  ASSERT_TRUE(fe::export_decode_snapshot(identity, std::as_bytes(std::span{state}), encoded));
+
+  std::array<float, state.size()> restored{};
+  ASSERT_TRUE(
+      fe::import_decode_snapshot(identity, encoded, std::as_writable_bytes(std::span{restored})));
+  EXPECT_EQ(restored, state);
+
+  fe::ModelIdentity wrong_model = identity;
+  wrong_model.digest[0] ^= 0x80u;
+  auto mismatch =
+      fe::import_decode_snapshot(wrong_model, encoded, std::as_writable_bytes(std::span{restored}));
+  ASSERT_FALSE(mismatch);
+  EXPECT_EQ(mismatch.error().code, 9);
+
+  auto truncated =
+      fe::import_decode_snapshot(identity, std::span{encoded}.first(encoded.size() - 1uz),
+                                 std::as_writable_bytes(std::span{restored}));
+  ASSERT_FALSE(truncated);
+  EXPECT_EQ(truncated.error().code, 1);
+
+  encoded.back() ^= std::byte{0x01};
+  auto corrupted =
+      fe::import_decode_snapshot(identity, encoded, std::as_writable_bytes(std::span{restored}));
+  ASSERT_FALSE(corrupted);
+  EXPECT_EQ(corrupted.error().code, 10);
+}
+
+TEST(ModelIdentity, FingerprintIsStableAndContentSensitive)
+{
+  const std::array<std::byte, 9> first{std::byte{0}, std::byte{1}, std::byte{2},
+                                       std::byte{3}, std::byte{4}, std::byte{5},
+                                       std::byte{6}, std::byte{7}, std::byte{8}};
+  auto changed = first;
+  changed[4] ^= std::byte{0x80};
+  EXPECT_EQ(fe::fingerprint_bytes(first), fe::fingerprint_bytes(first));
+  EXPECT_NE(fe::fingerprint_bytes(first), fe::fingerprint_bytes(changed));
 }
 
 TEST(Mamba, StreamingMatchesBatchForward)
@@ -477,6 +537,36 @@ TEST(FlowHead, ResumableSamplerMatchesMonolithicResult)
 
   for (std::size_t i{0uz}; i < resumed.size(); ++i)
     EXPECT_EQ(resumed[i], reference[i]);
+}
+
+TEST(FlowHead, GenerationCancellationStopsBetweenStepsAndReplaysDeterministically)
+{
+  FlowFixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> condition = seq(FlowFixture::kC, 0.1F, 0.0F);
+  const std::vector<float> noise = seq(FlowFixture::kA, 0.3F, 0.2F);
+  std::vector<float> workspace(head.sampler_workspace_size());
+  std::vector<float> replay_workspace(head.sampler_workspace_size());
+  std::vector<float> before_cancel(FlowFixture::kA), cancelled(FlowFixture::kA),
+      replayed(FlowFixture::kA);
+  std::atomic<std::uint64_t> newest_generation{7u};
+
+  fe::FlowHead::SamplerState state{};
+  ASSERT_TRUE(head.sampler_begin(condition, noise, 10uz, fe::FlowHead::kHeun, workspace, state,
+                                 &newest_generation, 7u));
+  EXPECT_EQ(head.sampler_advance(state, 2uz, before_cancel), 2uz);
+  newest_generation.store(8u, std::memory_order_release);
+  EXPECT_EQ(head.sampler_advance(state, 8uz, cancelled), 0uz);
+  EXPECT_TRUE(state.cancelled);
+  EXPECT_EQ(state.remaining(), 8uz);
+  EXPECT_EQ(cancelled, before_cancel);
+
+  fe::FlowHead::SamplerState replay{};
+  ASSERT_TRUE(head.sampler_begin(condition, noise, 10uz, fe::FlowHead::kHeun, replay_workspace,
+                                 replay, &newest_generation, 8u));
+  EXPECT_EQ(head.sampler_advance(replay, 2uz, replayed), 2uz);
+  EXPECT_EQ(replayed, before_cancel);
 }
 
 TEST(FlowHead, ResumableSamplerRejectsSmallWorkspace)

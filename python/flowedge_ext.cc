@@ -111,6 +111,23 @@ public:
   [[nodiscard]] std::size_t action_dim() const { return fe_engine_action_dim(engine_); }
   [[nodiscard]] std::size_t condition_dim() const { return fe_engine_condition_dim(engine_); }
   [[nodiscard]] unsigned thread_count() const { return fe_engine_thread_count(engine_); }
+  [[nodiscard]] py::dict model_metadata() const
+  {
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    py::dict result;
+    result["protocol_version"] = metadata.protocol_version;
+    result["architecture"] = metadata.architecture;
+    result["precision"] = metadata.precision;
+    result["model_digest"] = digest_hex(metadata.model_digest);
+    result["d_model"] = metadata.d_model;
+    result["n_layers"] = metadata.n_layers;
+    result["action_dim"] = metadata.action_dim;
+    result["condition_dim"] = metadata.condition_dim;
+    result["decode_snapshot_bytes"] = metadata.decode_snapshot_bytes;
+    return result;
+  }
   [[nodiscard]] std::size_t d_model() const
   {
     std::size_t dm{0uz};
@@ -225,7 +242,8 @@ public:
   }
 
   void flow_begin(py::handle condition_object, py::handle noise_object, std::size_t steps,
-                  std::string_view method)
+                  std::string_view method, std::optional<std::uint64_t> generation,
+                  std::uint64_t timestamp_ns, std::uint64_t deadline_ns)
   {
     const FloatBuffer condition{condition_object};
     const FloatBuffer noise{noise_object};
@@ -234,10 +252,39 @@ public:
     int rc{0};
     {
       py::gil_scoped_release release;
-      rc = fe_engine_flow_begin(engine_, condition.data(), noise.data(), steps, m);
+      if (generation) {
+        fe_condition_metadata metadata{};
+        rc = fe_engine_make_condition_metadata(engine_, timestamp_ns, deadline_ns, *generation,
+                                               steps, m, &metadata);
+        if (rc == 0)
+          rc = fe_engine_flow_begin_request(engine_, condition.data(), noise.data(), &metadata);
+      } else {
+        rc = fe_engine_flow_begin(engine_, condition.data(), noise.data(), steps, m);
+      }
     }
     if (rc != 0)
       throw std::runtime_error(fe_engine_last_error());
+  }
+
+  void cancel_before(std::uint64_t generation) { fe_engine_cancel_before(engine_, generation); }
+
+  [[nodiscard]] py::dict flow_metadata() const
+  {
+    fe_action_metadata metadata{};
+    if (fe_engine_flow_action_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    py::dict result;
+    result["protocol_version"] = metadata.protocol_version;
+    result["solver"] = metadata.solver;
+    result["status"] = metadata.status;
+    result["model_digest"] = digest_hex(metadata.model_digest);
+    result["timestamp_ns"] = metadata.timestamp_ns;
+    result["deadline_ns"] = metadata.deadline_ns;
+    result["generation"] = metadata.generation;
+    result["condition_dim"] = metadata.condition_dim;
+    result["action_dim"] = metadata.action_dim;
+    result["remaining_nfe"] = metadata.remaining_nfe;
+    return result;
   }
 
   std::size_t flow_advance(py::handle output_object, std::size_t step_budget)
@@ -256,6 +303,17 @@ public:
   }
 
 private:
+  [[nodiscard]] static std::string digest_hex(const fe_model_digest& digest)
+  {
+    constexpr char alphabet[] = "0123456789abcdef";
+    std::string result(2uz * FE_MODEL_DIGEST_BYTES, '0');
+    for (std::size_t i{0uz}; i < FE_MODEL_DIGEST_BYTES; ++i) {
+      result[2uz * i] = alphabet[digest.bytes[i] >> 4u];
+      result[(2uz * i) + 1uz] = alphabet[digest.bytes[i] & 0x0fu];
+    }
+    return result;
+  }
+
   void run_native(const Int32Buffer& tokens, FloatBuffer& output)
   {
     if (tokens.size() == 0uz)
@@ -325,6 +383,7 @@ PYBIND11_MODULE(flowedge, m)
       .def_property_readonly("condition_dim", &Engine::condition_dim)
       .def_property_readonly("d_model", &Engine::d_model)
       .def_property_readonly("thread_count", &Engine::thread_count)
+      .def_property_readonly("model_metadata", &Engine::model_metadata)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("run_into", &Engine::run_into, py::arg("tokens"), py::arg("output"))
       .def("step", &Engine::step, py::arg("token"))
@@ -342,7 +401,12 @@ PYBIND11_MODULE(flowedge, m)
            "sample from an external condition vector", py::arg("condition"), py::arg("noise"),
            py::arg("output"), py::arg("steps") = 10uz, py::arg("method") = "euler")
       .def("flow_begin", &Engine::flow_begin, "begin a resumable flow solve", py::arg("condition"),
-           py::arg("noise"), py::arg("steps") = 10uz, py::arg("method") = "euler")
+           py::arg("noise"), py::arg("steps") = 10uz, py::arg("method") = "euler",
+           py::arg("generation") = py::none(), py::arg("timestamp_ns") = 0u,
+           py::arg("deadline_ns") = 0u)
       .def("flow_advance", &Engine::flow_advance, "advance a resumable flow solve",
-           py::arg("output"), py::arg("step_budget") = 1uz);
+           py::arg("output"), py::arg("step_budget") = 1uz)
+      .def("cancel_before", &Engine::cancel_before, py::arg("generation"),
+           "cancel an active request from an older generation")
+      .def_property_readonly("flow_metadata", &Engine::flow_metadata);
 }

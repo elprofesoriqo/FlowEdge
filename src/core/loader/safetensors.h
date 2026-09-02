@@ -24,6 +24,7 @@ struct TensorView
   Dtype dtype{};
   std::array<std::size_t, 4> shape{};
   std::array<char, 64> name{}; // null-terminated; safetensors keys are short
+  std::size_t bytes{};
   std::uint8_t ndim{};
 
   [[nodiscard]] std::string_view name_view() const noexcept { return {name.data()}; }

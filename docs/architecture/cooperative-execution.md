@@ -15,8 +15,8 @@ sequenceDiagram
   E-->>R: condition vector
   R->>F: flow_begin(condition, noise, N)
   loop while budget and steps remain
-    R->>F: flow_advance(step_budget)
-    F-->>R: current action, steps_remaining
+    R->>F: flow_advance(step_budget, generation)
+    F-->>R: current action, remaining NFE
   end
   R-->>R: publish only when remaining = 0
 ```
@@ -31,11 +31,15 @@ monolithic solve because it preserves operation order and solver state.
 - A robot can interleave policy work with sensing, watchdogs, and command publication.
 - A scheduler can cancel an obsolete action chunk by starting a new solve from fresher context.
 - An external VLA or perception runtime can remain GPU-resident while only its compact condition
-  vector crosses into the CPU action head.
+vector crosses into the CPU action head.
 - A service can apply admission control in solver-step units rather than guessing from request
   counts.
+- A newer generation can atomically cancel stale work. The engine checks the generation
+  high-watermark between solver steps, never inside a matrix kernel or a multi-stage solver step.
 
-The same runtime now exposes Mamba decode snapshots. Snapshot/restore is useful beyond robotics:
+The same runtime now exposes versioned Mamba decode snapshots. Their compatibility header includes
+architecture, precision, dimensions, and a stable model-content digest; a payload checksum catches
+truncation and corruption. Snapshot/restore is useful beyond robotics:
 an SSM-based language server can fork speculative continuations, roll back rejected tokens, migrate
 a session, or capture a deterministic reproducer without replaying its entire prompt.
 
@@ -45,6 +49,7 @@ Workspace, recurrence state, and scratch belong to the engine. One engine suppor
 and one streaming session and is intentionally not internally synchronized. Applications needing
 concurrency create an engine per session or put external serialization around a shared handle. This
 keeps the hot path allocation-free and makes contention visible to the application scheduler.
+Only the atomic cancellation high-watermark is safe to update from a concurrent scheduler thread.
 
 See [ADR 0010](../decisions/0010-cooperative-execution) and the
 [C ABI](../api/c-abi).

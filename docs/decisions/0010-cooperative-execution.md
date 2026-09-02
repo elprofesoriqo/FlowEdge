@@ -18,7 +18,8 @@ an old action request.
 - Keep the projected condition and all solver stages in fixed engine-owned workspace.
 - Split integration only at complete solver-step boundaries.
 - Preserve a monolithic convenience call implemented through the same resumable state machine.
-- Keep scheduling, cancellation policy, transport, and model orchestration outside the engine.
+- Keep scheduling policy, transport, and model orchestration outside the engine. Core exposes only
+  an atomic generation high-watermark so an external scheduler can request bounded cancellation.
 
 ## Consequences
 

@@ -128,9 +128,12 @@ void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, st
 
 bool FlowHead::sampler_begin(std::span<const float> cond, std::span<const float> x0,
                              std::size_t steps, Method method, std::span<float> workspace,
-                             SamplerState& state) noexcept
+                             SamplerState& state,
+                             const std::atomic<std::uint64_t>* latest_generation,
+                             std::uint64_t generation) noexcept
 {
   state.active = false;
+  state.cancelled = false;
   const bool valid_method = method == kEuler || method == kHeun || method == kRK4;
   if (!ok_ || !valid_method || steps == 0uz || cond.size() != cfg_.cond_dim ||
       x0.size() != cfg_.action_dim || workspace.size() < sampler_workspace_size()) [[unlikely]]
@@ -155,6 +158,8 @@ bool FlowHead::sampler_begin(std::span<const float> cond, std::span<const float>
   state.steps = steps;
   state.next_step = 0uz;
   state.method = method;
+  state.latest_generation = latest_generation;
+  state.generation = generation;
   state.active = true;
 
   matmul_weight(cond, cond_proj_, state.condition_embedding, 1uz, cfg_.cond_dim, hd, pool_);
@@ -170,8 +175,15 @@ std::size_t FlowHead::sampler_advance(SamplerState& state, std::size_t step_budg
 
   const std::size_t todo = std::min(step_budget, state.remaining());
   const std::size_t end = state.next_step + todo;
+  std::size_t completed{0uz};
   const float dt = 1.0F / static_cast<float>(state.steps);
   for (; state.next_step < end; ++state.next_step) {
+    if (state.latest_generation != nullptr &&
+        state.latest_generation->load(std::memory_order_acquire) > state.generation) {
+      state.cancelled = true;
+      state.active = false;
+      break;
+    }
     const float t = static_cast<float>(state.next_step) * dt;
     velocity(state.x, t, state.condition_embedding, state.k1);
     if (state.method == kEuler) {
@@ -190,9 +202,10 @@ std::size_t FlowHead::sampler_advance(SamplerState& state, std::size_t step_budg
       velocity(state.probe, t + dt, state.condition_embedding, state.k4);
       add_rk4(state.x, state.k1, state.k2, state.k3, state.k4, dt);
     }
+    ++completed;
   }
   copy_span(state.x, out.first(cfg_.action_dim));
-  return todo;
+  return completed;
 }
 
 } // namespace fe

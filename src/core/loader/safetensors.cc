@@ -273,6 +273,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
+                       tv.bytes = static_cast<std::size_t>(byte_len);
                        tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)

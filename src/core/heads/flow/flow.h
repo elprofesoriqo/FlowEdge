@@ -4,6 +4,7 @@
 #include "loader/safetensors.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -42,11 +43,14 @@ public:
     std::size_t steps{};
     std::size_t next_step{};
     Method method{kEuler};
+    const std::atomic<std::uint64_t>* latest_generation{};
+    std::uint64_t generation{};
     bool active{false};
+    bool cancelled{false};
 
     [[nodiscard]] std::size_t remaining() const noexcept
     {
-      return active && next_step < steps ? steps - next_step : 0uz;
+      return next_step < steps ? steps - next_step : 0uz;
     }
   };
 
@@ -72,7 +76,9 @@ public:
   // of complete solver steps per control-loop tick.
   [[nodiscard]] bool sampler_begin(std::span<const float> cond, std::span<const float> x0,
                                    std::size_t steps, Method method, std::span<float> workspace,
-                                   SamplerState& state) noexcept;
+                                   SamplerState& state,
+                                   const std::atomic<std::uint64_t>* latest_generation = nullptr,
+                                   std::uint64_t generation = 0u) noexcept;
   [[nodiscard]] std::size_t sampler_advance(SamplerState& state, std::size_t step_budget,
                                             std::span<float> out) noexcept;
 
