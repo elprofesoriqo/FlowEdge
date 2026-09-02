@@ -29,7 +29,8 @@ The allocation-free engine lives in `src/core/` and is exported to CMake consume
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
 typed action and job clients, worker-aware EDF admission, portable traces and state capsules, generic
 iterative, streaming, and speculative adapters, a production Mamba streaming adapter, and
-preallocated parallel workers. Core does not depend on transport, telemetry, ROS, or daemon libraries.
+preallocated parallel workers with live draining. Core does not depend on transport, telemetry, ROS,
+or daemon libraries.
 
 ## How FlowEdge compares
 
@@ -106,7 +107,8 @@ Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local re
 lifecycle metrics; `mamba_relay_stream` demonstrates exact cross-engine Mamba continuation; and
 `flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry;
 `flowedge_job_queue_bench` measures saturated deadline-queue dispatch;
-`flowedge_mamba_stream_bench` measures production adapter overhead and migration.
+`flowedge_mamba_stream_bench` measures production adapter overhead and migration; and
+`flowedge_worker_drain_bench` measures bounded live handoff.
 
 Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
 `FlowEdge::flowedge_engine` remains available as a compatibility target.

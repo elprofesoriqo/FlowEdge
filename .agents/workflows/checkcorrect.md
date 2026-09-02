@@ -23,6 +23,7 @@ queue changes must include:
 ./build-verify/flowedge_job_queue_bench 3000
 ./build-verify/flowedge_cooperative_job_bench 1000000
 ./build-verify/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
+./build-verify/flowedge_worker_drain_bench 10000
 ```
 
 Review the diff after automation. Confirm initialization owns every dynamic allocation, runtime

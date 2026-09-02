@@ -8,7 +8,7 @@
 | PyTorch parity | Same checkpoint/input stays within ULP and relative-error limits |
 | Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
 | Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
-| Worker-pool tests | Parallel lanes, freshness, admission, typed failures |
+| Worker-pool tests | Parallel lanes, freshness, admission, rolling drain, typed failures |
 | Mamba adapter tests | Exact migrated output and real-model generic routing |
 | Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
 | Trace round-trip | Canonical bytes for action and generic job records |
@@ -61,11 +61,13 @@ Python checks run when their dependencies are available.
 | Full result rings cannot lose work | `JobTransport.PreservesTypedResultsAcrossOutputBackpressure` |
 | Admission includes active and queued lanes | Multi-lane EDF tests |
 | Migration is exact and corruption-safe | Cooperative capsule and Mamba cross-engine tests |
+| Draining cannot strand accepted work | Worker drain handoff and queued-work tests |
 | Trace bytes are portable | Representative little-endian byte assertions |
 | Event overflow is bounded | `JobEvents.BuffersValidatedLifecycleRecordsWithoutGrowth` |
 | Job metrics keep fixed kinds | `JobMetrics.RecordsKindsProgressPreemptionMigrationAndLatency` |
 | Hot paths allocate nothing | Relay and cooperative-job benchmarks |
 | Queue depth does not multiply clock reads | Deadline queue benchmark |
+| Live handoff remains bounded | Worker drain benchmark |
 | Public API works after install | `test/install_consumer` |
 
 ## Install consumer

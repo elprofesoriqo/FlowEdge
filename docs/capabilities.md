@@ -44,7 +44,7 @@ flowchart LR
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
 | Relay | Shared memory; EDF admission; 1–8 workers; generation cancellation |
-| Generic jobs | Iterative, streaming, speculative; Mamba adapter; process IPC; model/schema routing |
+| Generic jobs | Iterative, streaming, speculative; Mamba adapter; IPC; routing; live lane drain |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
 

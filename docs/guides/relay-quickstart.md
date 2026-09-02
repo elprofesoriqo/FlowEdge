@@ -112,4 +112,4 @@ sustained load, fixed affinity, and the real power/thermal policy. It is not a p
 
 `flowedge-relayd` currently serves the condition/action protocol. Generic jobs, including production
 Mamba streams, run through embeddable `JobService` + `JobWorkerPool`; a standalone generic-job daemon
-and worker draining are next. See [Cooperative jobs](cooperative-jobs).
+and its administrative control plane are next. See [Cooperative jobs](cooperative-jobs).

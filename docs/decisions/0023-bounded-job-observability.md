@@ -17,5 +17,5 @@ Trace v2 keeps its canonical little-endian format and adds generic request, resu
 
 - Pool event publication and metric recording allocate nothing after setup.
 - Export backpressure cannot block a worker; new events are counted and dropped when the buffer is full.
-- Migration events are defined now and emitted by the migration layer when that layer is added.
-- Generic trace inspection works now; model-specific generic replay requires a production adapter.
+- Worker draining emits migration start/completion with source and destination lane identity.
+- Generic trace inspection works; model-specific trace replay remains adapter-specific.

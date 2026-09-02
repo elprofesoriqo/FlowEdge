@@ -59,13 +59,13 @@ The current MVP provides:
 - canonical state capsules bound to job kind, model digest, schema, session, generation, and progress;
 - concept-based iterative, streaming, and speculative adapters for external runtimes;
 - a production Mamba streaming adapter with shared weights and exact cross-engine continuation;
+- rolling worker drain with preallocated live state handoff to a compatible lane;
 - validated variable-size generic job request/result messages;
 - frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema; and
 - `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings.
 
-Generic jobs now cross a real process boundary with retained-result backpressure and emit bounded
-lifecycle records and fixed-cardinality metrics. Worker draining/live migration and action-overlap
-policy are the next milestones.
+Generic jobs now cross a real process boundary, migrate during rolling worker drain, retain results
+under backpressure, and emit bounded lifecycle records. Action-overlap policy is next.
 
 ## Repository boundary
 
@@ -182,6 +182,7 @@ migration, streaming cancellation, speculative classification, and queued execut
 ./build/mamba_relay_stream models/mamba_flow.safetensors
 ./build/flowedge_cooperative_job_bench 100000
 ./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 5000
+./build/flowedge_worker_drain_bench 10000
 ```
 
 See [Cooperative jobs and state migration](../guides/cooperative-jobs) for the adapter contract and

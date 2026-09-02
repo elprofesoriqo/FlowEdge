@@ -46,6 +46,30 @@ registry.freeze();
 The adapter preallocates token/output storage, derives identity from Core metadata, and moves the
 exact recurrent snapshot in a canonical state capsule. See `examples/mamba_relay_stream.cc`.
 
+## Drain a worker lane
+
+Reserve capsule storage when creating the pool, then request a drain from the coordinator thread:
+
+```cpp
+auto capsule_capacity = state_capsule_bytes(adapter.max_state_bytes());
+auto pool = JobWorkerPool::create(
+    lanes, 32, costs, 64, 1, WorkerPlacement::kCompact, &events, capsule_capacity).value();
+
+pool.request_worker_drain(worker_index);
+// Keep polling JobService or ready_result() while the handoff completes.
+pool.resume_worker(worker_index);
+```
+
+| State at request | Result |
+|---|---|
+| Idle | Lane becomes drained immediately |
+| Running + compatible target | Capsule moves at the next work boundary |
+| Running + no target/capacity | Current job finishes; lane then drains |
+| Accepted queue would be stranded | `kWouldStrandWork`; lane remains active |
+
+Drained lanes reject new dispatch. `migration_started` and `migration_completed` identify both
+workers. One job performs at most one live handoff; draining its destination lets that job finish.
+
 ## Identity and scheduling
 
 | Descriptor field | Contract |
@@ -165,6 +189,7 @@ committed. Use `StateWriter`/`StateReader` for adapter payloads.
 ./build/src/relay/flowedge-relay-trace inspect jobs.trace --jsonl
 ./build/flowedge_cooperative_job_bench 1000000
 ./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 5000
+./build/flowedge_worker_drain_bench 10000
 ```
 
 The benchmarks cover synthetic framework overhead, production Mamba routing/migration, transport,

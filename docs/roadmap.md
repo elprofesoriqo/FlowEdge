@@ -14,7 +14,7 @@
 
 ```{mermaid}
 flowchart LR
-  M[Production Mamba adapter ✓] --> G[Worker draining + live migration]
+  M[Production Mamba adapter ✓] --> G[Worker drain + live migration ✓]
   G --> A[Action overlap + safety gate]
   A --> R[ROS 2 / Zenoh adapters]
 ```
@@ -22,8 +22,8 @@ flowchart LR
 | Order | Milestone | Why now |
 |---:|---|---|
 | 1 | Streaming Mamba job adapter | Done: exact resume and routed execution |
-| 2 | Worker draining and live migration | Next: maintenance and failure recovery |
-| 3 | Action overlap, freshness, final safety gate | Robotics-specific output policy |
+| 2 | Worker draining and live migration | Done: bounded rolling handoff |
+| 3 | Action overlap, freshness, final safety gate | Next: robotics-specific output policy |
 | 4 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
 
 ## Parallel model/backend work

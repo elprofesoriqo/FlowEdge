@@ -145,4 +145,26 @@ Windows PowerShell:
 .\build\flowedge_mamba_stream_bench.exe models\mamba_flow.safetensors 1000
 ```
 
+### Worker drain handoff
+
+Measured 2026-09-02. Eight work units, drain after the first boundary, median of five 10,000-job
+runs.
+
+| Platform | Mean | p50 | p99 |
+|---|---:|---:|---:|
+| Windows | 34.24 us | 5.80 us | 144.20 us |
+| Linux | 52.41 us | 54.54 us | 108.81 us |
+
+Linux:
+
+```bash
+./build/flowedge_worker_drain_bench 10000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_worker_drain_bench.exe 10000
+```
+
 These results are references, not deployment guarantees.

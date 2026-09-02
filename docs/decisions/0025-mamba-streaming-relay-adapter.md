@@ -22,4 +22,4 @@ prefix or allocating in the hot path. A capsule is model/schema/session/generati
 be larger than the recurrent snapshot because it also carries the request and current output.
 
 `flowedge-relayd` remains the action-head daemon. Generic Mamba serving is embedded with
-`JobService` until the draining-aware generic daemon is implemented.
+`JobService` until a standalone generic-job daemon and control plane are implemented.

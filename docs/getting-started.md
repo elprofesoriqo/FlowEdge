@@ -94,10 +94,12 @@ instance, demonstrates streaming cancellation, and completes a speculative job:
 ./build-relay/mamba_relay_stream models/mamba_flow.safetensors
 ./build-relay/flowedge_cooperative_job_bench 100000
 ./build-relay/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
+./build-relay/flowedge_worker_drain_bench 10000
 ```
 
-`routed_job_sample` demonstrates typed generic routing. `mamba_relay_stream` proves exact Mamba
-continuation after moving state to another engine. Both benchmarks fail on a hot-path allocation.
+`routed_job_sample` drains a live lane and moves its job to a compatible worker.
+`mamba_relay_stream` proves exact Mamba continuation on another engine. The benchmarks fail on a
+hot-path allocation.
 See [Cooperative jobs and state migration](guides/cooperative-jobs).
 
 (python-quickstart)=

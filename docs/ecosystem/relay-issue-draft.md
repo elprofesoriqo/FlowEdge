@@ -108,6 +108,7 @@ serving framework.
 - [x] Add per-kind work-cost calibration rather than assuming one NFE cost.
 - [x] Extend traces and metrics with job kind, schema, work progress, migration, and preemption events.
 - [x] Add typed generic-job client/service endpoints and prove the real process boundary.
+- [x] Add bounded worker drain and exact live handoff to a compatible lane.
 
 ### Robotics adapters
 
@@ -126,7 +127,7 @@ serving framework.
 - [ ] Add speculative draft, verify, commit, and rollback state.
 - [ ] Add optional ONNX Runtime, TensorRT, PyTorch, llama.cpp/vLLM, and generic inference-server
   adapters without making them Relay dependencies.
-- [ ] Add worker draining and live session migration examples.
+- [x] Add worker draining and live session migration examples.
 
 ## Performance report
 
@@ -137,6 +138,7 @@ Report warm steady-state results separately from startup and model loading.
 - [ ] Cancellation detection latency.
 - [ ] State-capsule export/import latency by payload size.
 - [x] Generic Mamba adapter route and migration overhead.
+- [x] Worker drain-to-result handoff latency.
 - [ ] Worker scaling from 1 to 8 workers.
 - [ ] Shared-weight bytes versus per-worker mutable bytes.
 - [ ] Compact versus spread NUMA placement.
@@ -208,6 +210,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADR 0023: bounded generic-job events, portable traces, and fixed-cardinality metrics.
 - ADR 0024: typed generic-job process transport with retained-result backpressure.
 - ADR 0025: production Mamba streaming adapter and exact state migration.
+- ADR 0026: bounded worker draining and live state handoff.
 
 ## Development branch
 
