@@ -44,10 +44,12 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
       -DFLOWEDGE_TESTS=ON \
       -DFLOWEDGE_BENCH=ON \
+      -DFLOWEDGE_RELAY=ON \
       -DFLOWEDGE_PYTHON=ON \
     && cmake --build "$FLOWEDGE_BUILD_DIR" \
-    && ctest --test-dir "$FLOWEDGE_BUILD_DIR" --output-on-failure
+    && ctest --test-dir "$FLOWEDGE_BUILD_DIR" --output-on-failure \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_job_queue_bench" 100
 
 RUN python3 -m pip install --break-system-packages .
 
-CMD ["./build/flowedge_tests"]
+CMD ["ctest", "--test-dir", "/workspace/build", "--output-on-failure"]

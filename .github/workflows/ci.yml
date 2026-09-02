@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-llvm
-      - run: cmake -B build -S . -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: cmake -B build -S . -DFLOWEDGE_RELAY=ON -DFLOWEDGE_TESTS=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
       - run: bash ./scripts/lint.sh
 
   test:
@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
       
       - name: Configure CMake
-        run: cmake -B build -S . -DFLOWEDGE_TESTS=ON -DFLOWEDGE_PYTHON=ON -DFLOWEDGE_BACKEND=${{ matrix.backend }}
+        run: cmake -B build -S . -DFLOWEDGE_RELAY=ON -DFLOWEDGE_TESTS=ON -DFLOWEDGE_PYTHON=ON -DFLOWEDGE_BACKEND=${{ matrix.backend }}
 
       - name: Build
         if: matrix.backend == 'cpu'
