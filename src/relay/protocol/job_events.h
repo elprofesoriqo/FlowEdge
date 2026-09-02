@@ -16,6 +16,7 @@ inline constexpr std::uint32_t kNoWorker = std::numeric_limits<std::uint32_t>::m
 
 enum class JobEventKind : std::uint16_t
 {
+  kUnknown = 0u,
   kAdmitted = 1u,
   kDispatched = 2u,
   kStarted = 3u,
@@ -91,6 +92,8 @@ struct JobEventDetails
                                         JobResultCode code) noexcept
 {
   switch (event) {
+  case JobEventKind::kUnknown:
+    return false;
   case JobEventKind::kAdmitted:
   case JobEventKind::kDispatched:
     return progress.state == JobState::kReady && code == JobResultCode::kProgress;
@@ -116,6 +119,8 @@ struct JobEventDetails
 [[nodiscard]] constexpr std::string_view to_string(JobEventKind event) noexcept
 {
   switch (event) {
+  case JobEventKind::kUnknown:
+    break;
   case JobEventKind::kAdmitted:
     return "admitted";
   case JobEventKind::kDispatched:

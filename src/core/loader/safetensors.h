@@ -86,6 +86,9 @@ public:
 
   ModelWeights(const ModelWeights&) = delete;
   ModelWeights& operator=(const ModelWeights&) = delete;
+  ModelWeights(ModelWeights&&) = delete;
+  ModelWeights& operator=(ModelWeights&&) = delete;
+  ~ModelWeights() = default;
 
   [[nodiscard]] std::span<const TensorView> tensors() const noexcept
   {

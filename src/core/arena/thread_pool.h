@@ -65,19 +65,20 @@ FE_STACK_ALIGN inline void trampoline(void* ctx, std::size_t lo, std::size_t hi)
 }
 
 template<typename Fn>
-  requires std::invocable<Fn, std::size_t, std::size_t>
+  requires std::invocable<Fn&, std::size_t, std::size_t>
 void parallel_for(ThreadPool& pool, std::size_t total, unsigned task_count, Fn&& fn) noexcept
 {
-  const std::size_t n = std::min<std::size_t>({pool.nthreads(), task_count, total});
+  auto&& callable = std::forward<Fn>(fn);
+  const auto n = std::min<std::size_t>({pool.nthreads(), task_count, total});
   if (n <= 1uz) {
-    fn(0uz, total);
+    callable(0uz, total);
     return;
   }
   const std::size_t sz = (total + n - 1uz) / n;
   for (std::size_t i{0uz}; i < n && (i * sz) < total; ++i) {
     const std::size_t lo = i * sz;
     const std::size_t hi = (lo + sz < total) ? (lo + sz) : total;
-    void* const context = const_cast<void*>(static_cast<const void*>(std::addressof(fn)));
+    void* const context = static_cast<void*>(std::addressof(callable));
     while (!pool.enqueue({trampoline<Fn>, context, lo, hi}))
       cpu_pause();
   }

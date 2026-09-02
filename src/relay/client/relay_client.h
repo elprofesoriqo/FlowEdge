@@ -47,6 +47,7 @@ public:
   RelayClient& operator=(const RelayClient&) = delete;
   RelayClient(RelayClient&&) noexcept = default;
   RelayClient& operator=(RelayClient&&) noexcept = default;
+  ~RelayClient() = default;
 
   [[nodiscard]] ClientResult try_submit(const RelayRequest& request) noexcept;
   [[nodiscard]] ClientResult try_receive(ActionMessage& action) noexcept;

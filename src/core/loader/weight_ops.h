@@ -16,7 +16,7 @@ inline bool is_matmul_weight(const TensorView* t) noexcept
 
 inline WeightView weight_view(const TensorView* t) noexcept
 {
-  return (t != nullptr) ? WeightView{t->data, t->dtype} : WeightView{};
+  return (t != nullptr) ? WeightView{.data = t->data, .dtype = t->dtype} : WeightView{};
 }
 
 inline void matmul_weight(std::span<const float> in, WeightView w, std::span<float> out,

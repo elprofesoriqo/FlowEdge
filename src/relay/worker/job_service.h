@@ -50,6 +50,7 @@ public:
   JobService& operator=(const JobService&) = delete;
   JobService(JobService&&) noexcept = default;
   JobService& operator=(JobService&&) noexcept = default;
+  ~JobService() = default;
 
   // A zero timestamp samples steady_clock before admission; tests may inject a
   // nonzero monotonic timestamp.

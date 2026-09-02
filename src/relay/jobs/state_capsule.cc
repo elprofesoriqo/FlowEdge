@@ -20,7 +20,7 @@ template<typename Integer>
 void write_le(std::span<std::byte> destination, std::size_t offset, Integer value) noexcept
 {
   using Unsigned = std::make_unsigned_t<Integer>;
-  const Unsigned bits = static_cast<Unsigned>(value);
+  const auto bits = static_cast<Unsigned>(value);
   for (std::size_t index{}; index < sizeof(Integer); ++index)
     destination[offset + index] = static_cast<std::byte>((bits >> (index * 8uz)) & Unsigned{0xffu});
 }
@@ -110,11 +110,11 @@ std::expected<StateCapsuleView, StateCapsuleError> read_state_capsule(
     return std::unexpected(StateCapsuleError{StateCapsuleErrorCode::kInvalidHeader,
                                              "State capsule flags are invalid"});
 
-  const std::uint64_t payload_u64 = read_le<std::uint64_t>(source, 80uz);
+  const auto payload_u64 = read_le<std::uint64_t>(source, 80uz);
   if (payload_u64 > std::numeric_limits<std::size_t>::max())
     return std::unexpected(StateCapsuleError{StateCapsuleErrorCode::kInvalidMetadata,
                                              "State capsule payload is too large"});
-  const std::size_t payload_bytes = static_cast<std::size_t>(payload_u64);
+  const auto payload_bytes = static_cast<std::size_t>(payload_u64);
   const std::size_t required = state_capsule_bytes(payload_bytes);
   if (required == 0uz || source.size() != required)
     return std::unexpected(StateCapsuleError{StateCapsuleErrorCode::kTruncated,

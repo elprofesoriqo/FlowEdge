@@ -28,6 +28,7 @@ public:
   JobClient& operator=(const JobClient&) = delete;
   JobClient(JobClient&&) noexcept = default;
   JobClient& operator=(JobClient&&) noexcept = default;
+  ~JobClient() = default;
 
   [[nodiscard]] ClientResult try_submit(const JobRequestMessage& request) noexcept;
   [[nodiscard]] ClientResult try_receive(JobResultMessage& result) noexcept;

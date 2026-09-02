@@ -103,6 +103,8 @@ void record_job_counters(JobMetricCounters& counters, const JobEventMessage& eve
   ++counters.events;
   const JobEventMetadata& metadata = event.metadata;
   switch (metadata.event) {
+  case JobEventKind::kUnknown:
+    break;
   case JobEventKind::kAdmitted:
     ++counters.admitted;
     counters.queue_high_watermark =

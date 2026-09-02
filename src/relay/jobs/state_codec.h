@@ -28,10 +28,11 @@ public:
     if (remaining() < sizeof(Integer))
       return false;
     using Unsigned = std::make_unsigned_t<Integer>;
-    const Unsigned bits = static_cast<Unsigned>(value);
-    for (std::size_t index{}; index < sizeof(Integer); ++index)
-      destination_[position_ + index] =
-          static_cast<std::byte>((bits >> (index * 8uz)) & Unsigned{0xffu});
+    const auto bits = static_cast<Unsigned>(value);
+    for (std::size_t index{}; index < sizeof(Integer); ++index) {
+      destination_[position_ + index] = static_cast<std::byte>(
+          (bits >> (index * 8uz)) & Unsigned{0xffu}); // NOLINT(bugprone-signed-bitwise)
+    }
     position_ += sizeof(Integer);
     return true;
   }
@@ -72,6 +73,7 @@ public:
     using Unsigned = std::make_unsigned_t<Integer>;
     Unsigned value{};
     for (std::size_t index{}; index < sizeof(Integer); ++index) {
+      // NOLINTNEXTLINE(bugprone-signed-bitwise): accumulation uses the unsigned representation.
       value |= static_cast<Unsigned>(std::to_integer<std::uint8_t>(source_[position_ + index]))
                << (index * 8uz);
     }

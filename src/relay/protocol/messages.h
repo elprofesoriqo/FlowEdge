@@ -121,16 +121,16 @@ struct ControlMessage
 
 [[nodiscard]] constexpr std::size_t wire_size(const ConditionMessage& message) noexcept
 {
-  const std::size_t condition = static_cast<std::size_t>(
+  const auto condition = static_cast<std::size_t>(
       std::min<std::uint64_t>(message.metadata.condition_dim, kMaxConditionDim));
-  const std::size_t action =
+  const auto action =
       static_cast<std::size_t>(std::min<std::uint64_t>(message.metadata.action_dim, kMaxActionDim));
   return offsetof(ConditionMessage, payload) + ((condition + action) * sizeof(float));
 }
 
 [[nodiscard]] constexpr std::size_t wire_size(const ActionMessage& message) noexcept
 {
-  const std::size_t action =
+  const auto action =
       static_cast<std::size_t>(std::min<std::uint64_t>(message.metadata.action_dim, kMaxActionDim));
   return offsetof(ActionMessage, action) + (action * sizeof(float));
 }

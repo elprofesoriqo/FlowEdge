@@ -44,16 +44,16 @@ public:
 private:
   struct Layer
   {
-    const float* norm;
-    WeightView in_proj;
-    const float* conv_w;
-    const float* conv_b;
-    WeightView x_proj;
-    WeightView dt_w;
-    const float* dt_b;
-    const float* a_neg;
-    const float* d;
-    WeightView out_proj;
+    const float* norm{};
+    WeightView in_proj{};
+    const float* conv_w{};
+    const float* conv_b{};
+    WeightView x_proj{};
+    WeightView dt_w{};
+    const float* dt_b{};
+    const float* a_neg{};
+    const float* d{};
+    WeightView out_proj{};
   };
 
   void layer_forward(const Layer& lw, std::span<float> hidden, std::size_t seq_len) noexcept;
