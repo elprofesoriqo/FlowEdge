@@ -70,6 +70,7 @@ rm -f "$JOB_TRACE"
 "$(resolve_executable flowedge_cooperative_job_bench)" "$((BENCH_ITERS * 10))"
 "$(resolve_executable flowedge_job_queue_bench)" "$BENCH_ITERS"
 "$(resolve_executable flowedge_mamba_stream_bench)" "$MODEL" "$BENCH_ITERS"
+"$(resolve_executable flowedge_worker_drain_bench)" "$((BENCH_ITERS * 10))"
 FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/relay_demo.sh" "$MODEL"
 
 cmake --install "$BUILD_DIR" --prefix "$INSTALL_DIR"

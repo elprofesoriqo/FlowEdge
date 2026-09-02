@@ -39,3 +39,7 @@ QUEUE_EXE="$BUILD_DIR/flowedge_job_queue_bench"
 STREAM_EXE="$BUILD_DIR/flowedge_mamba_stream_bench"
 [[ -f "$STREAM_EXE.exe" ]] && STREAM_EXE="$STREAM_EXE.exe"
 "$STREAM_EXE" "$MODEL" "$ITERS"
+
+DRAIN_EXE="$BUILD_DIR/flowedge_worker_drain_bench"
+[[ -f "$DRAIN_EXE.exe" ]] && DRAIN_EXE="$DRAIN_EXE.exe"
+"$DRAIN_EXE" "${FLOWEDGE_RELAY_DRAIN_BENCH_ITERS:-10000}"

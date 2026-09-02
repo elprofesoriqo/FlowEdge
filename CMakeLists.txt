@@ -100,6 +100,9 @@ if(FLOWEDGE_BENCH)
 
     add_executable(flowedge_mamba_stream_bench bench/mamba_stream_bench.cc)
     target_link_libraries(flowedge_mamba_stream_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_worker_drain_bench bench/worker_drain_bench.cc)
+    target_link_libraries(flowedge_worker_drain_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 
