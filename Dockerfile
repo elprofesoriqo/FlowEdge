@@ -38,6 +38,10 @@ WORKDIR /workspace
 
 COPY . .
 
+RUN mkdir -p models \
+    && curl -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
+      -o models/mamba_flow.safetensors
+
 RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
       -DCMAKE_C_COMPILER=/usr/bin/clang-23 \
       -DCMAKE_CXX_COMPILER=/usr/bin/clang++-23 \
@@ -48,7 +52,9 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
       -DFLOWEDGE_PYTHON=ON \
     && cmake --build "$FLOWEDGE_BUILD_DIR" \
     && ctest --test-dir "$FLOWEDGE_BUILD_DIR" --output-on-failure \
-    && "$FLOWEDGE_BUILD_DIR/flowedge_job_queue_bench" 100
+    && "$FLOWEDGE_BUILD_DIR/flowedge_job_queue_bench" 100 \
+    && "$FLOWEDGE_BUILD_DIR/mamba_relay_stream" models/mamba_flow.safetensors \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_mamba_stream_bench" models/mamba_flow.safetensors 100
 
 RUN python3 -m pip install --break-system-packages .
 

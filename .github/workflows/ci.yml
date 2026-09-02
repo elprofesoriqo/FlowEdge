@@ -39,6 +39,13 @@ jobs:
       - name: Build
         if: matrix.backend == 'cpu'
         run: cmake --build build --config Release -j 4
+
+      - name: Download smoke checkpoint
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          mkdir -p models
+          curl -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" -o models/mamba_flow.safetensors
         
       - name: CTest Suite
         if: matrix.backend == 'cpu'
@@ -56,8 +63,6 @@ jobs:
         shell: bash
         run: |
           pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
-          mkdir -p models
-          curl -sL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" -o models/mamba_flow.safetensors
           python scripts/verify_ulp.py models/mamba_flow.safetensors
         env:
           PYTHONPATH: build

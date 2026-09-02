@@ -35,3 +35,7 @@ POOL_THREADS="${FLOWEDGE_RELAY_POOL_THREADS:-0}"
 QUEUE_EXE="$BUILD_DIR/flowedge_job_queue_bench"
 [[ -f "$QUEUE_EXE.exe" ]] && QUEUE_EXE="$QUEUE_EXE.exe"
 "$QUEUE_EXE" "${FLOWEDGE_RELAY_QUEUE_BENCH_ROUNDS:-3000}"
+
+STREAM_EXE="$BUILD_DIR/flowedge_mamba_stream_bench"
+[[ -f "$STREAM_EXE.exe" ]] && STREAM_EXE="$STREAM_EXE.exe"
+"$STREAM_EXE" "$MODEL" "$ITERS"
