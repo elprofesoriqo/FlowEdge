@@ -104,7 +104,8 @@ Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local re
 `cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
 `routed_job_sample` demonstrates process-compatible job transport, bounded adapter lanes, and
 lifecycle metrics; and
-`flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry.
+`flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry;
+`flowedge_job_queue_bench` measures saturated deadline-queue dispatch.
 
 Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>

@@ -103,4 +103,25 @@ Windows PowerShell:
 .\build\flowedge_cooperative_job_bench.exe 1000000
 ```
 
+### Deadline queue dispatch
+
+Measured 2026-09-02. 32 queued jobs, 3,000 rounds, median of repeated runs.
+
+| Platform | Before | Current | Speedup |
+|---|---:|---:|---:|
+| Windows | 4.62 us/job | 1.36 us/job | 3.40x |
+| Linux | 2.85 us/job | 1.22 us/job | 2.33x |
+
+Linux:
+
+```bash
+./build/flowedge_job_queue_bench 3000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_job_queue_bench.exe 3000
+```
+
 These results are references, not deployment guarantees.

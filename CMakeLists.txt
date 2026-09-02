@@ -91,6 +91,9 @@ if(FLOWEDGE_BENCH)
 
     add_executable(flowedge_cooperative_job_bench bench/cooperative_job_bench.cc)
     target_link_libraries(flowedge_cooperative_job_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_job_queue_bench bench/job_queue_bench.cc)
+    target_link_libraries(flowedge_job_queue_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 

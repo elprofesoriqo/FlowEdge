@@ -63,6 +63,7 @@ Python checks run when their dependencies are available.
 | Event overflow is bounded | `JobEvents.BuffersValidatedLifecycleRecordsWithoutGrowth` |
 | Job metrics keep fixed kinds | `JobMetrics.RecordsKindsProgressPreemptionMigrationAndLatency` |
 | Hot paths allocate nothing | Relay and cooperative-job benchmarks |
+| Queue depth does not multiply clock reads | Deadline queue benchmark |
 | Public API works after install | `test/install_consumer` |
 
 ## Install consumer

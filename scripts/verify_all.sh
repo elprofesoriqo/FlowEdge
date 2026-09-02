@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MODEL="${1:-$ROOT/models/mamba_flow.safetensors}"
 BUILD_DIR="${FLOWEDGE_BUILD_DIR:-$ROOT/build-all}"
+mkdir -p "$BUILD_DIR"
+BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
 INSTALL_DIR="$BUILD_DIR/install-check"
 CONSUMER_DIR="$BUILD_DIR/install-consumer"
 BENCH_ITERS="${FLOWEDGE_VERIFY_BENCH_ITERS:-500}"
@@ -65,6 +67,7 @@ rm -f "$JOB_TRACE"
 "$(resolve_executable flowedge_relay_pool_bench)" "$MODEL" "$BENCH_ITERS" \
   "${FLOWEDGE_RELAY_POOL_WORKERS:-2}" "${FLOWEDGE_RELAY_POOL_THREADS:-0}"
 "$(resolve_executable flowedge_cooperative_job_bench)" "$((BENCH_ITERS * 10))"
+"$(resolve_executable flowedge_job_queue_bench)" "$BENCH_ITERS"
 FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/relay_demo.sh" "$MODEL"
 
 cmake --install "$BUILD_DIR" --prefix "$INSTALL_DIR"

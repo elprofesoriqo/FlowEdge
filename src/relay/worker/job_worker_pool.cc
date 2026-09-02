@@ -546,12 +546,13 @@ bool JobWorkerPool::release_session(std::uint64_t session_id) noexcept
 
 bool JobWorkerPool::dispatch_one(Slot& slot) noexcept
 {
+  const std::uint64_t dispatched_ns = monotonic_ns();
   std::optional<std::size_t> selected_position{};
   for (std::size_t position{}; position < queue_order_.size(); ++position) {
     const JobRequestMessage& request = queue_storage_[queue_order_[position]];
     const bool rejected =
         stale(request) || (request.metadata.descriptor.deadline_ns != 0u &&
-                           request.metadata.descriptor.deadline_ns <= monotonic_ns());
+                           request.metadata.descriptor.deadline_ns <= dispatched_ns);
     if (!rejected && !registration_accepts(*slot.registry, request))
       continue;
     if (!selected_position || earlier(request, queue_storage_[queue_order_[*selected_position]]))
@@ -566,7 +567,6 @@ bool JobWorkerPool::dispatch_one(Slot& slot) noexcept
   queue_order_.erase(queue_order_.begin() + static_cast<std::ptrdiff_t>(*selected_position));
   free_queue_slots_.push_back(queue_slot);
 
-  const std::uint64_t dispatched_ns = monotonic_ns();
   slot.session_id.store(request.metadata.descriptor.session_id, std::memory_order_relaxed);
   slot.generation.store(request.metadata.descriptor.generation, std::memory_order_relaxed);
   slot.remaining_work_units.store(request.metadata.descriptor.total_work_units,
