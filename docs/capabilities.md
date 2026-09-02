@@ -11,6 +11,7 @@ cooperative jobs, replay, and telemetry.
 | Keep an existing VLA encoder | `external_flow_sample` | Condition vector to FlowEdge action head |
 | Decode incrementally | `mamba_forward` | Persistent Mamba recurrence state |
 | Move model state | `streaming_snapshot` | Exact continuation in another engine |
+| Migrate a live Mamba job | `mamba_relay_stream` | Resume tokens on another Relay lane |
 | Serve actions across processes | `scripts/relay_demo.sh` | Client, daemon, deadlines, replay, metrics |
 | Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
 | Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
@@ -28,7 +29,7 @@ flowchart LR
   J --> S[Shared-memory rings]
   S --> V[JobService]
   V --> P[JobWorkerPool]
-  P --> B[Caller-owned backends]
+  P --> B[Mamba or caller-owned backend]
   P --> E[Bounded event buffer]
   E --> T[Trace]
   E --> M[Metrics]
@@ -43,7 +44,7 @@ flowchart LR
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
 | Relay | Shared memory; EDF admission; 1–8 workers; generation cancellation |
-| Generic jobs | Iterative, streaming, speculative; process IPC; model/schema routing; per-kind costs |
+| Generic jobs | Iterative, streaming, speculative; Mamba adapter; process IPC; model/schema routing |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
 
@@ -62,7 +63,7 @@ flowchart LR
 
 | Area | Status |
 |---|---|
-| Production generic model service | Streaming Mamba adapter next |
+| Standalone generic-job daemon | Embeddable `JobService` is available; daemon packaging is next |
 | Transformer and KV cache | Planned in issue #10 |
 | Diffusion Policy, DiT, π0 | Planned in issues #9 and #11 |
 | CUDA, Metal, Vulkan, TTNN | Planned backends |

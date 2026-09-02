@@ -124,4 +124,25 @@ Windows PowerShell:
 .\build\flowedge_job_queue_bench.exe 3000
 ```
 
+### Mamba streaming adapter
+
+Measured 2026-09-02. Four tokens, one thread, median of five 1,000-job runs.
+
+| Platform | Direct adapter | Generic route | Migrate after token 2 + finish |
+|---|---:|---:|---:|
+| Windows | 108.16 us/job | 109.54 us/job | 114.32 us/job |
+| Linux | 115.74 us/job | 115.85 us/job | 129.32 us/job |
+
+Linux:
+
+```bash
+./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_mamba_stream_bench.exe models\mamba_flow.safetensors 1000
+```
+
 These results are references, not deployment guarantees.

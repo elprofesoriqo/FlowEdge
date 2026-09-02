@@ -58,13 +58,14 @@ The current MVP provides:
 - a non-owning C++23 cooperative-job contract with checked work budgets;
 - canonical state capsules bound to job kind, model digest, schema, session, generation, and progress;
 - concept-based iterative, streaming, and speculative adapters for external runtimes;
+- a production Mamba streaming adapter with shared weights and exact cross-engine continuation;
 - validated variable-size generic job request/result messages;
 - frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema; and
 - `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings.
 
 Generic jobs now cross a real process boundary with retained-result backpressure and emit bounded
-lifecycle records and fixed-cardinality metrics. A production Mamba adapter and action-overlap policy
-are the next milestones.
+lifecycle records and fixed-cardinality metrics. Worker draining/live migration and action-overlap
+policy are the next milestones.
 
 ## Repository boundary
 
@@ -178,7 +179,9 @@ migration, streaming cancellation, speculative classification, and queued execut
 ```bash
 ./build/cooperative_job_sample
 ./build/routed_job_sample
+./build/mamba_relay_stream models/mamba_flow.safetensors
 ./build/flowedge_cooperative_job_bench 100000
+./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 5000
 ```
 
 See [Cooperative jobs and state migration](../guides/cooperative-jobs) for the adapter contract and

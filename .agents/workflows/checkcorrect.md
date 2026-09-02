@@ -22,6 +22,7 @@ queue changes must include:
 ```bash
 ./build-verify/flowedge_job_queue_bench 3000
 ./build-verify/flowedge_cooperative_job_bench 1000000
+./build-verify/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
 ```
 
 Review the diff after automation. Confirm initialization owns every dynamic allocation, runtime

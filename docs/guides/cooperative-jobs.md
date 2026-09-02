@@ -26,6 +26,26 @@ struct Backend {
 `RoutedBackend` checks this surface at compile time. The backend remains caller-owned and must outlive
 its registry and worker pool.
 
+## Production Mamba adapter
+
+`MambaStreamAdapter` maps one token to one streaming work unit. Each lane owns mutable recurrence
+state while lanes share immutable weights.
+
+```cpp
+auto adapter = MambaStreamAdapter::open(shared_weights, 512, 0u).value();
+std::array<std::byte, 2048> input;
+auto bytes = encode_mamba_stream_request(tokens, input).value();
+auto descriptor = adapter.make_descriptor(session, generation, tokens.size(), deadline_ns);
+
+std::array<JobAdapterRegistration, 1> entries;
+JobAdapterRegistry registry{entries};
+registry.add(adapter.registration());
+registry.freeze();
+```
+
+The adapter preallocates token/output storage, derives identity from Core metadata, and moves the
+exact recurrent snapshot in a canonical state capsule. See `examples/mamba_relay_stream.cc`.
+
 ## Identity and scheduling
 
 | Descriptor field | Contract |
@@ -141,9 +161,11 @@ committed. Use `StateWriter`/`StateReader` for adapter payloads.
 ```bash
 ./build/cooperative_job_sample
 ./build/routed_job_sample jobs.trace
+./build/mamba_relay_stream models/mamba_flow.safetensors
 ./build/src/relay/flowedge-relay-trace inspect jobs.trace --jsonl
 ./build/flowedge_cooperative_job_bench 1000000
+./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 5000
 ```
 
-The benchmark covers migration, direct and pooled routing, process-compatible transport, lifecycle
+The benchmarks cover synthetic framework overhead, production Mamba routing/migration, transport,
 metrics, and runtime allocation checks.

@@ -19,6 +19,15 @@ cmake --build build-relay --config Release -j
 On Windows PowerShell, executables end in `.exe`. Depending on the generator, Relay tools may be in
 `build-relay/src/relay/`.
 
+## Migrate a live Mamba stream
+
+```bash
+./build-relay/mamba_relay_stream models/mamba_flow.safetensors
+```
+
+The example runs two tokens, exports a checksummed state capsule, restores it into an engine sharing
+the same immutable weights, and finishes without replaying the prefix.
+
 ## Easiest complete demo
 
 ```bash
@@ -101,8 +110,6 @@ sustained load, fixed affinity, and the real power/thermal policy. It is not a p
 
 ## Current boundary
 
-The daemon currently accepts the condition/action flow-head protocol. The generic API described in
-[Cooperative jobs](cooperative-jobs) now has validated request/result messages, checksummed-ring
-transport, bounded adapter registration, and portable state migration. `routed_job_sample`
-demonstrates this foundation, but the daemon does not dispatch those messages through its worker pool
-yet.
+`flowedge-relayd` currently serves the condition/action protocol. Generic jobs, including production
+Mamba streams, run through embeddable `JobService` + `JobWorkerPool`; a standalone generic-job daemon
+and worker draining are next. See [Cooperative jobs](cooperative-jobs).

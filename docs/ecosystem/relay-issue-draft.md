@@ -121,7 +121,7 @@ serving framework.
 ### ML and LLM adapters
 
 - [ ] Adapt iterative diffusion and DiT denoising.
-- [ ] Adapt Mamba/SSM streaming decode state.
+- [x] Adapt Mamba/SSM streaming decode state with shared weights and exact cross-engine resume.
 - [ ] Adapt transformer KV-cache streaming once #10 lands.
 - [ ] Add speculative draft, verify, commit, and rollback state.
 - [ ] Add optional ONNX Runtime, TensorRT, PyTorch, llama.cpp/vLLM, and generic inference-server
@@ -136,7 +136,7 @@ Report warm steady-state results separately from startup and model loading.
 - [ ] Queue, execution, and end-to-end p50/p95/p99/p999 latency.
 - [ ] Cancellation detection latency.
 - [ ] State-capsule export/import latency by payload size.
-- [ ] Generic adapter dispatch overhead per work unit.
+- [x] Generic Mamba adapter route and migration overhead.
 - [ ] Worker scaling from 1 to 8 workers.
 - [ ] Shared-weight bytes versus per-worker mutable bytes.
 - [ ] Compact versus spread NUMA placement.
@@ -155,7 +155,7 @@ scaling, shared-weight bytes, and allocation-free cooperative migration is publi
 - [ ] A stale generation is never published as a successful current result.
 - [ ] Admission considers active and queued work across every enabled worker.
 - [ ] Cooperative execution is deterministic for fixed model, input, state, and work sequence.
-- [ ] Migrated execution produces the same final result as uninterrupted execution.
+- [x] Migrated execution produces the same final result as uninterrupted execution.
 - [ ] Invalid capsules fail before destination state is committed.
 - [ ] Worker failure cannot corrupt another worker's mutable state.
 - [ ] Shared immutable weights cannot be modified by a worker.
@@ -179,8 +179,8 @@ Relay coordinates these runtimes through optional adapters.
 - [ ] `FlowEdge::Relay` remains an independent optional CMake target.
 - [ ] The current flow-head daemon/client path stays backward compatible.
 - [ ] Iterative, streaming, and speculative workloads use one checked cooperative contract.
-- [ ] At least one production FlowEdge model uses the generic contract.
-- [ ] A running job migrates to another compatible worker and completes deterministically.
+- [x] At least one production FlowEdge model uses the generic contract.
+- [x] A running job migrates to another compatible worker and completes deterministically.
 - [ ] Examples cover lifecycle, deadlines, cancellation, replay, metrics, and migration.
 - [ ] Benchmarks cover single-worker, multi-worker, and generic cooperative-job paths.
 - [ ] Tests, examples, scripts, docs, installation, and benchmarks pass on Windows and Linux.
@@ -207,6 +207,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADR 0022: bounded generic-job worker routing and per-kind admission.
 - ADR 0023: bounded generic-job events, portable traces, and fixed-cardinality metrics.
 - ADR 0024: typed generic-job process transport with retained-result backpressure.
+- ADR 0025: production Mamba streaming adapter and exact state migration.
 
 ## Development branch
 

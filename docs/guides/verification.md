@@ -9,6 +9,7 @@
 | Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
 | Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
 | Worker-pool tests | Parallel lanes, freshness, admission, typed failures |
+| Mamba adapter tests | Exact migrated output and real-model generic routing |
 | Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
 | Trace round-trip | Canonical bytes for action and generic job records |
 | Install consumer | Installed `FlowEdge::Core` and `FlowEdge::Relay` configure, link, run |
@@ -50,6 +51,7 @@ Python checks run when their dependencies are available.
 | Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |
 | Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
 | Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |
+| Relay benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_bench.sh` |
 
 ## Key invariants
 
@@ -58,7 +60,7 @@ Python checks run when their dependencies are available.
 | Older generations cannot publish as current | Scheduler, head-pool, job-pool cancellation tests |
 | Full result rings cannot lose work | `JobTransport.PreservesTypedResultsAcrossOutputBackpressure` |
 | Admission includes active and queued lanes | Multi-lane EDF tests |
-| Migration is exact and corruption-safe | Cooperative capsule tests |
+| Migration is exact and corruption-safe | Cooperative capsule and Mamba cross-engine tests |
 | Trace bytes are portable | Representative little-endian byte assertions |
 | Event overflow is bounded | `JobEvents.BuffersValidatedLifecycleRecordsWithoutGrowth` |
 | Job metrics keep fixed kinds | `JobMetrics.RecordsKindsProgressPreemptionMigrationAndLatency` |

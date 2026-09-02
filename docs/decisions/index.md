@@ -30,4 +30,5 @@ A pull request that makes an architectural choice adds an ADR.
 0022-generic-job-worker-pool
 0023-bounded-job-observability
 0024-generic-job-process-transport
+0025-mamba-streaming-relay-adapter
 ```

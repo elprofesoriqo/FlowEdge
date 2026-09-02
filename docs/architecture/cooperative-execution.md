@@ -43,6 +43,10 @@ truncation and corruption. Snapshot/restore is useful beyond robotics:
 an SSM-based language server can fork speculative continuations, roll back rejected tokens, migrate
 a session, or capture a deterministic reproducer without replaying its entire prompt.
 
+`MambaStreamAdapter` connects that snapshot to Relay: one token is one work unit, model digest and
+schema select the lane, and a state capsule resumes the stream on another compatible engine. See
+[Cooperative jobs](../guides/cooperative-jobs).
+
 ## Ownership and concurrency
 
 Workspace, recurrence state, and scratch belong to the engine. One engine supports one active solve
