@@ -142,12 +142,15 @@ Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
 
 ## Backend Performance
 
+Mamba backbone forward, one CPU thread, matched checkpoint and tokens. Lower is better.
+
 | Backend | FlowEdge | PyTorch | Speedup |
 |---|---:|---:|---:|
-| CPU | TBD | TBD | TBD |
+| CPU (Windows) | 0.091 ms | 1.650 ms | 18.1x |
+| CPU (Linux) | 0.071 ms | 0.990 ms | 13.9x |
 | CUDA | TBD | TBD | TBD |
 | Tenstorrent TTNN | TBD | TBD | TBD |
 | Metal | TBD | TBD | TBD |
 | Vulkan | TBD | TBD | TBD |
 
-See [performance](docs/performance.md) for current CPU measurements and exact commands.
+See [performance](docs/performance.md#backbone-forward) for exact commands and the complete results.
