@@ -43,3 +43,7 @@ STREAM_EXE="$BUILD_DIR/flowedge_mamba_stream_bench"
 DRAIN_EXE="$BUILD_DIR/flowedge_worker_drain_bench"
 [[ -f "$DRAIN_EXE.exe" ]] && DRAIN_EXE="$DRAIN_EXE.exe"
 "$DRAIN_EXE" "${FLOWEDGE_RELAY_DRAIN_BENCH_ITERS:-10000}"
+
+ACTION_EXE="$BUILD_DIR/flowedge_action_delivery_bench"
+[[ -f "$ACTION_EXE.exe" ]] && ACTION_EXE="$ACTION_EXE.exe"
+"$ACTION_EXE" "${FLOWEDGE_RELAY_ACTION_BENCH_ITERS:-1000000}"

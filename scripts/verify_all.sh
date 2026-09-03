@@ -8,7 +8,7 @@ BUILD_DIR="${FLOWEDGE_BUILD_DIR:-$ROOT/build-all}"
 mkdir -p "$BUILD_DIR"
 BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
 INSTALL_DIR="$BUILD_DIR/install-check"
-CONSUMER_DIR="$BUILD_DIR/install-consumer"
+CONSUMER_DIR="${FLOWEDGE_INSTALL_CONSUMER_DIR:-$BUILD_DIR/install-consumer}"
 BENCH_ITERS="${FLOWEDGE_VERIFY_BENCH_ITERS:-500}"
 
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin:$PATH" ;; esac
@@ -59,6 +59,7 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure
 "$(resolve_executable streaming_snapshot)" "$MODEL"
 "$(resolve_executable cooperative_job_sample)"
 "$(resolve_executable mamba_relay_stream)" "$MODEL"
+"$(resolve_executable action_delivery_sample)"
 JOB_TRACE="$BUILD_DIR/generic-job.trace"
 rm -f "$JOB_TRACE"
 "$(resolve_executable routed_job_sample)" "$JOB_TRACE"
@@ -71,11 +72,23 @@ rm -f "$JOB_TRACE"
 "$(resolve_executable flowedge_job_queue_bench)" "$BENCH_ITERS"
 "$(resolve_executable flowedge_mamba_stream_bench)" "$MODEL" "$BENCH_ITERS"
 "$(resolve_executable flowedge_worker_drain_bench)" "$((BENCH_ITERS * 10))"
+"$(resolve_executable flowedge_action_delivery_bench)" "$((BENCH_ITERS * 1000))"
 FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/relay_demo.sh" "$MODEL"
 
 cmake --install "$BUILD_DIR" --prefix "$INSTALL_DIR"
-cmake -S "$ROOT/test/install_consumer" -B "$CONSUMER_DIR" \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$INSTALL_DIR"
+CONSUMER_CMAKE_ARGS=(
+  -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_PREFIX_PATH="$INSTALL_DIR"
+)
+case "$(uname -s)" in
+MINGW* | MSYS* | CYGWIN*)
+  CONSUMER_CMAKE_ARGS+=(
+    -DCMAKE_CXX_COMPILER=clang++
+    -DCMAKE_CXX_COMPILER_TARGET=x86_64-w64-mingw32
+  )
+  ;;
+esac
+cmake -S "$ROOT/test/install_consumer" -B "$CONSUMER_DIR" "${CONSUMER_CMAKE_ARGS[@]}"
 cmake --build "$CONSUMER_DIR" --config Release -j
 CONSUMER="$CONSUMER_DIR/flowedge_install_consumer"
 [[ -f "$CONSUMER.exe" ]] && CONSUMER="$CONSUMER.exe"
