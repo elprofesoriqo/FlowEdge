@@ -32,4 +32,5 @@ A pull request that makes an architectural choice adds an ADR.
 0024-generic-job-process-transport
 0025-mamba-streaming-relay-adapter
 0026-bounded-worker-draining
+0027-safe-action-delivery
 ```

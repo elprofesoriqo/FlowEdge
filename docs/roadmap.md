@@ -7,6 +7,7 @@
 | Core | Mamba, flow head, CPU kernels, BF16 weights, C/C++/Python APIs |
 | State | Resumable flow solving, Mamba snapshots, generic job capsules |
 | Relay service | Shared memory, EDF, cancellation, worker pool, placement |
+| Action delivery | Multi-rate chunks, timed replacement, freshness and safety gate |
 | Generic jobs | Contracts, IPC, bounded routing/admission, production Mamba streaming |
 | Observability | Portable action/job traces; fixed-memory action/job metrics |
 
@@ -15,16 +16,18 @@
 ```{mermaid}
 flowchart LR
   M[Production Mamba adapter ✓] --> G[Worker drain + live migration ✓]
-  G --> A[Action overlap + safety gate]
-  A --> R[ROS 2 / Zenoh adapters]
+  G --> A[Action overlap + safety gate ✓]
+  A --> D[Generic job daemon]
+  D --> R[ROS 2 / Zenoh adapters]
 ```
 
 | Order | Milestone | Why now |
 |---:|---|---|
 | 1 | Streaming Mamba job adapter | Done: exact resume and routed execution |
 | 2 | Worker draining and live migration | Done: bounded rolling handoff |
-| 3 | Action overlap, freshness, final safety gate | Next: robotics-specific output policy |
-| 4 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
+| 3 | Action overlap, freshness, final safety gate | Done: allocation-free controller boundary |
+| 4 | Standalone generic-job daemon | Next: run registered adapters as a managed service |
+| 5 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
 
 ## Parallel model/backend work
 

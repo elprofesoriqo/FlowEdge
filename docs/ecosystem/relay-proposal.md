@@ -60,12 +60,14 @@ The current MVP provides:
 - concept-based iterative, streaming, and speculative adapters for external runtimes;
 - a production Mamba streaming adapter with shared weights and exact cross-engine continuation;
 - rolling worker drain with preallocated live state handoff to a compatible lane;
+- controller-side action chunk validation, timed overlap, freshness, bounds, and rate limiting;
 - validated variable-size generic job request/result messages;
 - frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema; and
 - `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings.
 
-Generic jobs now cross a real process boundary, migrate during rolling worker drain, retain results
-under backpressure, and emit bounded lifecycle records. Action-overlap policy is next.
+Generic jobs cross a real process boundary, migrate during rolling worker drain, retain results under
+backpressure, and emit bounded lifecycle records. Action chunks now cross an allocation-free final
+delivery gate. The standalone generic-job daemon is next.
 
 ## Repository boundary
 
@@ -180,6 +182,7 @@ migration, streaming cancellation, speculative classification, and queued execut
 ./build/cooperative_job_sample
 ./build/routed_job_sample
 ./build/mamba_relay_stream models/mamba_flow.safetensors
+./build/action_delivery_sample
 ./build/flowedge_cooperative_job_bench 100000
 ./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 5000
 ./build/flowedge_worker_drain_bench 10000
@@ -187,6 +190,7 @@ migration, streaming cancellation, speculative classification, and queued execut
 
 See [Cooperative jobs and state migration](../guides/cooperative-jobs) for the adapter contract and
 capsule invariants.
+See [Action delivery](../guides/action-delivery) for the controller boundary.
 
 ## Reuse outside robotics
 

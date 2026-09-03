@@ -13,6 +13,7 @@ cooperative jobs, replay, and telemetry.
 | Move model state | `streaming_snapshot` | Exact continuation in another engine |
 | Migrate a live Mamba job | `mamba_relay_stream` | Resume tokens on another Relay lane |
 | Serve actions across processes | `scripts/relay_demo.sh` | Client, daemon, deadlines, replay, metrics |
+| Feed a faster control loop | `action_delivery_sample` | Freshness, overlap, bounds, rate limits |
 | Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
 | Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
 | Compare with PyTorch | [Performance](performance) | Matched inputs and exact commands |
@@ -25,6 +26,8 @@ flowchart LR
   A --> R[Relay client]
   R --> D[flowedge-relayd]
   D --> C
+  R --> G[Action delivery gate]
+  G --> K[Controller]
   A --> J[JobClient]
   J --> S[Shared-memory rings]
   S --> V[JobService]
@@ -43,7 +46,7 @@ flowchart LR
 | Weights | FP32/BF16 `.safetensors`; shared immutable worker weights |
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
-| Relay | Shared memory; EDF admission; 1–8 workers; generation cancellation |
+| Relay | Shared memory; EDF; 1–8 workers; cancellation; safe action delivery |
 | Generic jobs | Iterative, streaming, speculative; Mamba adapter; IPC; routing; live lane drain |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
@@ -56,6 +59,7 @@ flowchart LR
 | Mutable state | One model/backend instance per concurrent lane |
 | Identity | Model digest + state schema must match before restore or dispatch |
 | Freshness | Lower generations cannot publish as current work |
+| Action delivery | Model/session binding, timed overlap, bounds, per-step delta |
 | Deadlines | Admission is predictive, not an OS hard-real-time guarantee |
 | Transport | Shared-memory rings are SPSC |
 

@@ -109,6 +109,8 @@ lifecycle metrics; `mamba_relay_stream` demonstrates exact cross-engine Mamba co
 `flowedge_job_queue_bench` measures saturated deadline-queue dispatch;
 `flowedge_mamba_stream_bench` measures production adapter overhead and migration; and
 `flowedge_worker_drain_bench` measures bounded live handoff.
+`action_delivery_sample` demonstrates a 25 Hz policy feeding a 100 Hz controller through freshness,
+overlap, bounds, and rate limits; `flowedge_action_delivery_bench` measures that final gate.
 
 Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
 `FlowEdge::flowedge_engine` remains available as a compatibility target.

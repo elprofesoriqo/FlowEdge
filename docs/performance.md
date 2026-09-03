@@ -167,4 +167,25 @@ Windows PowerShell:
 .\build\flowedge_worker_drain_bench.exe 10000
 ```
 
+### Action delivery
+
+Measured 2026-09-02. Four-step, two-axis chunks; median of five 1,000,000-iteration runs.
+
+| Platform | Accept + publish / step | Replace + blended publish |
+|---|---:|---:|
+| Windows | 49.13 ns | 225.63 ns |
+| Linux | 60.75 ns | 306.73 ns |
+
+Linux:
+
+```bash
+./build/flowedge_action_delivery_bench 1000000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_action_delivery_bench.exe 1000000
+```
+
 These results are references, not deployment guarantees.

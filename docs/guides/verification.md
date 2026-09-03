@@ -9,6 +9,7 @@
 | Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
 | Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
 | Worker-pool tests | Parallel lanes, freshness, admission, rolling drain, typed failures |
+| Action-delivery tests | Chunk shape, replacement, timing, freshness, bounds, delta limits |
 | Mamba adapter tests | Exact migrated output and real-model generic routing |
 | Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
 | Trace round-trip | Canonical bytes for action and generic job records |
@@ -68,6 +69,7 @@ Python checks run when their dependencies are available.
 | Hot paths allocate nothing | Relay and cooperative-job benchmarks |
 | Queue depth does not multiply clock reads | Deadline queue benchmark |
 | Live handoff remains bounded | Worker drain benchmark |
+| Controller publication stays bounded | Action delivery benchmark and multi-rate example |
 | Public API works after install | `test/install_consumer` |
 
 ## Install consumer

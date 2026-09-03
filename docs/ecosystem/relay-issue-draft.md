@@ -112,12 +112,12 @@ serving framework.
 
 ### Robotics adapters
 
-- [ ] Add action-chunk overlap and replacement policy.
-- [ ] Add a controller-side freshness and final safety gate.
+- [x] Add action-chunk overlap and replacement policy.
+- [x] Add a controller-side freshness and final safety gate.
 - [ ] Add optional ROS 2 request/action integration.
 - [ ] Add optional Zenoh transport integration.
 - [ ] Define clock-domain and timestamp synchronization contracts.
-- [ ] Add a multi-rate perception/policy/control-loop example.
+- [x] Add a multi-rate perception/policy/control-loop example.
 
 ### ML and LLM adapters
 
@@ -211,6 +211,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADR 0024: typed generic-job process transport with retained-result backpressure.
 - ADR 0025: production Mamba streaming adapter and exact state migration.
 - ADR 0026: bounded worker draining and live state handoff.
+- ADR 0027: versioned action chunks and controller-side safe delivery.
 
 ## Development branch
 
