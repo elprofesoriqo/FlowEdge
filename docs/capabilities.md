@@ -16,6 +16,7 @@ cooperative jobs, replay, and telemetry.
 | Feed a faster control loop | `action_delivery_sample` | Freshness, overlap, bounds, rate limits |
 | Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
 | Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
+| Run managed Mamba streams | `scripts/job_demo.sh` | Status, lane drain/resume, trace, metrics |
 | Compare with PyTorch | [Performance](performance) | Matched inputs and exact commands |
 
 ## Execution map
@@ -30,7 +31,8 @@ flowchart LR
   G --> K[Controller]
   A --> J[JobClient]
   J --> S[Shared-memory rings]
-  S --> V[JobService]
+  S --> V[flowedge-jobd / JobService]
+  Q[JobControlClient] --> V
   V --> P[JobWorkerPool]
   P --> B[Mamba or caller-owned backend]
   P --> E[Bounded event buffer]
@@ -47,7 +49,7 @@ flowchart LR
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
 | Relay | Shared memory; EDF; 1–8 workers; cancellation; safe action delivery |
-| Generic jobs | Iterative, streaming, speculative; Mamba adapter; IPC; routing; live lane drain |
+| Generic jobs | Iterative, streaming, speculative; Mamba daemon; IPC; routing; live lane drain |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
 
@@ -67,7 +69,7 @@ flowchart LR
 
 | Area | Status |
 |---|---|
-| Standalone generic-job daemon | Embeddable `JobService` is available; daemon packaging is next |
+| External runtime plugins | ONNX Runtime, TensorRT, PyTorch, llama.cpp/vLLM adapters are planned |
 | Transformer and KV cache | Planned in issue #10 |
 | Diffusion Policy, DiT, π0 | Planned in issues #9 and #11 |
 | CUDA, Metal, Vulkan, TTNN | Planned backends |

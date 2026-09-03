@@ -108,8 +108,11 @@ sustained load, fixed affinity, and the real power/thermal policy. It is not a p
 | cancelled | A fresher generation stopped active work | Normal freshness behavior |
 | failed | Model or worker execution failed | Inspect daemon error, trace, and metrics |
 
-## Current boundary
+## Choose the service
 
-`flowedge-relayd` currently serves the condition/action protocol. Generic jobs, including production
-Mamba streams, run through embeddable `JobService` + `JobWorkerPool`; a standalone generic-job daemon
-and its administrative control plane are next. See [Cooperative jobs](cooperative-jobs).
+| Service | Use it for |
+|---|---|
+| `flowedge-relayd` | Condition vectors to flow-matching action chunks |
+| `flowedge-jobd` | Managed cooperative jobs; currently built-in Mamba streaming |
+
+See [Generic job daemon](generic-job-daemon) or embed the contracts in [Cooperative jobs](cooperative-jobs).

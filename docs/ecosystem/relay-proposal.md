@@ -63,11 +63,13 @@ The current MVP provides:
 - controller-side action chunk validation, timed overlap, freshness, bounds, and rate limiting;
 - validated variable-size generic job request/result messages;
 - frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema; and
-- `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings.
+- `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings;
+- `flowedge-jobd`, a managed Mamba streaming service over the generic job contract; and
+- a separate `JobControlClient` data path for status, drain, resume, and acknowledged shutdown.
 
 Generic jobs cross a real process boundary, migrate during rolling worker drain, retain results under
 backpressure, and emit bounded lifecycle records. Action chunks now cross an allocation-free final
-delivery gate. The standalone generic-job daemon is next.
+delivery gate. Worker supervision and overload policy are the next hardening layer.
 
 ## Repository boundary
 
@@ -171,6 +173,15 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 ```
 
 The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
+
+The managed generic-job path is runnable with one command:
+
+```bash
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/job_demo.sh models/mamba_flow.safetensors
+```
+
+`flowedge-jobd` keeps job request/result traffic separate from status, drain, resume, and shutdown
+traffic. See [Generic job daemon](../guides/generic-job-daemon).
 
 The runtime-neutral job layer has no model dependency beyond Relay. `JobClient` and `JobService`
 carry typed records across process-compatible rings; `JobWorkerPool` routes them through bounded EDF

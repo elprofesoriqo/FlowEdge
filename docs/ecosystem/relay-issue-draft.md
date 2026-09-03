@@ -109,6 +109,8 @@ serving framework.
 - [x] Extend traces and metrics with job kind, schema, work progress, migration, and preemption events.
 - [x] Add typed generic-job client/service endpoints and prove the real process boundary.
 - [x] Add bounded worker drain and exact live handoff to a compatible lane.
+- [x] Add `flowedge-jobd` and `flowedge-jobctl` with separate data and administration rings.
+- [x] Expose status, drain, resume, and acknowledged shutdown through a validated fixed protocol.
 
 ### Robotics adapters
 
@@ -201,6 +203,7 @@ Relay coordinates these runtimes through optional adapters.
 - [Cooperative execution](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/architecture/cooperative-execution.md)
 - [Cooperative jobs and migration](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/guides/cooperative-jobs.md)
 - [Relay observability](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/guides/observability.md)
+- [Generic job daemon](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/guides/generic-job-daemon.md)
 - [Architecture decisions](https://github.com/elprofesoriqo/FlowEdge/blob/main/docs/decisions/index.md)
 - ADRs 0010–0011: cooperative execution and versioned state contracts.
 - ADRs 0012–0019: Relay boundary, lifecycle, traces, admission, workers, weights, placement, and metrics.
@@ -212,6 +215,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADR 0025: production Mamba streaming adapter and exact state migration.
 - ADR 0026: bounded worker draining and live state handoff.
 - ADR 0027: versioned action chunks and controller-side safe delivery.
+- ADR 0028: standalone generic-job service with separate data and administration planes.
 
 ## Development branch
 

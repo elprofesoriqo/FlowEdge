@@ -28,9 +28,8 @@ on predictable edge-robotics latency and zero dynamic allocations on supported h
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
 typed action and job clients, worker-aware EDF admission, portable traces and state capsules, generic
-iterative, streaming, and speculative adapters, a production Mamba streaming adapter, and
-preallocated parallel workers with live draining. Core does not depend on transport, telemetry, ROS,
-or daemon libraries.
+iterative, streaming, and speculative adapters, managed Mamba streaming, and preallocated parallel
+workers with live draining. Core does not depend on transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
 
@@ -102,6 +101,8 @@ single-worker and multi-worker paths. The daemon accepts `--workers 1..8` indepe
 `--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
 Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
+`scripts/job_demo.sh` runs the generic-job daemon, submits Mamba streams, administers worker lanes,
+and validates lifecycle traces and metrics.
 `cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
 `routed_job_sample` demonstrates process-compatible job transport, bounded adapter lanes, and
 lifecycle metrics; `mamba_relay_stream` demonstrates exact cross-engine Mamba continuation; and

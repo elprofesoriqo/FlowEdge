@@ -22,6 +22,7 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
 | Keep an existing encoder and use only the action head | [Capabilities](capabilities) |
 | Run deadline-aware inference between processes | [Relay quickstart](guides/relay-quickstart) |
 | Deliver safe multi-rate action chunks | [Action delivery](guides/action-delivery) |
+| Run managed streaming jobs | [Generic job daemon](guides/generic-job-daemon) |
 | Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
 | Compare FlowEdge with PyTorch | [Performance](performance) |
 | Convert or port a supported checkpoint | [Converter](guides/converter) |
@@ -120,6 +121,7 @@ guides/observability
 guides/cooperative-jobs
 guides/relay-quickstart
 guides/action-delivery
+guides/generic-job-daemon
 ```
 
 ```{toctree}
