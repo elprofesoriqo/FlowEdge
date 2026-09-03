@@ -1,6 +1,7 @@
 #include "relay/adapters/cooperative_adapters.h"
 #include "relay/adapters/mamba_stream_adapter.h"
 #include "relay/adapters/routed_adapters.h"
+#include "relay/client/action_delivery.h"
 #include "relay/client/job_client.h"
 #include "relay/jobs/state_capsule.h"
 #include "relay/jobs/state_codec.h"
@@ -25,6 +26,7 @@
 #include <gtest/gtest.h>
 #include <limits>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <sstream>
 #include <string>
@@ -64,6 +66,32 @@ static_assert(static_cast<std::uint16_t>(MessageKind::kShutdown) == 3u);
                                    4uz, FE_SOLVER_HEUN, condition, noise),
             ProtocolResult::kSuccess);
   return message;
+}
+
+[[nodiscard]] ActionMessage complete_action(
+    const fe_model_metadata& model, std::span<const float> values, std::uint64_t sequence = 1u,
+    std::uint64_t session_id = 77u, std::uint64_t generation = 1u,
+    std::uint64_t timestamp_ns = 100u, std::uint64_t deadline_ns = 0u)
+{
+  ActionMessage action{};
+  action.envelope.kind = MessageKind::kAction;
+  action.envelope.sequence = sequence;
+  action.envelope.session_id = session_id;
+  action.metadata.struct_size = sizeof(fe_action_metadata);
+  action.metadata.protocol_version = FE_PROTOCOL_VERSION;
+  action.metadata.solver = FE_SOLVER_EULER;
+  action.metadata.status = FE_ACTION_COMPLETE;
+  action.metadata.model_digest = model.model_digest;
+  action.metadata.timestamp_ns = timestamp_ns;
+  action.metadata.deadline_ns = deadline_ns;
+  action.metadata.generation = generation;
+  action.metadata.condition_dim = model.condition_dim;
+  action.metadata.action_dim = model.action_dim;
+  action.metadata.remaining_nfe = 0u;
+  action.envelope.struct_size = static_cast<std::uint32_t>(wire_size(action));
+  EXPECT_EQ(values.size(), model.action_dim);
+  std::ranges::copy(values, action.action.begin());
+  return action;
 }
 
 [[nodiscard]] std::string unique_name(std::string_view prefix)
@@ -364,6 +392,177 @@ TEST(RelayProtocol, BuildsAndValidatesVersionedCondition)
   EXPECT_EQ(action_code(rejected), RelayActionCode::kRejectedDeadline);
   EXPECT_EQ(rejected.metadata.status, FE_ACTION_FAILED);
   EXPECT_EQ(rejected.metadata.remaining_nfe, message.metadata.remaining_nfe);
+}
+
+TEST(ActionChunks, BuildsVersionedZeroCopyViewAndRejectsInvalidInput)
+{
+  const fe_model_metadata model = test_model(4uz, 8uz);
+  constexpr std::array values{0.0F, 0.1F, 0.2F, 0.3F, 0.4F, 0.5F, 0.6F, 0.7F};
+  ActionMessage action = complete_action(model, values, 8u, 9u, 3u, 100u, 300u);
+  const auto chunk = make_action_chunk(action, 2uz, 150u, 160u, 10u);
+  ASSERT_TRUE(chunk);
+  EXPECT_EQ(chunk->descriptor.protocol_version, kActionChunkProtocolVersion);
+  EXPECT_EQ(chunk->descriptor.control_dim, 2u);
+  EXPECT_EQ(chunk->descriptor.step_count, 4u);
+  EXPECT_EQ(chunk->descriptor.valid_until_ns, 200u);
+  EXPECT_EQ(chunk->descriptor.sequence, 8u);
+  EXPECT_EQ(chunk->descriptor.session_id, 9u);
+  ASSERT_EQ(chunk->step(1uz).size(), 2uz);
+  EXPECT_FLOAT_EQ(chunk->step(1uz)[0], 0.2F);
+  EXPECT_TRUE(chunk->step(4uz).empty());
+
+  EXPECT_EQ(make_action_chunk(action, 3uz, 150u, 160u, 10u).error(),
+            ActionChunkError::kInvalidShape);
+  EXPECT_EQ(make_action_chunk(action, 2uz, 301u, 301u, 10u).error(), ActionChunkError::kExpired);
+  action.metadata.status = FE_ACTION_RUNNING;
+  EXPECT_EQ(make_action_chunk(action, 2uz, 150u, 160u, 10u).error(),
+            ActionChunkError::kIncompleteAction);
+  action.metadata.status = FE_ACTION_COMPLETE;
+  action.action[3] = std::numeric_limits<float>::quiet_NaN();
+  EXPECT_EQ(make_action_chunk(action, 2uz, 150u, 160u, 10u).error(), ActionChunkError::kNonFinite);
+}
+
+TEST(ActionDelivery, ReplacesAndBlendsFreshChunksByControlTime)
+{
+  const fe_model_metadata model = test_model(4uz, 8uz);
+  constexpr std::array lower{-1.0F, -1.0F};
+  constexpr std::array upper{1.0F, 1.0F};
+  constexpr std::array delta{1.0F, 1.0F};
+  auto created = ActionDeliveryGate::create(model,
+                                            ActionDeliveryConfig{.control_dim = 2uz,
+                                                                 .overlap_steps = 2uz,
+                                                                 .step_period_ns = 10u,
+                                                                 .max_source_age_ns = 100u},
+                                            ActionSafetyLimits{.lower = lower,
+                                                               .upper = upper,
+                                                               .max_delta_per_step = delta});
+  ASSERT_TRUE(created) << to_string(created.error());
+  ActionDeliveryGate gate = std::move(*created);
+
+  constexpr std::array old_values{0.0F, 0.0F, 0.3F, 0.3F, 0.6F, 0.6F, 0.9F, 0.9F};
+  const ActionMessage old = complete_action(model, old_values, 1u, 9u, 1u, 100u);
+  EXPECT_EQ(gate.accept(old, 100u, 100u), ActionChunkAcceptResult::kAccepted);
+  const auto first = gate.next(100u);
+  ASSERT_TRUE(first);
+  EXPECT_EQ(first->step_index, 0u);
+  EXPECT_FLOAT_EQ(first->values[0], 0.0F);
+  EXPECT_FALSE(first->blended);
+  EXPECT_EQ(gate.next(100u).error(), ActionStepError::kNotReady);
+
+  constexpr std::array new_values{-0.3F, -0.3F, -0.6F, -0.6F, -0.9F, -0.9F, -1.0F, -1.0F};
+  const ActionMessage replacement = complete_action(model, new_values, 2u, 9u, 2u, 110u);
+  EXPECT_EQ(gate.accept(replacement, 110u, 110u), ActionChunkAcceptResult::kReplaced);
+  const auto blended_first = gate.next(110u);
+  ASSERT_TRUE(blended_first);
+  EXPECT_TRUE(blended_first->blended);
+  EXPECT_NEAR(blended_first->values[0], 0.1F, 1.0e-6F);
+  const auto blended_second = gate.next(120u);
+  ASSERT_TRUE(blended_second);
+  EXPECT_TRUE(blended_second->blended);
+  EXPECT_NEAR(blended_second->values[0], -0.2F, 1.0e-6F);
+
+  EXPECT_EQ(gate.accept(old, 121u, 121u), ActionChunkAcceptResult::kStale);
+  const ActionMessage other_session = complete_action(model, new_values, 3u, 10u, 3u, 121u);
+  EXPECT_EQ(gate.accept(other_session, 121u, 121u), ActionChunkAcceptResult::kSessionMismatch);
+  const auto skipped = gate.next(130u);
+  ASSERT_TRUE(skipped);
+  EXPECT_EQ(skipped->step_index, 2u);
+  EXPECT_EQ(gate.counters().accepted, 2u);
+  EXPECT_EQ(gate.counters().replaced, 1u);
+  EXPECT_EQ(gate.counters().blended, 2u);
+  EXPECT_EQ(gate.counters().rejected_stale, 1u);
+  EXPECT_EQ(gate.counters().rejected_session, 1u);
+}
+
+TEST(ActionDelivery, RejectsOrClampsUnsafeAndExpiredActions)
+{
+  const fe_model_metadata model = test_model(4uz, 4uz);
+  constexpr std::array lower{-1.0F, -1.0F};
+  constexpr std::array upper{1.0F, 1.0F};
+  constexpr std::array delta{0.2F, 0.2F};
+  constexpr std::array unsafe_values{2.0F, 0.0F, -1.0F, 0.0F};
+  const ActionMessage unsafe = complete_action(model, unsafe_values, 1u, 9u, 1u, 100u);
+  auto reject_created =
+      ActionDeliveryGate::create(model,
+                                 ActionDeliveryConfig{.control_dim = 2uz,
+                                                      .step_period_ns = 10u,
+                                                      .max_source_age_ns = 20u,
+                                                      .unsafe_policy = UnsafeActionPolicy::kReject},
+                                 ActionSafetyLimits{.lower = lower,
+                                                    .upper = upper,
+                                                    .max_delta_per_step = delta});
+  ASSERT_TRUE(reject_created);
+  EXPECT_EQ(reject_created->accept(unsafe, 100u, 100u), ActionChunkAcceptResult::kUnsafe);
+
+  constexpr std::array safe_values{0.0F, 0.0F, 0.8F, 0.8F};
+  const ActionMessage safe = complete_action(model, safe_values, 2u, 9u, 2u, 100u);
+  EXPECT_EQ(reject_created->accept(safe, 100u, 100u), ActionChunkAcceptResult::kAccepted);
+  ASSERT_TRUE(reject_created->next(100u));
+  EXPECT_EQ(reject_created->next(110u).error(), ActionStepError::kUnsafe);
+
+  auto clamp_created =
+      ActionDeliveryGate::create(model,
+                                 ActionDeliveryConfig{.control_dim = 2uz,
+                                                      .step_period_ns = 10u,
+                                                      .unsafe_policy = UnsafeActionPolicy::kClamp},
+                                 ActionSafetyLimits{.lower = lower,
+                                                    .upper = upper,
+                                                    .max_delta_per_step = delta});
+  ASSERT_TRUE(clamp_created);
+  EXPECT_EQ(clamp_created->accept(unsafe, 100u, 100u), ActionChunkAcceptResult::kAccepted);
+  const auto clamped_first = clamp_created->next(100u);
+  ASSERT_TRUE(clamped_first);
+  EXPECT_TRUE(clamped_first->clamped);
+  EXPECT_FLOAT_EQ(clamped_first->values[0], 1.0F);
+  const auto clamped_second = clamp_created->next(110u);
+  ASSERT_TRUE(clamped_second);
+  EXPECT_TRUE(clamped_second->clamped);
+  EXPECT_NEAR(clamped_second->values[0], 0.8F, 1.0e-6F);
+
+  reject_created->reset();
+  const ActionMessage aging = complete_action(model, safe_values, 3u, 9u, 3u, 100u);
+  EXPECT_EQ(reject_created->accept(aging, 110u, 110u), ActionChunkAcceptResult::kAccepted);
+  EXPECT_EQ(reject_created->next(121u).error(), ActionStepError::kExpired);
+  EXPECT_EQ(reject_created->counters().rejected_expired, 1u);
+}
+
+TEST(ActionDelivery, ValidatesConfigurationAndPreservesLastSafeCommandOnReject)
+{
+  const fe_model_metadata model = test_model(4uz, 4uz);
+  constexpr std::array lower{-1.0F, -1.0F};
+  constexpr std::array upper{1.0F, 1.0F};
+  constexpr std::array delta{0.2F, 0.2F};
+  const auto invalid_config = ActionDeliveryGate::create(
+      model, ActionDeliveryConfig{.control_dim = 3uz, .step_period_ns = 10u},
+      ActionSafetyLimits{.lower = lower, .upper = upper, .max_delta_per_step = delta});
+  ASSERT_FALSE(invalid_config);
+  EXPECT_EQ(invalid_config.error(), ActionDeliveryCreateError::kInvalidConfig);
+  const auto invalid_overlap = ActionDeliveryGate::create(
+      model, ActionDeliveryConfig{.control_dim = 2uz, .overlap_steps = 3uz, .step_period_ns = 10u},
+      ActionSafetyLimits{.lower = lower, .upper = upper, .max_delta_per_step = delta});
+  ASSERT_FALSE(invalid_overlap);
+  EXPECT_EQ(invalid_overlap.error(), ActionDeliveryCreateError::kInvalidOverlap);
+
+  auto created =
+      ActionDeliveryGate::create(model,
+                                 ActionDeliveryConfig{.control_dim = 2uz,
+                                                      .step_period_ns = 10u,
+                                                      .unsafe_policy = UnsafeActionPolicy::kReject},
+                                 ActionSafetyLimits{.lower = lower,
+                                                    .upper = upper,
+                                                    .max_delta_per_step = delta});
+  ASSERT_TRUE(created);
+  constexpr std::array values{0.0F, 0.0F, 0.1F, 0.8F};
+  const ActionMessage action = complete_action(model, values, 1u, 9u, 1u, 100u);
+  ASSERT_EQ(created->accept(action, 100u, 100u), ActionChunkAcceptResult::kAccepted);
+  const auto first = created->next(100u);
+  ASSERT_TRUE(first);
+  EXPECT_EQ(created->next(110u).error(), ActionStepError::kUnsafe);
+
+  constexpr std::array recovery_values{0.25F, 0.0F, 0.25F, 0.0F};
+  const ActionMessage recovery = complete_action(model, recovery_values, 2u, 9u, 2u, 110u);
+  ASSERT_EQ(created->accept(recovery, 110u, 110u), ActionChunkAcceptResult::kAccepted);
+  EXPECT_EQ(created->next(110u).error(), ActionStepError::kUnsafe);
 }
 
 TEST(GenericJobRouting, ValidatesMessagesAndRoutesThroughFrozenRegistry)

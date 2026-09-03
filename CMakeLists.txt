@@ -48,6 +48,9 @@ if(FLOWEDGE_RELAY)
 
   add_executable(mamba_relay_stream examples/mamba_relay_stream.cc)
   target_link_libraries(mamba_relay_stream PRIVATE FlowEdge::Relay)
+
+  add_executable(action_delivery_sample examples/action_delivery_sample.cc)
+  target_link_libraries(action_delivery_sample PRIVATE FlowEdge::Relay)
 endif()
 
 # BENCHMARKS
@@ -103,6 +106,9 @@ if(FLOWEDGE_BENCH)
 
     add_executable(flowedge_worker_drain_bench bench/worker_drain_bench.cc)
     target_link_libraries(flowedge_worker_drain_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_action_delivery_bench bench/action_delivery_bench.cc)
+    target_link_libraries(flowedge_action_delivery_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 

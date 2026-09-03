@@ -1,6 +1,7 @@
 #include "api/engine.h"
 #include "relay/adapters/mamba_stream_adapter.h"
 #include "relay/adapters/routed_adapters.h"
+#include "relay/client/action_delivery.h"
 #include "relay/client/job_client.h"
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/telemetry/metrics.h"
@@ -44,6 +45,35 @@ static_assert(fe::relay::RoutedBackend<fe::relay::MambaStreamAdapter>);
 int main()
 {
   fe_engine_free(nullptr);
+  fe_model_metadata delivery_model{};
+  delivery_model.struct_size = sizeof(delivery_model);
+  delivery_model.protocol_version = FE_PROTOCOL_VERSION;
+  delivery_model.action_dim = 2u;
+  delivery_model.model_digest.bytes[0] = 7u;
+  constexpr std::array delivery_lower{-1.0F, -1.0F};
+  constexpr std::array delivery_upper{1.0F, 1.0F};
+  constexpr std::array delivery_delta{0.5F, 0.5F};
+  auto delivery = fe::relay::ActionDeliveryGate::create(
+      delivery_model, fe::relay::ActionDeliveryConfig{.control_dim = 2uz, .step_period_ns = 1u},
+      fe::relay::ActionSafetyLimits{.lower = delivery_lower,
+                                    .upper = delivery_upper,
+                                    .max_delta_per_step = delivery_delta});
+  if (!delivery)
+    return 1;
+  fe::relay::ActionMessage action{};
+  action.envelope.sequence = 1u;
+  action.envelope.session_id = 1u;
+  action.metadata.struct_size = sizeof(action.metadata);
+  action.metadata.protocol_version = FE_PROTOCOL_VERSION;
+  action.metadata.status = FE_ACTION_COMPLETE;
+  action.metadata.model_digest = delivery_model.model_digest;
+  action.metadata.timestamp_ns = 1u;
+  action.metadata.generation = 1u;
+  action.metadata.action_dim = delivery_model.action_dim;
+  action.envelope.struct_size = static_cast<std::uint32_t>(fe::relay::wire_size(action));
+  if (delivery->accept(action, 1u, 1u) != fe::relay::ActionChunkAcceptResult::kAccepted ||
+      !delivery->next(1u))
+    return 1;
   const fe::relay::EdfScheduler scheduler{1uz};
   InstalledBackend backend{};
   fe::relay::JobDescriptor descriptor{};

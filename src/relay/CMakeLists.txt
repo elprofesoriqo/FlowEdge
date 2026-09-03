@@ -1,5 +1,6 @@
 add_library(flowedge_relay STATIC
   adapters/mamba_stream_adapter.cc
+  client/action_delivery.cc
   client/job_client.cc
   client/relay_client.cc
   jobs/cooperative_job.cc
