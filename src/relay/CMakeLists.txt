@@ -1,6 +1,7 @@
 add_library(flowedge_relay STATIC
   adapters/mamba_stream_adapter.cc
   client/action_delivery.cc
+  client/job_control_client.cc
   client/job_client.cc
   client/relay_client.cc
   jobs/cooperative_job.cc
@@ -13,6 +14,7 @@ add_library(flowedge_relay STATIC
   telemetry/metrics.cc
   worker/head_worker.cc
   worker/head_worker_pool.cc
+  worker/job_control_service.cc
   worker/job_service.cc
   worker/job_worker_pool.cc
   worker/worker_topology.cc
@@ -45,7 +47,14 @@ target_link_libraries(flowedge-relayd PRIVATE FlowEdge::Relay)
 add_executable(flowedge-relayctl client/relay_control.cc)
 target_link_libraries(flowedge-relayctl PRIVATE FlowEdge::Relay)
 
+add_executable(flowedge-jobd worker/job_daemon.cc)
+target_link_libraries(flowedge-jobd PRIVATE FlowEdge::Relay)
+
+add_executable(flowedge-jobctl client/job_control.cc)
+target_link_libraries(flowedge-jobctl PRIVATE FlowEdge::Relay)
+
 add_executable(flowedge-relay-trace tools/trace_tool.cc)
 target_link_libraries(flowedge-relay-trace PRIVATE FlowEdge::Relay)
 
-install(TARGETS flowedge-relayd flowedge-relayctl flowedge-relay-trace RUNTIME DESTINATION bin)
+install(TARGETS flowedge-relayd flowedge-relayctl flowedge-jobd flowedge-jobctl flowedge-relay-trace
+        RUNTIME DESTINATION bin)

@@ -1,4 +1,6 @@
+#include "relay/adapters/mamba_stream_adapter.h"
 #include "relay/client/job_client.h"
+#include "relay/client/job_control_client.h"
 #include "relay/client/relay_client.h"
 #include "relay/jobs/state_codec.h"
 #include "relay/worker/head_worker.h"
@@ -132,6 +134,48 @@ public:
     if (process == 0) {
       execl(executable.c_str(), executable.c_str(), request_name.c_str(), result_name.c_str(),
             static_cast<char*>(nullptr));
+      _exit(127);
+    }
+    return ChildDaemon{process};
+#endif
+  }
+
+  [[nodiscard]] static std::optional<ChildDaemon> start_job_daemon(
+      const std::filesystem::path& executable, const std::filesystem::path& model,
+      const std::string& request_name, const std::string& result_name,
+      const std::string& control_name, const std::string& status_name)
+  {
+#ifdef _WIN32
+    const auto quote = [](std::wstring_view argument) {
+      return L"\"" + std::wstring{argument} + L"\"";
+    };
+    const auto widen_ascii = [](std::string_view value) {
+      return std::wstring{value.begin(), value.end()};
+    };
+    std::wstring command =
+        quote(executable.wstring()) + L" --model " + quote(model.wstring()) + L" --request-shm " +
+        quote(widen_ascii(request_name)) + L" --result-shm " + quote(widen_ascii(result_name)) +
+        L" --control-shm " + quote(widen_ascii(control_name)) + L" --status-shm " +
+        quote(widen_ascii(status_name)) +
+        L" --capacity 8 --control-capacity 4 --workers 2 --threads 0 --max-tokens 8 --create";
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, FALSE, 0u, nullptr, nullptr,
+                       &startup, &process) == FALSE)
+      return std::nullopt;
+    CloseHandle(process.hThread);
+    return ChildDaemon{process.hProcess};
+#else
+    const pid_t process = fork();
+    if (process < 0)
+      return std::nullopt;
+    if (process == 0) {
+      execl(executable.c_str(), executable.c_str(), "--model", model.c_str(), "--request-shm",
+            request_name.c_str(), "--result-shm", result_name.c_str(), "--control-shm",
+            control_name.c_str(), "--status-shm", status_name.c_str(), "--capacity", "8",
+            "--control-capacity", "4", "--workers", "2", "--threads", "0", "--max-tokens", "8",
+            "--create", static_cast<char*>(nullptr));
       _exit(127);
     }
     return ChildDaemon{process};
@@ -390,6 +434,109 @@ TEST(RelayProcess, ExchangesGenericJobWithServiceAcrossProcessBoundary)
   ASSERT_EQ(client->try_shutdown(63u, descriptor.session_id), ClientResult::kSuccess);
   const auto exit_code = daemon->wait_for(std::chrono::seconds{5});
   ASSERT_TRUE(exit_code) << "generic job service did not stop after shutdown";
+  EXPECT_EQ(*exit_code, 0);
+}
+
+TEST(RelayProcess, AdministersStandaloneGenericJobDaemon)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  const std::string request_name = unique_name("flowedge-jobd-process-request");
+  const std::string result_name = unique_name("flowedge-jobd-process-result");
+  const std::string control_name = unique_name("flowedge-jobd-process-control");
+  const std::string status_name = unique_name("flowedge-jobd-process-status");
+  auto daemon = ChildDaemon::start_job_daemon(std::filesystem::path{FLOWEDGE_JOBD_PATH}, model,
+                                              request_name, result_name, control_name, status_name);
+  ASSERT_TRUE(daemon) << "Failed to launch flowedge-jobd";
+
+  std::optional<JobControlClient> control{};
+  std::optional<JobClient> client{};
+  std::string connect_error{};
+  const auto connect_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  do {
+    auto connected_control = JobControlClient::connect(control_name, status_name);
+    auto connected_client = JobClient::connect(request_name, result_name);
+    if (connected_control && connected_client) {
+      control.emplace(std::move(*connected_control));
+      client.emplace(std::move(*connected_client));
+      break;
+    }
+    connect_error = connected_control ? connected_client.error() : connected_control.error();
+    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+  } while (std::chrono::steady_clock::now() < connect_timeout);
+  ASSERT_TRUE(control && client) << connect_error;
+
+  JobControlRequest control_request =
+      make_job_control_request(1u, 80u, JobControlOperation::kStatus);
+  ASSERT_EQ(control->try_submit(control_request), ClientResult::kSuccess);
+  JobControlResponse control_response{};
+  const auto wait_for_control = [&]() {
+    ClientResult value{ClientResult::kEmpty};
+    const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    do {
+      value = control->try_receive(control_response);
+      if (value != ClientResult::kEmpty)
+        break;
+      std::this_thread::yield();
+    } while (std::chrono::steady_clock::now() < timeout);
+    return value;
+  };
+  ClientResult control_received = wait_for_control();
+  ASSERT_EQ(control_received, ClientResult::kSuccess);
+  EXPECT_EQ(control_response.metadata.code, JobControlCode::kSuccess);
+  EXPECT_EQ(control_response.metadata.status.worker_count, 2u);
+
+  constexpr std::array<std::int32_t, 4> tokens{1, 2, 3, 4};
+  auto adapter = MambaStreamAdapter::open(model.string(), tokens.size(), 0u);
+  ASSERT_TRUE(adapter) << adapter.error();
+  std::array<std::byte, tokens.size() * sizeof(std::int32_t)> payload{};
+  const auto encoded = encode_mamba_stream_request(tokens, payload);
+  ASSERT_TRUE(encoded) << encoded.error();
+  auto request = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*request, 2u, adapter->make_descriptor(80u, 1u, tokens.size()),
+                             monotonic_ns(), std::span{payload}.first(*encoded)),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(client->try_submit(*request), ClientResult::kSuccess);
+
+  auto result = std::make_unique<JobResultMessage>();
+  ClientResult received{ClientResult::kEmpty};
+  const auto result_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+  do {
+    received = client->try_receive(*result);
+    if (received != ClientResult::kEmpty)
+      break;
+    std::this_thread::yield();
+  } while (std::chrono::steady_clock::now() < result_timeout);
+  ASSERT_EQ(received, ClientResult::kSuccess);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  EXPECT_EQ(result->metadata.progress.completed_work_units, tokens.size());
+
+  control_request = make_job_control_request(3u, 80u, JobControlOperation::kDrainWorker, 0u);
+  ASSERT_EQ(control->try_submit(control_request), ClientResult::kSuccess);
+  control_received = wait_for_control();
+  ASSERT_EQ(control_received, ClientResult::kSuccess);
+  EXPECT_EQ(control_response.metadata.code, JobControlCode::kSuccess);
+  EXPECT_EQ(control_response.metadata.status.accepting_workers, 1u);
+  EXPECT_EQ(control_response.metadata.status.drained_mask & 1u, 1u);
+
+  control_request = make_job_control_request(4u, 80u, JobControlOperation::kResumeWorker, 0u);
+  ASSERT_EQ(control->try_submit(control_request), ClientResult::kSuccess);
+  control_received = wait_for_control();
+  ASSERT_EQ(control_received, ClientResult::kSuccess);
+  EXPECT_EQ(control_response.metadata.code, JobControlCode::kSuccess);
+  EXPECT_EQ(control_response.metadata.status.accepting_workers, 2u);
+
+  control_request = make_job_control_request(5u, 80u, JobControlOperation::kShutdown);
+  ASSERT_EQ(control->try_submit(control_request), ClientResult::kSuccess);
+  control_received = wait_for_control();
+  ASSERT_EQ(control_received, ClientResult::kSuccess);
+  EXPECT_EQ(control_response.metadata.code, JobControlCode::kSuccess);
+
+  const auto exit_code = daemon->wait_for(std::chrono::seconds{5});
+  ASSERT_TRUE(exit_code) << "flowedge-jobd did not stop after its control acknowledgement";
   EXPECT_EQ(*exit_code, 0);
 }
 

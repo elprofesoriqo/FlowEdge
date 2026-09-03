@@ -139,8 +139,9 @@ if(FLOWEDGE_TESTS)
     target_compile_definitions(flowedge_relay_tests PRIVATE
       FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
       FLOWEDGE_RELAYD_PATH="$<TARGET_FILE:flowedge-relayd>"
+      FLOWEDGE_JOBD_PATH="$<TARGET_FILE:flowedge-jobd>"
       FLOWEDGE_JOB_SERVICE_FIXTURE_PATH="$<TARGET_FILE:flowedge_job_service_fixture>")
-    add_dependencies(flowedge_relay_tests flowedge-relayd flowedge_job_service_fixture)
+    add_dependencies(flowedge_relay_tests flowedge-relayd flowedge-jobd flowedge_job_service_fixture)
   endif()
   
   include(GoogleTest)
@@ -148,6 +149,8 @@ if(FLOWEDGE_TESTS)
   if(FLOWEDGE_RELAY)
     gtest_discover_tests(flowedge_relay_tests)
     add_test(NAME RelayTools.ClientHelp COMMAND flowedge-relayctl --help)
+    add_test(NAME RelayTools.JobClientHelp COMMAND flowedge-jobctl --help)
+    add_test(NAME RelayTools.JobDaemonHelp COMMAND flowedge-jobd --help)
     add_test(NAME RelayTools.TraceHelp COMMAND flowedge-relay-trace --help)
   endif()
 endif()

@@ -614,6 +614,15 @@ JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uin
   std::memcpy(&queue_storage_[queue_slot], &request, wire_size(request));
   queue_order_.push_back(queue_slot);
 
+  emit(request.envelope.sequence,
+       JobEventDetails{.event = JobEventKind::kAdmitted,
+                       .descriptor = request.metadata.descriptor,
+                       .progress = JobProgress{.state = JobState::kReady,
+                                               .completed_work_units = 0u,
+                                               .remaining_work_units =
+                                                   request.metadata.descriptor.total_work_units},
+                       .timestamp_ns = now_ns == 0u ? monotonic_ns() : now_ns,
+                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size())});
   SessionWatermark* watermark = find_session(request.metadata.descriptor.session_id);
   if (watermark == nullptr) {
     watermark = &*std::ranges::find_if(sessions_, [](const SessionWatermark& entry) {
@@ -626,15 +635,6 @@ JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uin
     watermark->generation = request.metadata.descriptor.generation;
     cancel_before(watermark->session_id, watermark->generation);
   }
-  emit(request.envelope.sequence,
-       JobEventDetails{.event = JobEventKind::kAdmitted,
-                       .descriptor = request.metadata.descriptor,
-                       .progress = JobProgress{.state = JobState::kReady,
-                                               .completed_work_units = 0u,
-                                               .remaining_work_units =
-                                                   request.metadata.descriptor.total_work_units},
-                       .timestamp_ns = now_ns == 0u ? monotonic_ns() : now_ns,
-                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size())});
   pump();
   return JobSubmitResult::kAccepted;
 }

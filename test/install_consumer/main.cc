@@ -3,8 +3,10 @@
 #include "relay/adapters/routed_adapters.h"
 #include "relay/client/action_delivery.h"
 #include "relay/client/job_client.h"
+#include "relay/client/job_control_client.h"
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/telemetry/metrics.h"
+#include "relay/worker/job_control_service.h"
 #include "relay/worker/job_service.h"
 #include "relay/worker/job_worker_pool.h"
 
@@ -111,12 +113,30 @@ int main()
       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
   const std::string request_name = "flowedge-install-request-" + suffix;
   const std::string result_name = "flowedge-install-result-" + suffix;
+  const std::string control_name = "flowedge-install-control-" + suffix;
+  const std::string status_name = "flowedge-install-status-" + suffix;
   auto client_result = fe::relay::JobClient::create(request_name, result_name, 2u);
   auto service_result = fe::relay::JobService::connect(request_name, result_name, *created);
-  if (!client_result || !service_result)
+  auto control_client_result = fe::relay::JobControlClient::create(control_name, status_name, 2u);
+  if (!client_result || !service_result || !control_client_result)
     return 1;
   fe::relay::JobClient client = std::move(*client_result);
   fe::relay::JobService service = std::move(*service_result);
+  auto control_service_result =
+      fe::relay::JobControlService::connect(control_name, status_name, *created, service.stats());
+  if (!control_service_result)
+    return 1;
+  fe::relay::JobControlClient control_client = std::move(*control_client_result);
+  fe::relay::JobControlService control_service = std::move(*control_service_result);
+  const fe::relay::JobControlRequest status_request =
+      fe::relay::make_job_control_request(1u, descriptor.session_id,
+                                          fe::relay::JobControlOperation::kStatus);
+  fe::relay::JobControlResponse status_response{};
+  if (control_client.try_submit(status_request) != fe::relay::ClientResult::kSuccess ||
+      control_service.poll() != fe::relay::JobControlServiceResult::kProgress ||
+      control_client.try_receive(status_response) != fe::relay::ClientResult::kSuccess ||
+      status_response.metadata.status.worker_count != 1u)
+    return 1;
   if (client.try_submit(request) != fe::relay::ClientResult::kSuccess)
     return 1;
   fe::relay::JobResultMessage pooled{};
