@@ -57,7 +57,8 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
     && "$FLOWEDGE_BUILD_DIR/flowedge_mamba_stream_bench" models/mamba_flow.safetensors 100 \
     && "$FLOWEDGE_BUILD_DIR/flowedge_worker_drain_bench" 100 \
     && "$FLOWEDGE_BUILD_DIR/action_delivery_sample" \
-    && "$FLOWEDGE_BUILD_DIR/flowedge_action_delivery_bench" 100
+    && "$FLOWEDGE_BUILD_DIR/flowedge_action_delivery_bench" 100 \
+    && FLOWEDGE_BUILD_DIR="$FLOWEDGE_BUILD_DIR" ./scripts/job_demo.sh models/mamba_flow.safetensors
 
 RUN python3 -m pip install --break-system-packages .
 
