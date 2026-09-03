@@ -29,7 +29,8 @@ The allocation-free engine lives in `src/core/` and is exported to CMake consume
 `FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
 typed action and job clients, worker-aware EDF admission, portable traces and state capsules, generic
 iterative, streaming, and speculative adapters, managed Mamba streaming, and preallocated parallel
-workers with live draining. Core does not depend on transport, telemetry, ROS, or daemon libraries.
+workers with live draining, reserved service classes, and failure quarantine. Core does not depend on
+transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
 
@@ -101,15 +102,16 @@ single-worker and multi-worker paths. The daemon accepts `--workers 1..8` indepe
 `--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
 `scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
 Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
-`scripts/job_demo.sh` runs the generic-job daemon, submits Mamba streams, administers worker lanes,
-and validates lifecycle traces and metrics.
+`scripts/job_demo.sh` runs the generic-job daemon, submits interactive and critical Mamba streams,
+administers worker lanes, and validates lifecycle traces and metrics.
 `cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
 `routed_job_sample` demonstrates process-compatible job transport, bounded adapter lanes, and
 lifecycle metrics; `mamba_relay_stream` demonstrates exact cross-engine Mamba continuation; and
 `flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry;
 `flowedge_job_queue_bench` measures saturated deadline-queue dispatch;
 `flowedge_mamba_stream_bench` measures production adapter overhead and migration; and
-`flowedge_worker_drain_bench` measures bounded live handoff.
+`flowedge_worker_drain_bench` measures bounded live handoff; `flowedge_job_qos_bench` measures typed
+overload rejection with reserved queue capacity.
 `action_delivery_sample` demonstrates a 25 Hz policy feeding a 100 Hz controller through freshness,
 overlap, bounds, and rate limits; `flowedge_action_delivery_bench` measures that final gate.
 

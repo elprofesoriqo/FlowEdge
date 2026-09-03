@@ -18,7 +18,7 @@ flowchart LR
 | Action daemon | Received, accepted, rejected, published, dropped; queue/execution/end-to-end latency |
 | Worker pool | Admitted, dispatched, started, preempted, migrated, terminal outcome |
 | Extension events | Progress uses the same bounded event schema |
-| Job identity | Kind, model digest, schema, session, generation, worker |
+| Job identity | Kind, class, model digest, schema, session, generation, worker |
 | Job work | Completed/remaining units; queue, execution, end-to-end, cancellation latency |
 
 Job-kind labels are limited to `iterative`, `streaming`, and `speculative`. Model, session, and schema
@@ -88,6 +88,8 @@ at graceful shutdown.
 | `rejected_deadline` | Predicted work could not finish before its deadline |
 | `preempted` | A newer generation requested cancellation at a safe point |
 | `migration_completed` | A compatible lane restored a drained worker's capsule |
+| `rejected_qos` | A lower class reached its queue reservation boundary |
+| `worker_quarantines` | Lanes removed after repeated execution failures |
 | `events_dropped` | The observer drained too slowly or needs a larger buffer |
 | `cancellation_latency_ns` | Time from preemption request to terminal observation |
 | `completed_work_units` | Runtime-neutral useful-work throughput |

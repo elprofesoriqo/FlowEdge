@@ -188,4 +188,26 @@ Windows PowerShell:
 .\build\flowedge_action_delivery_bench.exe 1000000
 ```
 
+### QoS overload admission
+
+Measured 2026-09-03. Typed best-effort rejection with protected interactive and critical slots;
+median of five 1,000,000-iteration runs.
+
+| Platform | Rejection latency |
+|---|---:|
+| Windows | 114.481 ns |
+| Linux | 65.6609 ns |
+
+Linux:
+
+```bash
+for i in 1 2 3 4 5; do ./build/flowedge_job_qos_bench 1000000; done
+```
+
+Windows PowerShell:
+
+```powershell
+1..5 | ForEach-Object { .\build\flowedge_job_qos_bench.exe 1000000 }
+```
+
 These results are references, not deployment guarantees.

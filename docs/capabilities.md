@@ -16,7 +16,7 @@ cooperative jobs, replay, and telemetry.
 | Feed a faster control loop | `action_delivery_sample` | Freshness, overlap, bounds, rate limits |
 | Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
 | Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
-| Run managed Mamba streams | `scripts/job_demo.sh` | Status, lane drain/resume, trace, metrics |
+| Run managed Mamba streams | `scripts/job_demo.sh` | QoS, lane recovery, trace, metrics |
 | Compare with PyTorch | [Performance](performance) | Matched inputs and exact commands |
 
 ## Execution map
@@ -49,7 +49,7 @@ flowchart LR
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
 | Relay | Shared memory; EDF; 1–8 workers; cancellation; safe action delivery |
-| Generic jobs | Iterative, streaming, speculative; Mamba daemon; IPC; routing; live lane drain |
+| Generic jobs | Iterative, streaming, speculative; QoS reservations; drain, quarantine, recovery |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
 
@@ -63,6 +63,8 @@ flowchart LR
 | Freshness | Lower generations cannot publish as current work |
 | Action delivery | Model/session binding, timed overlap, bounds, per-step delta |
 | Deadlines | Admission is predictive, not an OS hard-real-time guarantee |
+| QoS | Deadlines dominate; class orders ties and protects reserved queue slots |
+| Recovery | Repeatedly failing lanes drain and require an explicit recovery command |
 | Transport | Shared-memory rings are SPSC |
 
 ## Not available yet

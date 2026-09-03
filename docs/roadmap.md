@@ -18,8 +18,9 @@ flowchart LR
   M[Production Mamba adapter ✓] --> G[Worker drain + live migration ✓]
   G --> A[Action overlap + safety gate ✓]
   A --> D[Generic job daemon ✓]
-  D --> S[Worker supervision + QoS]
-  S --> R[ROS 2 / Zenoh adapters]
+  D --> S[Worker supervision + QoS complete]
+  S --> R[Release hardening]
+  R --> I[ROS 2 / Zenoh adapters]
 ```
 
 | Order | Milestone | Why now |
@@ -28,8 +29,9 @@ flowchart LR
 | 2 | Worker draining and live migration | Done: bounded rolling handoff |
 | 3 | Action overlap, freshness, final safety gate | Done: allocation-free controller boundary |
 | 4 | Standalone generic-job daemon | Done: separate data/admin planes and managed Mamba lanes |
-| 5 | Worker supervision and QoS | Next: health policy, overload classes, graceful recovery |
-| 6 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
+| 5 | Worker supervision and QoS | Done: queue reservations, quarantine, explicit recovery |
+| 6 | Release hardening | Next: fuzzing, soak tests, protocol compatibility, security boundary |
+| 7 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
 
 ## Parallel model/backend work
 

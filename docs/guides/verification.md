@@ -8,7 +8,7 @@
 | PyTorch parity | Same checkpoint/input stays within ULP and relative-error limits |
 | Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
 | Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
-| Worker-pool tests | Parallel lanes, freshness, admission, rolling drain, typed failures |
+| Worker-pool tests | Parallel lanes, freshness, QoS, rolling drain, quarantine, recovery |
 | Action-delivery tests | Chunk shape, replacement, timing, freshness, bounds, delta limits |
 | Mamba adapter tests | Exact migrated output and real-model generic routing |
 | Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
@@ -53,6 +53,7 @@ Python checks run when their dependencies are available.
 | Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
 | Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |
 | Relay benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_bench.sh` |
+| QoS overload | `./build/flowedge_job_qos_bench 1000000` |
 
 ## Key invariants
 
@@ -63,6 +64,8 @@ Python checks run when their dependencies are available.
 | Admission includes active and queued lanes | Multi-lane EDF tests |
 | Migration is exact and corruption-safe | Cooperative capsule and Mamba cross-engine tests |
 | Draining cannot strand accepted work | Worker drain handoff and queued-work tests |
+| Lower service classes cannot consume reserved slots | QoS reservation and equal-deadline tests |
+| A failed lane cannot silently rejoin | Quarantine and explicit-recovery tests |
 | Trace bytes are portable | Representative little-endian byte assertions |
 | Event overflow is bounded | `JobEvents.BuffersValidatedLifecycleRecordsWithoutGrowth` |
 | Job metrics keep fixed kinds | `JobMetrics.RecordsKindsProgressPreemptionMigrationAndLatency` |

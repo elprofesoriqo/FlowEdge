@@ -34,4 +34,5 @@ A pull request that makes an architectural choice adds an ADR.
 0026-bounded-worker-draining
 0027-safe-action-delivery
 0028-standalone-generic-job-service
+0029-bounded-job-qos-and-supervision
 ```

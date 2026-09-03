@@ -110,7 +110,10 @@ serving framework.
 - [x] Add typed generic-job client/service endpoints and prove the real process boundary.
 - [x] Add bounded worker drain and exact live handoff to a compatible lane.
 - [x] Add `flowedge-jobd` and `flowedge-jobctl` with separate data and administration rings.
-- [x] Expose status, drain, resume, and acknowledged shutdown through a validated fixed protocol.
+- [x] Expose status, drain, resume, recovery, and acknowledged shutdown through a fixed protocol.
+- [x] Add best-effort, interactive, and critical queue reservations without weakening EDF ordering.
+- [x] Quarantine repeatedly failing lanes without stranding accepted work.
+- [x] Require explicit recovery before a quarantined lane can re-enter service.
 
 ### Robotics adapters
 
@@ -141,6 +144,7 @@ Report warm steady-state results separately from startup and model loading.
 - [ ] State-capsule export/import latency by payload size.
 - [x] Generic Mamba adapter route and migration overhead.
 - [x] Worker drain-to-result handoff latency.
+- [x] Allocation-free QoS overload rejection latency.
 - [ ] Worker scaling from 1 to 8 workers.
 - [ ] Shared-weight bytes versus per-worker mutable bytes.
 - [ ] Compact versus spread NUMA placement.
@@ -162,6 +166,8 @@ scaling, shared-weight bytes, and allocation-free cooperative migration is publi
 - [x] Migrated execution produces the same final result as uninterrupted execution.
 - [ ] Invalid capsules fail before destination state is committed.
 - [ ] Worker failure cannot corrupt another worker's mutable state.
+- [x] Repeated worker failure removes the lane until explicit recovery.
+- [x] Lower service classes cannot consume capacity reserved for higher classes.
 - [ ] Shared immutable weights cannot be modified by a worker.
 - [ ] Begin, advance, cancel, scheduling, recording, and migration allocate nothing after setup.
 - [ ] Windows and Linux pass the same public surface.
@@ -185,6 +191,7 @@ Relay coordinates these runtimes through optional adapters.
 - [ ] Iterative, streaming, and speculative workloads use one checked cooperative contract.
 - [x] At least one production FlowEdge model uses the generic contract.
 - [x] A running job migrates to another compatible worker and completes deterministically.
+- [x] QoS and quarantine state are visible through administration and metrics.
 - [ ] Examples cover lifecycle, deadlines, cancellation, replay, metrics, and migration.
 - [ ] Benchmarks cover single-worker, multi-worker, and generic cooperative-job paths.
 - [ ] Tests, examples, scripts, docs, installation, and benchmarks pass on Windows and Linux.
@@ -216,6 +223,7 @@ Relay coordinates these runtimes through optional adapters.
 - ADR 0026: bounded worker draining and live state handoff.
 - ADR 0027: versioned action chunks and controller-side safe delivery.
 - ADR 0028: standalone generic-job service with separate data and administration planes.
+- ADR 0029: bounded service-class reservations and supervised worker recovery.
 
 ## Development branch
 

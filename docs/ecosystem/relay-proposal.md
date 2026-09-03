@@ -62,14 +62,17 @@ The current MVP provides:
 - rolling worker drain with preallocated live state handoff to a compatible lane;
 - controller-side action chunk validation, timed overlap, freshness, bounds, and rate limiting;
 - validated variable-size generic job request/result messages;
-- frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema; and
+- frozen, fixed-capacity adapter registration keyed by job kind, model digest, and state schema;
 - `JobClient` and embeddable `JobService` endpoints over bounded shared-memory rings;
-- `flowedge-jobd`, a managed Mamba streaming service over the generic job contract; and
-- a separate `JobControlClient` data path for status, drain, resume, and acknowledged shutdown.
+- `flowedge-jobd`, a managed Mamba streaming service over the generic job contract;
+- a separate `JobControlClient` data path for status, drain, resume, recovery, and shutdown;
+- best-effort, interactive, and critical queue reservations with deadline-first ordering; and
+- repeated-failure lane quarantine with explicit, observable recovery.
 
 Generic jobs cross a real process boundary, migrate during rolling worker drain, retain results under
-backpressure, and emit bounded lifecycle records. Action chunks now cross an allocation-free final
-delivery gate. Worker supervision and overload policy are the next hardening layer.
+backpressure, protect urgent capacity, isolate failing lanes, and emit bounded lifecycle records.
+Action chunks cross an allocation-free final delivery gate. The next layer is release hardening and
+optional ecosystem adapters over these stable local contracts.
 
 ## Repository boundary
 
@@ -180,7 +183,7 @@ The managed generic-job path is runnable with one command:
 FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/job_demo.sh models/mamba_flow.safetensors
 ```
 
-`flowedge-jobd` keeps job request/result traffic separate from status, drain, resume, and shutdown
+`flowedge-jobd` keeps job request/result traffic separate from status, drain, resume, recovery, and shutdown
 traffic. See [Generic job daemon](../guides/generic-job-daemon).
 
 The runtime-neutral job layer has no model dependency beyond Relay. `JobClient` and `JobService`
@@ -197,6 +200,7 @@ migration, streaming cancellation, speculative classification, and queued execut
 ./build/flowedge_cooperative_job_bench 100000
 ./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 5000
 ./build/flowedge_worker_drain_bench 10000
+./build/flowedge_job_qos_bench 1000000
 ```
 
 See [Cooperative jobs and state migration](../guides/cooperative-jobs) for the adapter contract and

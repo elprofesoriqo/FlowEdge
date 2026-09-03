@@ -9,7 +9,7 @@ flowchart LR
   A[ML application] -->|JobClient| D[request / result rings]
   D --> J[flowedge-jobd]
   C[flowedge-jobctl] -->|separate control rings| J
-  J --> P[EDF worker pool]
+  J --> P[EDF + service-class worker pool]
   P --> W1[Mamba lane 0]
   P --> W2[Mamba lane 1]
   J --> O[trace + metrics]
@@ -25,8 +25,8 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" \
   ./scripts/job_demo.sh models/mamba_flow.safetensors
 ```
 
-The script submits two streams, drains and resumes one lane, inspects the lifecycle trace, validates
-all metric formats, and shuts down through the control plane.
+The script submits interactive and critical streams, drains and resumes one lane, validates traces
+and metrics, then shuts down through the control plane.
 
 ## Run it manually
 
@@ -45,7 +45,7 @@ Terminal 2:
 ./build-relay/src/relay/flowedge-jobctl status
 ./build-relay/src/relay/flowedge-jobctl mamba \
   --model models/mamba_flow.safetensors --tokens 1,2,3,4 \
-  --session 42 --generation 1
+  --session 42 --generation 1 --class interactive
 ./build-relay/src/relay/flowedge-jobctl drain --worker 0
 ./build-relay/src/relay/flowedge-jobctl resume --worker 0
 ./build-relay/src/relay/flowedge-jobctl shutdown
@@ -58,13 +58,14 @@ their route metadata and use `JobClient` directly.
 
 | Command | Effect |
 |---|---|
-| `status` | Worker counts, queue depth, masks, failures, and transport totals |
+| `status` | Queue, lane, QoS, failure, quarantine, and transport state |
 | `drain --worker N` | Stop new dispatch to a lane; migrate compatible active state when possible |
 | `resume --worker N` | Return a fully drained lane to service |
+| `recover --worker N` | Clear a quarantined, drained lane and return it to service |
 | `shutdown` | Publish an acknowledgement, then stop |
 
 Data and administration use different SPSC ring pairs. A blocked data consumer therefore cannot
-prevent status, drain, or shutdown. Each pair still requires one producer and one consumer.
+prevent status or lane administration. Each pair still requires one producer and one consumer.
 
 ## Production settings
 
@@ -75,7 +76,11 @@ prevent status, drain, or shutdown. Each pair still requires one producer and on
 | `--work-quantum N` | Cancellation and migration boundary |
 | `--streaming-unit-ns N` | Calibrated deadline cost per token; `0` disables predictive rejection |
 | `--admission-reserve-ns N` | Fixed safety margin added to predicted work |
+| `--interactive-reserve N` | Slots reserved from best-effort traffic; default `2` |
+| `--critical-reserve N` | Slots reserved from lower-class traffic; default `1` |
+| `--failure-threshold N` | Consecutive failures before quarantine; default `3`, `0` disables |
 | `--placement compact\|spread` | NUMA-aware outer-worker placement |
 
-Lifecycle traces contain job events, not model payloads. See [Observability](observability) and
-[Cooperative jobs](cooperative-jobs).
+Deadlines remain primary; service class breaks equal-deadline ties. Reserved slots prevent lower
+classes from consuming the whole queue. A quarantined lane must drain before explicit recovery.
+Lifecycle traces contain metadata, not model payloads. See [Observability](observability).
