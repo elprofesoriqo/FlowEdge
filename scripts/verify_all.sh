@@ -8,7 +8,9 @@ BUILD_DIR="${FLOWEDGE_BUILD_DIR:-$ROOT/build-all}"
 mkdir -p "$BUILD_DIR"
 BUILD_DIR="$(cd "$BUILD_DIR" && pwd)"
 INSTALL_DIR="$BUILD_DIR/install-check"
-CONSUMER_DIR="${FLOWEDGE_INSTALL_CONSUMER_DIR:-$BUILD_DIR/install-consumer}"
+CONSUMER_SUFFIX=native
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) CONSUMER_SUFFIX=mingw ;; esac
+CONSUMER_DIR="${FLOWEDGE_INSTALL_CONSUMER_DIR:-$BUILD_DIR/install-consumer-$CONSUMER_SUFFIX}"
 BENCH_ITERS="${FLOWEDGE_VERIFY_BENCH_ITERS:-500}"
 
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) export PATH="/c/Strawberry/c/bin:$PATH" ;; esac
@@ -70,6 +72,7 @@ rm -f "$JOB_TRACE"
   "${FLOWEDGE_RELAY_POOL_WORKERS:-2}" "${FLOWEDGE_RELAY_POOL_THREADS:-0}"
 "$(resolve_executable flowedge_cooperative_job_bench)" "$((BENCH_ITERS * 10))"
 "$(resolve_executable flowedge_job_queue_bench)" "$BENCH_ITERS"
+"$(resolve_executable flowedge_job_qos_bench)" "$((BENCH_ITERS * 1000))"
 "$(resolve_executable flowedge_mamba_stream_bench)" "$MODEL" "$BENCH_ITERS"
 "$(resolve_executable flowedge_worker_drain_bench)" "$((BENCH_ITERS * 10))"
 "$(resolve_executable flowedge_action_delivery_bench)" "$((BENCH_ITERS * 1000))"

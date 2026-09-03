@@ -78,10 +78,10 @@ fi
 cat "$BUILD_DIR/job-demo-status.log"
 
 "$CONTROL" mamba --model "$MODEL" "${COMMON_DATA[@]}" --tokens 1,2,3,4 \
-  --sequence 10 --session 42 --generation 1
+  --sequence 10 --session 42 --generation 1 --class interactive
 "$CONTROL" drain --worker 0 "${COMMON_CONTROL[@]}" --sequence 11
 "$CONTROL" mamba --model "$MODEL" "${COMMON_DATA[@]}" --tokens 4,3,2,1 \
-  --sequence 12 --session 42 --generation 2
+  --sequence 12 --session 42 --generation 2 --class critical
 "$CONTROL" resume --worker 0 "${COMMON_CONTROL[@]}" --sequence 13
 "$CONTROL" shutdown "${COMMON_CONTROL[@]}" --sequence 14
 wait "$DAEMON_PID"

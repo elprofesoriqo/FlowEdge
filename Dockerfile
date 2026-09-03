@@ -53,6 +53,7 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
     && cmake --build "$FLOWEDGE_BUILD_DIR" \
     && ctest --test-dir "$FLOWEDGE_BUILD_DIR" --output-on-failure \
     && "$FLOWEDGE_BUILD_DIR/flowedge_job_queue_bench" 100 \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_job_qos_bench" 10000 \
     && "$FLOWEDGE_BUILD_DIR/mamba_relay_stream" models/mamba_flow.safetensors \
     && "$FLOWEDGE_BUILD_DIR/flowedge_mamba_stream_bench" models/mamba_flow.safetensors 100 \
     && "$FLOWEDGE_BUILD_DIR/flowedge_worker_drain_bench" 100 \
