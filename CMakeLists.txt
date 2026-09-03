@@ -101,6 +101,9 @@ if(FLOWEDGE_BENCH)
     add_executable(flowedge_job_queue_bench bench/job_queue_bench.cc)
     target_link_libraries(flowedge_job_queue_bench PRIVATE FlowEdge::Relay)
 
+    add_executable(flowedge_job_qos_bench bench/job_qos_bench.cc)
+    target_link_libraries(flowedge_job_qos_bench PRIVATE FlowEdge::Relay)
+
     add_executable(flowedge_mamba_stream_bench bench/mamba_stream_bench.cc)
     target_link_libraries(flowedge_mamba_stream_bench PRIVATE FlowEdge::Relay)
 
