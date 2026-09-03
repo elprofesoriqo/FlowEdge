@@ -52,7 +52,7 @@ struct JobEventMetadata
   std::uint32_t peer_worker_index{kNoWorker};
   std::uint32_t queue_depth{};
   JobResultCode result_code{JobResultCode::kProgress};
-  std::uint32_t reserved{};
+  JobServiceClass service_class{JobServiceClass::kBestEffort};
   std::uint32_t reserved2{};
 };
 
@@ -74,6 +74,7 @@ struct JobEventDetails
   std::uint32_t peer_worker_index{kNoWorker};
   std::uint32_t queue_depth{};
   JobResultCode result_code{JobResultCode::kProgress};
+  JobServiceClass service_class{JobServiceClass::kBestEffort};
 };
 
 [[nodiscard]] constexpr bool valid_job_event_kind(JobEventKind event) noexcept
@@ -85,7 +86,7 @@ struct JobEventDetails
 {
   return code == JobResultCode::kRejectedStale || code == JobResultCode::kRejectedDeadline ||
          code == JobResultCode::kRejectedCapacity || code == JobResultCode::kAdapterNotFound ||
-         code == JobResultCode::kInvalidRequest;
+         code == JobResultCode::kInvalidRequest || code == JobResultCode::kRejectedQos;
 }
 
 [[nodiscard]] constexpr bool compatible(JobEventKind event, JobProgress progress,
@@ -163,8 +164,8 @@ struct JobEventDetails
     return ProtocolResult::kInvalidEnvelope;
   const JobEventMetadata& metadata = message.metadata;
   if (metadata.struct_size != sizeof(JobEventMetadata) ||
-      metadata.protocol_version != kJobEventVersion || metadata.reserved != 0u ||
-      metadata.reserved2 != 0u || !valid_job_event_kind(metadata.event) ||
+      metadata.protocol_version != kJobEventVersion || metadata.reserved2 != 0u ||
+      !valid_job_event_kind(metadata.event) || !valid_job_service_class(metadata.service_class) ||
       !valid_job_descriptor(metadata.descriptor) ||
       !valid_job_progress(metadata.descriptor, metadata.progress) ||
       message.envelope.session_id != metadata.descriptor.session_id ||
@@ -193,6 +194,7 @@ struct JobEventDetails
   destination.metadata.peer_worker_index = details.peer_worker_index;
   destination.metadata.queue_depth = details.queue_depth;
   destination.metadata.result_code = details.result_code;
+  destination.metadata.service_class = details.service_class;
   return validate(destination);
 }
 

@@ -89,8 +89,12 @@ std::expected<RoutedJob, JobRouteError> JobAdapterRegistry::bind(
   if (!bound)
     return std::unexpected(JobRouteError{JobRouteErrorCode::kInvalidBinding,
                                          "Generic job adapter could not bind a cooperative job"});
-  return RoutedJob{*bound, request.envelope.sequence, registration->context,
-                   registration->operations.result, registration->max_result_bytes};
+  return RoutedJob{*bound,
+                   request.envelope.sequence,
+                   registration->context,
+                   registration->operations.result,
+                   registration->max_result_bytes,
+                   request.metadata.service_class};
 }
 
 ProtocolResult RoutedJob::write_result(JobResultMessage& destination,
@@ -101,7 +105,7 @@ ProtocolResult RoutedJob::write_result(JobResultMessage& destination,
     return ProtocolResult::kDimensionExceeded;
   const JobProgress current = job_.progress();
   return make_job_result(destination, sequence_, job_.descriptor(), current, timestamp_ns,
-                         result_code(current.state), payload);
+                         result_code(current.state), payload, service_class_);
 }
 
 } // namespace fe::relay

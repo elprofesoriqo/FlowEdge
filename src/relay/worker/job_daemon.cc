@@ -49,6 +49,9 @@ struct Options
   std::size_t max_sessions{64uz};
   std::size_t work_quantum{1uz};
   std::size_t event_capacity{1'024uz};
+  std::size_t interactive_reserve{2uz};
+  std::size_t critical_reserve{1uz};
+  std::size_t failure_threshold{3uz};
   std::uint64_t streaming_unit_ns{};
   std::uint64_t admission_reserve_ns{};
   std::uint64_t metrics_interval_ms{};
@@ -91,6 +94,9 @@ void usage(std::ostream& output)
             "  --streaming-unit-ns N    calibrated deadline cost per token\n"
             "  --admission-reserve-ns N fixed deadline reserve\n"
             "  --event-capacity N       bounded lifecycle event count\n"
+            "  --interactive-reserve N queue slots unavailable to best-effort jobs\n"
+            "  --critical-reserve N    queue slots reserved for critical jobs\n"
+            "  --failure-threshold N   consecutive failures before lane quarantine; 0 disables\n"
             "  --trace FILE             write lifecycle event trace\n"
             "  --metrics-prometheus FILE\n"
             "  --metrics-json FILE\n"
@@ -164,6 +170,15 @@ void usage(std::ostream& output)
     } else if (argument == "--event-capacity") {
       if (!parse_integer(value, options.event_capacity) || options.event_capacity == 0uz)
         return std::unexpected("Invalid --event-capacity value");
+    } else if (argument == "--interactive-reserve") {
+      if (!parse_integer(value, options.interactive_reserve))
+        return std::unexpected("Invalid --interactive-reserve value");
+    } else if (argument == "--critical-reserve") {
+      if (!parse_integer(value, options.critical_reserve))
+        return std::unexpected("Invalid --critical-reserve value");
+    } else if (argument == "--failure-threshold") {
+      if (!parse_integer(value, options.failure_threshold))
+        return std::unexpected("Invalid --failure-threshold value");
     } else if (argument == "--streaming-unit-ns") {
       if (!parse_integer(value, options.streaming_unit_ns))
         return std::unexpected("Invalid --streaming-unit-ns value");
@@ -185,6 +200,10 @@ void usage(std::ostream& output)
     return std::unexpected("Shared-memory ring names cannot be empty");
   if (mamba_stream_request_bytes(options.max_tokens) == 0uz)
     return std::unexpected("--max-tokens exceeds the job payload capacity");
+  if (options.interactive_reserve >= options.capacity ||
+      options.critical_reserve >= options.capacity ||
+      options.interactive_reserve > options.capacity - 1u - options.critical_reserve)
+    return std::unexpected("QoS reserves must leave one best-effort queue slot");
   return options;
 }
 
@@ -276,7 +295,11 @@ try {
                             JobCostPolicy{.streaming_ns = options.streaming_unit_ns,
                                           .reserve_ns = options.admission_reserve_ns},
                             options.max_sessions, options.work_quantum, options.placement, &events,
-                            migration_capacity);
+                            migration_capacity,
+                            JobQosPolicy{.interactive_reserve_slots = options.interactive_reserve,
+                                         .critical_reserve_slots = options.critical_reserve},
+                            WorkerSupervisionPolicy{.consecutive_failure_threshold =
+                                                        options.failure_threshold});
   if (!pool_result) {
     std::cerr << "flowedge-jobd: " << pool_result.error() << '\n';
     return 1;
@@ -350,7 +373,7 @@ try {
     }
     if (failed)
       break;
-    metrics.observe_workers(pool.busy_count(), pool.failure_count());
+    metrics.observe_workers(pool.busy_count(), pool.failure_count(), pool.quarantine_count());
     metrics.record_event_drops(events.dropped());
     if (options.metrics_interval_ms != 0u && std::chrono::steady_clock::now() >= next_metrics) {
       if (!export_metrics(options, metrics)) {
@@ -375,7 +398,7 @@ try {
     }
     events.pop();
   }
-  metrics.observe_workers(pool.busy_count(), pool.failure_count());
+  metrics.observe_workers(pool.busy_count(), pool.failure_count(), pool.quarantine_count());
   metrics.record_event_drops(events.dropped());
   if (trace)
     trace->flush();
@@ -388,7 +411,8 @@ try {
             << " accepted=" << stats.requests_accepted << " rejected=" << stats.requests_rejected
             << " published=" << stats.results_published
             << " worker_failures=" << pool.failure_count() << " event_drops=" << events.dropped()
-            << '\n';
+            << " worker_quarantines=" << pool.quarantine_count()
+            << " qos_rejections=" << pool.qos_rejection_count() << '\n';
   return failed ? 1 : 0;
 } catch (const std::exception& error) {
   std::cerr << "flowedge-jobd: " << error.what() << '\n';

@@ -34,12 +34,13 @@ enum class JobResultCode : std::uint32_t
   kRejectedCapacity = 6u,
   kAdapterNotFound = 7u,
   kInvalidRequest = 8u,
+  kRejectedQos = 9u,
 };
 
 struct JobRequestMetadata
 {
   std::uint32_t struct_size{};
-  std::uint32_t reserved{};
+  JobServiceClass service_class{JobServiceClass::kBestEffort};
   JobDescriptor descriptor{};
   std::uint64_t timestamp_ns{};
   std::uint64_t payload_bytes{};
@@ -48,7 +49,7 @@ struct JobRequestMetadata
 struct JobResultMetadata
 {
   std::uint32_t struct_size{};
-  std::uint32_t reserved{};
+  JobServiceClass service_class{JobServiceClass::kBestEffort};
   JobDescriptor descriptor{};
   JobProgress progress{};
   std::uint64_t timestamp_ns{};
@@ -121,7 +122,7 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
 
 [[nodiscard]] constexpr bool valid_job_result_code(JobResultCode code) noexcept
 {
-  return code >= JobResultCode::kProgress && code <= JobResultCode::kInvalidRequest;
+  return code >= JobResultCode::kProgress && code <= JobResultCode::kRejectedQos;
 }
 
 [[nodiscard]] constexpr bool compatible(JobResultCode code, JobState state) noexcept
@@ -172,6 +173,8 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
     return "adapter_not_found";
   case JobResultCode::kInvalidRequest:
     return "invalid_request";
+  case JobResultCode::kRejectedQos:
+    return "rejected_qos";
   }
   return "unknown";
 }
@@ -185,7 +188,8 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
   if (message.metadata.payload_bytes > kMaxJobPayloadBytes)
     return ProtocolResult::kDimensionExceeded;
   if (message.metadata.struct_size != sizeof(JobRequestMetadata) ||
-      message.metadata.reserved != 0u || !valid_job_descriptor(message.metadata.descriptor) ||
+      !valid_job_service_class(message.metadata.service_class) ||
+      !valid_job_descriptor(message.metadata.descriptor) ||
       message.envelope.session_id != message.metadata.descriptor.session_id ||
       (message.metadata.descriptor.deadline_ns != 0u &&
        message.metadata.descriptor.deadline_ns < message.metadata.timestamp_ns))
@@ -203,7 +207,8 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
   if (message.metadata.payload_bytes > kMaxJobPayloadBytes)
     return ProtocolResult::kDimensionExceeded;
   if (message.metadata.struct_size != sizeof(JobResultMetadata) ||
-      message.metadata.reserved != 0u || !valid_job_descriptor(message.metadata.descriptor) ||
+      !valid_job_service_class(message.metadata.service_class) ||
+      !valid_job_descriptor(message.metadata.descriptor) ||
       message.envelope.session_id != message.metadata.descriptor.session_id ||
       !valid_job_progress(message.metadata.descriptor, message.metadata.progress) ||
       !compatible(code, message.metadata.progress.state))
@@ -211,13 +216,12 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
   return ProtocolResult::kSuccess;
 }
 
-[[nodiscard]] inline ProtocolResult make_job_request(JobRequestMessage& destination,
-                                                     std::uint64_t sequence,
-                                                     JobDescriptor descriptor,
-                                                     std::uint64_t timestamp_ns,
-                                                     std::span<const std::byte> payload) noexcept
+[[nodiscard]] inline ProtocolResult make_job_request(
+    JobRequestMessage& destination, std::uint64_t sequence, JobDescriptor descriptor,
+    std::uint64_t timestamp_ns, std::span<const std::byte> payload,
+    JobServiceClass service_class = JobServiceClass::kBestEffort) noexcept
 {
-  if (!valid_job_descriptor(descriptor) ||
+  if (!valid_job_descriptor(descriptor) || !valid_job_service_class(service_class) ||
       (descriptor.deadline_ns != 0u && descriptor.deadline_ns < timestamp_ns))
     return ProtocolResult::kInvalidMetadata;
   if (payload.size() > kMaxJobPayloadBytes)
@@ -229,6 +233,7 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
   destination.envelope.sequence = sequence;
   destination.envelope.session_id = descriptor.session_id;
   destination.metadata.struct_size = sizeof(JobRequestMetadata);
+  destination.metadata.service_class = service_class;
   destination.metadata.descriptor = descriptor;
   destination.metadata.timestamp_ns = timestamp_ns;
   destination.metadata.payload_bytes = payload.size();
@@ -240,10 +245,12 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
 [[nodiscard]] inline ProtocolResult make_job_result(
     JobResultMessage& destination, std::uint64_t sequence, JobDescriptor descriptor,
     JobProgress progress, std::uint64_t timestamp_ns, JobResultCode code,
-    std::span<const std::byte> payload = {}) noexcept
+    std::span<const std::byte> payload = {},
+    JobServiceClass service_class = JobServiceClass::kBestEffort) noexcept
 {
   if (!valid_job_descriptor(descriptor) || !valid_job_progress(descriptor, progress) ||
-      !valid_job_result_code(code) || !compatible(code, progress.state))
+      !valid_job_result_code(code) || !compatible(code, progress.state) ||
+      !valid_job_service_class(service_class))
     return ProtocolResult::kInvalidMetadata;
   if (payload.size() > kMaxJobPayloadBytes)
     return ProtocolResult::kDimensionExceeded;
@@ -255,6 +262,7 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
   destination.envelope.sequence = sequence;
   destination.envelope.session_id = descriptor.session_id;
   destination.metadata.struct_size = sizeof(JobResultMetadata);
+  destination.metadata.service_class = service_class;
   destination.metadata.descriptor = descriptor;
   destination.metadata.progress = progress;
   destination.metadata.timestamp_ns = timestamp_ns;
@@ -271,14 +279,14 @@ static_assert(sizeof(JobResultMessage) <= std::numeric_limits<std::uint32_t>::ma
 {
   if (code != JobResultCode::kRejectedStale && code != JobResultCode::kRejectedDeadline &&
       code != JobResultCode::kRejectedCapacity && code != JobResultCode::kAdapterNotFound &&
-      code != JobResultCode::kInvalidRequest)
+      code != JobResultCode::kInvalidRequest && code != JobResultCode::kRejectedQos)
     return ProtocolResult::kInvalidMetadata;
   return make_job_result(destination, request.envelope.sequence, request.metadata.descriptor,
                          JobProgress{.state = JobState::kFailed,
                                      .completed_work_units = 0u,
                                      .remaining_work_units =
                                          request.metadata.descriptor.total_work_units},
-                         timestamp_ns, code);
+                         timestamp_ns, code, {}, request.metadata.service_class);
 }
 
 static_assert(std::is_trivially_copyable_v<JobRequestMetadata>);

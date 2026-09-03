@@ -101,9 +101,9 @@ private:
   friend class JobAdapterRegistry;
   RoutedJob(CooperativeJob job, std::uint64_t sequence, void* context,
             std::span<const std::byte> (*result)(const void*) noexcept,
-            std::size_t max_result_bytes) noexcept
+            std::size_t max_result_bytes, JobServiceClass service_class) noexcept
       : job_{job}, sequence_{sequence}, context_{context}, result_{result},
-        max_result_bytes_{max_result_bytes}
+        max_result_bytes_{max_result_bytes}, service_class_{service_class}
   {
   }
 
@@ -112,6 +112,7 @@ private:
   void* context_{};
   std::span<const std::byte> (*result_)(const void*) noexcept {};
   std::size_t max_result_bytes_{};
+  JobServiceClass service_class_{JobServiceClass::kBestEffort};
 };
 
 // Fixed-capacity registry. Registration happens during initialization; freeze

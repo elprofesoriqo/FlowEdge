@@ -32,6 +32,8 @@ namespace {
   const std::uint64_t right_deadline = deadline_key(right);
   if (left_deadline != right_deadline)
     return left_deadline < right_deadline;
+  if (left.metadata.service_class != right.metadata.service_class)
+    return left.metadata.service_class > right.metadata.service_class;
   if (left.metadata.timestamp_ns != right.metadata.timestamp_ns)
     return left.metadata.timestamp_ns < right.metadata.timestamp_ns;
   return left.envelope.sequence < right.envelope.sequence;
@@ -84,7 +86,7 @@ void make_failed_result(JobResultMessage& result, const JobRequestMessage& reque
                                   .completed_work_units = 0u,
                                   .remaining_work_units =
                                       request.metadata.descriptor.total_work_units},
-                      timestamp_ns, code);
+                      timestamp_ns, code, {}, request.metadata.service_class);
   if (written != ProtocolResult::kSuccess)
     result = {};
 }
@@ -140,6 +142,8 @@ struct alignas(64) JobWorkerPool::Slot
   std::uint32_t migration_source{kNoWorker};
   bool execution_failed{};
   bool events_published{};
+  std::size_t consecutive_failures{};
+  bool quarantined{};
   std::thread thread{};
 };
 
@@ -241,6 +245,7 @@ void JobWorkerPool::run_slot(Slot& slot) noexcept
         make_failed_result(slot.result, slot.request, monotonic_ns(), JobResultCode::kFailed);
         slot.execution_failed = true;
       }
+      slot.result.metadata.service_class = slot.request.metadata.service_class;
     }
 
     if (slot.stop_requested.load(std::memory_order_acquire))
@@ -255,13 +260,18 @@ void JobWorkerPool::run_slot(Slot& slot) noexcept
 std::expected<JobWorkerPool, std::string> JobWorkerPool::create(
     std::span<JobAdapterRegistry> lane_registries, std::size_t queue_capacity,
     JobCostPolicy cost_policy, std::size_t max_sessions, std::size_t work_quantum,
-    WorkerPlacement placement, JobEventBuffer* events,
-    std::size_t migration_capacity_bytes) noexcept
+    WorkerPlacement placement, JobEventBuffer* events, std::size_t migration_capacity_bytes,
+    JobQosPolicy qos_policy, WorkerSupervisionPolicy supervision_policy) noexcept
 {
   if (lane_registries.empty() || lane_registries.size() > 8uz)
     return std::unexpected("Generic Relay worker count must be in the range 1..8");
   if (queue_capacity == 0uz || max_sessions == 0uz || work_quantum == 0uz)
     return std::unexpected("Generic Relay queue, session, and work limits must be non-zero");
+  if (qos_policy.interactive_reserve_slots >= queue_capacity ||
+      qos_policy.critical_reserve_slots >= queue_capacity ||
+      qos_policy.interactive_reserve_slots >
+          queue_capacity - 1uz - qos_policy.critical_reserve_slots)
+    return std::unexpected("Generic Relay QoS reserves must leave one best-effort queue slot");
   for (const JobAdapterRegistry& registry : lane_registries)
     if (!registry.frozen() || registry.size() == 0uz)
       return std::unexpected("Every generic Relay worker lane requires a frozen adapter registry");
@@ -269,6 +279,8 @@ std::expected<JobWorkerPool, std::string> JobWorkerPool::create(
   try {
     JobWorkerPool pool{};
     pool.cost_policy_ = cost_policy;
+    pool.qos_policy_ = qos_policy;
+    pool.supervision_policy_ = supervision_policy;
     pool.work_quantum_ = work_quantum;
     pool.events_ = events;
     pool.migration_capacity_bytes_ = migration_capacity_bytes;
@@ -307,11 +319,13 @@ JobWorkerPool::JobWorkerPool(JobWorkerPool&& other) noexcept
       queue_order_{std::move(other.queue_order_)},
       free_queue_slots_{std::move(other.free_queue_slots_)},
       admission_jobs_{std::move(other.admission_jobs_)}, sessions_{std::move(other.sessions_)},
-      cost_policy_{other.cost_policy_}, work_quantum_{other.work_quantum_},
+      cost_policy_{other.cost_policy_}, qos_policy_{other.qos_policy_},
+      supervision_policy_{other.supervision_policy_}, work_quantum_{other.work_quantum_},
       ready_index_{other.ready_index_}, events_{other.events_},
       dispatch_cursor_{other.dispatch_cursor_}, ready_cursor_{other.ready_cursor_},
       migration_capacity_bytes_{other.migration_capacity_bytes_},
-      failure_count_{other.failure_count_.load(std::memory_order_relaxed)}
+      failure_count_{other.failure_count_.load(std::memory_order_relaxed)},
+      quarantine_count_{other.quarantine_count_}, qos_rejection_count_{other.qos_rejection_count_}
 {
   other.ready_index_.reset();
 }
@@ -370,6 +384,34 @@ bool JobWorkerPool::worker_drained(std::size_t index) const noexcept
          slots_[index]->state.load(std::memory_order_acquire) == LaneState::kDrained;
 }
 
+bool JobWorkerPool::worker_quarantined(std::size_t index) const noexcept
+{
+  return index < slots_.size() && slots_[index]->quarantined;
+}
+
+std::size_t JobWorkerPool::worker_consecutive_failures(std::size_t index) const noexcept
+{
+  return index < slots_.size() ? slots_[index]->consecutive_failures : 0uz;
+}
+
+bool JobWorkerPool::can_remove_worker(std::size_t index) const noexcept
+{
+  const Slot& selected = *slots_[index];
+  for (const std::size_t queue_slot : queue_order_) {
+    const JobRequestMessage& queued = queue_storage_[queue_slot];
+    if (!registration_accepts(*selected.registry, queued))
+      continue;
+    const bool has_target = std::ranges::any_of(slots_, [&](const auto& candidate) {
+      return candidate->index != index && !candidate->quarantined &&
+             !candidate->drain_requested.load(std::memory_order_acquire) &&
+             registration_accepts(*candidate->registry, queued);
+    });
+    if (!has_target)
+      return false;
+  }
+  return true;
+}
+
 WorkerDrainResult JobWorkerPool::request_worker_drain(std::size_t index) noexcept
 {
   if (index >= slots_.size())
@@ -377,18 +419,8 @@ WorkerDrainResult JobWorkerPool::request_worker_drain(std::size_t index) noexcep
   Slot& slot = *slots_[index];
   if (slot.drain_requested.load(std::memory_order_acquire))
     return WorkerDrainResult::kAlreadyDraining;
-  for (const std::size_t queue_slot : queue_order_) {
-    const JobRequestMessage& queued = queue_storage_[queue_slot];
-    if (!registration_accepts(*slot.registry, queued))
-      continue;
-    const bool has_target = std::ranges::any_of(slots_, [&](const auto& candidate) {
-      return candidate->index != index &&
-             !candidate->drain_requested.load(std::memory_order_acquire) &&
-             registration_accepts(*candidate->registry, queued);
-    });
-    if (!has_target)
-      return WorkerDrainResult::kWouldStrandWork;
-  }
+  if (!can_remove_worker(index))
+    return WorkerDrainResult::kWouldStrandWork;
   slot.drain_requested.store(true, std::memory_order_release);
 
   LaneState state = slot.state.load(std::memory_order_acquire);
@@ -419,7 +451,7 @@ bool JobWorkerPool::resume_worker(std::size_t index) noexcept
   if (index >= slots_.size())
     return false;
   Slot& slot = *slots_[index];
-  if (slot.state.load(std::memory_order_acquire) != LaneState::kDrained)
+  if (slot.quarantined || slot.state.load(std::memory_order_acquire) != LaneState::kDrained)
     return false;
   slot.migrate_requested.store(false, std::memory_order_relaxed);
   slot.drain_requested.store(false, std::memory_order_release);
@@ -427,6 +459,25 @@ bool JobWorkerPool::resume_worker(std::size_t index) noexcept
   slot.state.notify_one();
   pump();
   return true;
+}
+
+WorkerRecoveryResult JobWorkerPool::recover_worker(std::size_t index) noexcept
+{
+  if (index >= slots_.size())
+    return WorkerRecoveryResult::kInvalidWorker;
+  Slot& slot = *slots_[index];
+  if (!slot.quarantined)
+    return WorkerRecoveryResult::kNotQuarantined;
+  if (slot.state.load(std::memory_order_acquire) != LaneState::kDrained)
+    return WorkerRecoveryResult::kNotDrained;
+  slot.consecutive_failures = 0uz;
+  slot.quarantined = false;
+  slot.migrate_requested.store(false, std::memory_order_relaxed);
+  slot.drain_requested.store(false, std::memory_order_release);
+  slot.state.store(LaneState::kIdle, std::memory_order_release);
+  slot.state.notify_one();
+  pump();
+  return WorkerRecoveryResult::kRecovered;
 }
 
 JobWorkerPool::SessionWatermark* JobWorkerPool::find_session(std::uint64_t session_id) noexcept
@@ -472,6 +523,12 @@ bool JobWorkerPool::has_accepting_worker(const JobRequestMessage& request) const
     return !slot->drain_requested.load(std::memory_order_acquire) &&
            registration_accepts(*slot->registry, request);
   });
+}
+
+bool JobWorkerPool::has_qos_capacity(JobServiceClass service_class) const noexcept
+{
+  const std::size_t available = queue_storage_.size() - queue_order_.size();
+  return available > qos_policy_.reserved_slots(service_class);
 }
 
 bool JobWorkerPool::admissible(const JobRequestMessage& request, std::uint64_t now_ns) noexcept
@@ -568,7 +625,8 @@ void JobWorkerPool::publish_rejection(JobResultMessage* destination,
                                                .remaining_work_units =
                                                    request.metadata.descriptor.total_work_units},
                        .timestamp_ns = now_ns == 0u ? monotonic_ns() : now_ns,
-                       .result_code = code});
+                       .result_code = code,
+                       .service_class = request.metadata.service_class});
 }
 
 void JobWorkerPool::emit(std::uint64_t sequence, const JobEventDetails& details) noexcept
@@ -578,6 +636,19 @@ void JobWorkerPool::emit(std::uint64_t sequence, const JobEventDetails& details)
   JobEventMessage event{};
   if (make_job_event(event, sequence, details) == ProtocolResult::kSuccess)
     static_cast<void>(events_->try_push(event));
+}
+
+void JobWorkerPool::record_worker_failure(Slot& slot) noexcept
+{
+  failure_count_.fetch_add(1u, std::memory_order_relaxed);
+  ++slot.consecutive_failures;
+  if (slot.quarantined || supervision_policy_.consecutive_failure_threshold == 0uz ||
+      slot.consecutive_failures < supervision_policy_.consecutive_failure_threshold ||
+      !can_remove_worker(slot.index))
+    return;
+  slot.quarantined = true;
+  ++quarantine_count_;
+  slot.drain_requested.store(true, std::memory_order_release);
 }
 
 JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uint64_t now_ns,
@@ -604,6 +675,11 @@ JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uin
     publish_rejection(rejection, request, now_ns, JobResultCode::kRejectedCapacity);
     return JobSubmitResult::kFull;
   }
+  if (!has_qos_capacity(request.metadata.service_class)) {
+    ++qos_rejection_count_;
+    publish_rejection(rejection, request, now_ns, JobResultCode::kRejectedQos);
+    return JobSubmitResult::kQosCapacity;
+  }
   if (!admissible(request, now_ns)) {
     publish_rejection(rejection, request, now_ns, JobResultCode::kRejectedDeadline);
     return JobSubmitResult::kDeadlineUnreachable;
@@ -622,7 +698,8 @@ JobSubmitResult JobWorkerPool::submit(const JobRequestMessage& request, std::uin
                                                .remaining_work_units =
                                                    request.metadata.descriptor.total_work_units},
                        .timestamp_ns = now_ns == 0u ? monotonic_ns() : now_ns,
-                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size())});
+                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size()),
+                       .service_class = request.metadata.service_class});
   SessionWatermark* watermark = find_session(request.metadata.descriptor.session_id);
   if (watermark == nullptr) {
     watermark = &*std::ranges::find_if(sessions_, [](const SessionWatermark& entry) {
@@ -679,7 +756,8 @@ void JobWorkerPool::cancel_before(std::uint64_t session_id, std::uint64_t genera
                                            .remaining_work_units = remaining},
                            .timestamp_ns = now_ns,
                            .related_generation = watermark->generation,
-                           .worker_index = static_cast<std::uint32_t>(index)});
+                           .worker_index = static_cast<std::uint32_t>(index),
+                           .service_class = slot.request.metadata.service_class});
     } else if (state == LaneState::kReady) {
       static_cast<void>(make_rejected_job_result(slot.result, slot.request, now_ns,
                                                  JobResultCode::kRejectedStale));
@@ -758,7 +836,8 @@ bool JobWorkerPool::dispatch_one(Slot& slot) noexcept
                                            slot.request.metadata.descriptor.total_work_units},
                        .timestamp_ns = dispatched_ns,
                        .worker_index = static_cast<std::uint32_t>(slot.index),
-                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size())});
+                       .queue_depth = static_cast<std::uint32_t>(queue_order_.size()),
+                       .service_class = slot.request.metadata.service_class});
 
   if (stale(slot.request)) {
     static_cast<void>(make_rejected_job_result(slot.result, slot.request, dispatched_ns,
@@ -885,12 +964,11 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
     Slot& slot = *slots_[index];
     if (slot.state.load(std::memory_order_acquire) != LaneState::kReady)
       continue;
-    if (slot.execution_failed) {
-      failure_count_.fetch_add(1u, std::memory_order_relaxed);
-      slot.execution_failed = false;
-    }
-    if (validate(slot.result) != ProtocolResult::kSuccess) {
-      failure_count_.fetch_add(1u, std::memory_order_relaxed);
+    const bool execution_failed = std::exchange(slot.execution_failed, false);
+    const bool valid_result = validate(slot.result) == ProtocolResult::kSuccess;
+    if (execution_failed || !valid_result)
+      record_worker_failure(slot);
+    if (!valid_result) {
       slot.migration_source = kNoWorker;
       slot.resume_completed_work_units = 0u;
       const bool draining = slot.drain_requested.load(std::memory_order_acquire);
@@ -905,6 +983,8 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
       pump();
       continue;
     }
+    if (job_result_code(slot.result) == JobResultCode::kComplete)
+      slot.consecutive_failures = 0uz;
     if (!slot.events_published) {
       const std::uint64_t started_ns = slot.started_ns.load(std::memory_order_relaxed);
       const std::uint64_t finished_ns = slot.finished_ns.load(std::memory_order_relaxed);
@@ -923,7 +1003,8 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
                                              .remaining_work_units =
                                                  slot.request.metadata.descriptor.total_work_units},
                              .timestamp_ns = started_ns,
-                             .worker_index = started_worker});
+                             .worker_index = started_worker,
+                             .service_class = slot.request.metadata.service_class});
         if (slot.migration_source != kNoWorker) {
           const JobProgress migration_progress{
               .state = JobState::kRunning,
@@ -937,7 +1018,8 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
                                .progress = migration_progress,
                                .timestamp_ns = slot.migration_started_ns,
                                .worker_index = slot.migration_source,
-                               .peer_worker_index = static_cast<std::uint32_t>(index)});
+                               .peer_worker_index = static_cast<std::uint32_t>(index),
+                               .service_class = slot.request.metadata.service_class});
           if (slot.migration_completed_ns != 0u) {
             emit(slot.request.envelope.sequence,
                  JobEventDetails{.event = JobEventKind::kMigrationCompleted,
@@ -945,7 +1027,8 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
                                  .progress = migration_progress,
                                  .timestamp_ns = slot.migration_completed_ns,
                                  .worker_index = static_cast<std::uint32_t>(index),
-                                 .peer_worker_index = slot.migration_source});
+                                 .peer_worker_index = slot.migration_source,
+                                 .service_class = slot.request.metadata.service_class});
           }
         }
       }
@@ -967,7 +1050,8 @@ const JobResultMessage* JobWorkerPool::ready_result() noexcept
                                                                  finished_ns),
                                         .cancellation_ns = elapsed(preempted_ns, finished_ns)},
                .worker_index = static_cast<std::uint32_t>(index),
-               .result_code = code});
+               .result_code = code,
+               .service_class = slot.request.metadata.service_class});
       slot.events_published = true;
     }
     ready_index_ = index;

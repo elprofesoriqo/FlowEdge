@@ -9,7 +9,7 @@
 
 namespace fe::relay {
 
-inline constexpr std::uint32_t kJobControlProtocolVersion = 1u;
+inline constexpr std::uint32_t kJobControlProtocolVersion = 2u;
 inline constexpr std::uint32_t kAllJobWorkers = std::numeric_limits<std::uint32_t>::max();
 inline constexpr std::uint32_t kMaxJobControlWorkers = 8u;
 
@@ -19,6 +19,7 @@ enum class JobControlOperation : std::uint32_t
   kDrainWorker = 2u,
   kResumeWorker = 3u,
   kShutdown = 4u,
+  kRecoverWorker = 5u,
 };
 
 enum class JobControlCode : std::uint32_t
@@ -29,6 +30,8 @@ enum class JobControlCode : std::uint32_t
   kAlreadyDraining = 3u,
   kWouldStrandWork = 4u,
   kWorkerNotDrained = 5u,
+  kWorkerQuarantined = 6u,
+  kWorkerNotQuarantined = 7u,
 };
 
 struct JobControlRequestMetadata
@@ -49,8 +52,10 @@ struct JobControlStatus
   std::uint32_t draining_mask{};
   std::uint32_t drained_mask{};
   std::uint32_t bound_mask{};
-  std::uint32_t reserved{};
+  std::uint32_t quarantined_mask{};
   std::uint64_t worker_failures{};
+  std::uint64_t worker_quarantines{};
+  std::uint64_t qos_rejections{};
   std::uint64_t requests_received{};
   std::uint64_t requests_accepted{};
   std::uint64_t requests_rejected{};
@@ -84,18 +89,20 @@ struct JobControlResponse
 
 [[nodiscard]] constexpr bool valid_job_control_operation(JobControlOperation operation) noexcept
 {
-  return operation >= JobControlOperation::kStatus && operation <= JobControlOperation::kShutdown;
+  return operation >= JobControlOperation::kStatus &&
+         operation <= JobControlOperation::kRecoverWorker;
 }
 
 [[nodiscard]] constexpr bool valid_job_control_code(JobControlCode code) noexcept
 {
-  return code >= JobControlCode::kSuccess && code <= JobControlCode::kWorkerNotDrained;
+  return code >= JobControlCode::kSuccess && code <= JobControlCode::kWorkerNotQuarantined;
 }
 
 [[nodiscard]] constexpr bool requires_worker(JobControlOperation operation) noexcept
 {
   return operation == JobControlOperation::kDrainWorker ||
-         operation == JobControlOperation::kResumeWorker;
+         operation == JobControlOperation::kResumeWorker ||
+         operation == JobControlOperation::kRecoverWorker;
 }
 
 [[nodiscard]] constexpr bool valid_worker_target(JobControlOperation operation,
@@ -125,7 +132,6 @@ struct JobControlResponse
       response.metadata.protocol_version != kJobControlProtocolVersion ||
       !valid_job_control_operation(response.metadata.operation) ||
       !valid_job_control_code(response.metadata.code) || response.metadata.reserved != 0u ||
-      response.metadata.status.reserved != 0u ||
       !valid_worker_target(response.metadata.operation, response.metadata.worker_index))
     return ProtocolResult::kInvalidMetadata;
   const JobControlStatus& status = response.metadata.status;
@@ -134,8 +140,10 @@ struct JobControlResponse
     return ProtocolResult::kInvalidMetadata;
   const std::uint32_t valid_mask =
       status.worker_count == 0u ? 0u : (std::uint32_t{1u} << status.worker_count) - 1u;
-  if (((status.draining_mask | status.drained_mask | status.bound_mask) & ~valid_mask) != 0u ||
-      (status.drained_mask & ~status.draining_mask) != 0u)
+  if (((status.draining_mask | status.drained_mask | status.bound_mask | status.quarantined_mask) &
+       ~valid_mask) != 0u ||
+      (status.drained_mask & ~status.draining_mask) != 0u ||
+      (status.quarantined_mask & ~status.draining_mask) != 0u)
     return ProtocolResult::kInvalidMetadata;
   return ProtocolResult::kSuccess;
 }
@@ -164,6 +172,8 @@ struct JobControlResponse
     return "resume";
   case JobControlOperation::kShutdown:
     return "shutdown";
+  case JobControlOperation::kRecoverWorker:
+    return "recover";
   }
   return "unknown";
 }
@@ -183,6 +193,10 @@ struct JobControlResponse
     return "would_strand_work";
   case JobControlCode::kWorkerNotDrained:
     return "worker_not_drained";
+  case JobControlCode::kWorkerQuarantined:
+    return "worker_quarantined";
+  case JobControlCode::kWorkerNotQuarantined:
+    return "worker_not_quarantined";
   }
   return "unknown";
 }

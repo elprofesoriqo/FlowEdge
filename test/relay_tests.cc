@@ -249,6 +249,23 @@ struct TestRoutedBackend
 
 static_assert(RoutedBackend<TestRoutedBackend>);
 
+struct FailingRoutedBackend
+{
+  [[nodiscard]] bool prepare(std::span<const std::byte>) noexcept { return true; }
+  [[nodiscard]] bool begin() noexcept { return false; }
+  [[nodiscard]] BackendAdvance advance(std::size_t) noexcept
+  {
+    return {.step = BackendStep::kFailed, .completed_work_units = 0uz};
+  }
+  void cancel() noexcept {}
+  [[nodiscard]] std::size_t state_bytes() const noexcept { return 1uz; }
+  [[nodiscard]] bool save_state(std::span<std::byte>) const noexcept { return false; }
+  [[nodiscard]] bool load_state(std::span<const std::byte>) noexcept { return false; }
+  [[nodiscard]] std::span<const std::byte> result() const noexcept { return {}; }
+};
+
+static_assert(RoutedBackend<FailingRoutedBackend>);
+
 struct DrainBackend
 {
   [[nodiscard]] bool prepare(std::span<const std::byte> request) noexcept
@@ -580,7 +597,8 @@ TEST(GenericJobRouting, ValidatesMessagesAndRoutesThroughFrozenRegistry)
   StateWriter input_writer{input};
   ASSERT_TRUE(input_writer.write(std::uint64_t{5u}));
   auto request_message = std::make_unique<JobRequestMessage>();
-  ASSERT_EQ(make_job_request(*request_message, 91u, descriptor, 100u, input),
+  ASSERT_EQ(make_job_request(*request_message, 91u, descriptor, 100u, input,
+                             JobServiceClass::kInteractive),
             ProtocolResult::kSuccess);
   EXPECT_EQ(validate(*request_message), ProtocolResult::kSuccess);
   EXPECT_EQ(request_message->envelope.kind, MessageKind::kJobRequest);
@@ -618,6 +636,7 @@ TEST(GenericJobRouting, ValidatesMessagesAndRoutesThroughFrozenRegistry)
   EXPECT_EQ(routed.write_result(*result_message, 200u), ProtocolResult::kSuccess);
   EXPECT_EQ(validate(*result_message), ProtocolResult::kSuccess);
   EXPECT_EQ(job_result_code(*result_message), JobResultCode::kProgress);
+  EXPECT_EQ(result_message->metadata.service_class, JobServiceClass::kInteractive);
   EXPECT_EQ(result_message->metadata.progress.completed_work_units, 2u);
 
   ASSERT_TRUE(routed.advance(2uz));
@@ -828,6 +847,166 @@ TEST(JobWorkerPool, EmitsAdmissionBeforeDispatchForFreshGeneration)
   ASSERT_NE(completed, nullptr);
   pool.release_ready_result();
   EXPECT_TRUE(pool.release_session(descriptor.session_id));
+}
+
+TEST(JobWorkerPool, ReservesCapacityAndOrdersEqualDeadlinesByServiceClass)
+{
+  JobDescriptor descriptor = test_job_descriptor(30u);
+  descriptor.kind = JobKind::kStreaming;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = DrainBackend::kTotalSteps;
+  std::atomic_bool boundary_reached{false};
+  std::atomic_bool release_boundary{false};
+  DrainBackend backend{.boundary_reached = &boundary_reached,
+                       .release_boundary = &release_boundary,
+                       .gate_first_boundary = true};
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(backend, job_route(descriptor),
+                                                    sizeof(std::uint64_t), sizeof(std::uint64_t))));
+  registries[0].freeze();
+  auto created =
+      JobWorkerPool::create(registries, 3uz, {}, 8uz, 1uz, WorkerPlacement::kNone, nullptr, 0uz,
+                            JobQosPolicy{.interactive_reserve_slots = 1uz,
+                                         .critical_reserve_slots = 1uz});
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+
+  std::array<std::byte, sizeof(std::uint64_t)> input{};
+  StateWriter writer{input};
+  ASSERT_TRUE(writer.write(std::uint64_t{3u}));
+  const auto make_request = [&](std::uint64_t sequence, std::uint64_t session,
+                                JobServiceClass service_class) {
+    auto message = std::make_unique<JobRequestMessage>();
+    JobDescriptor request_descriptor = descriptor;
+    request_descriptor.session_id = session;
+    EXPECT_EQ(make_job_request(*message, sequence, request_descriptor, 0u, input, service_class),
+              ProtocolResult::kSuccess);
+    return message;
+  };
+
+  auto blocker = make_request(500u, 50u, JobServiceClass::kBestEffort);
+  ASSERT_EQ(pool.submit(*blocker), JobSubmitResult::kAccepted);
+  const auto boundary_timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+  while (!boundary_reached.load(std::memory_order_acquire) &&
+         std::chrono::steady_clock::now() < boundary_timeout)
+    std::this_thread::yield();
+  ASSERT_TRUE(boundary_reached.load(std::memory_order_acquire));
+
+  auto best_effort = make_request(501u, 51u, JobServiceClass::kBestEffort);
+  auto displaced = make_request(502u, 52u, JobServiceClass::kBestEffort);
+  auto interactive = make_request(503u, 53u, JobServiceClass::kInteractive);
+  auto critical = make_request(504u, 54u, JobServiceClass::kCritical);
+  JobResultMessage rejection{};
+  EXPECT_EQ(pool.submit(*best_effort), JobSubmitResult::kAccepted);
+  EXPECT_EQ(pool.submit(*displaced, 0u, &rejection), JobSubmitResult::kQosCapacity);
+  EXPECT_EQ(job_result_code(rejection), JobResultCode::kRejectedQos);
+  EXPECT_EQ(rejection.metadata.service_class, JobServiceClass::kBestEffort);
+  EXPECT_EQ(pool.submit(*interactive), JobSubmitResult::kAccepted);
+  EXPECT_EQ(pool.submit(*critical), JobSubmitResult::kAccepted);
+  EXPECT_EQ(pool.qos_rejection_count(), 1u);
+
+  release_boundary.store(true, std::memory_order_release);
+  release_boundary.notify_one();
+  constexpr std::array expected_order{500u, 504u, 503u, 501u};
+  for (const std::uint64_t sequence : expected_order) {
+    const JobResultMessage* result{};
+    const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (result == nullptr && std::chrono::steady_clock::now() < timeout) {
+      result = pool.ready_result();
+      if (result == nullptr)
+        std::this_thread::yield();
+    }
+    ASSERT_NE(result, nullptr);
+    EXPECT_EQ(result->envelope.sequence, sequence);
+    EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+    pool.release_ready_result();
+  }
+}
+
+TEST(JobWorkerPool, QuarantinesRepeatedlyFailingLaneUntilExplicitRecovery)
+{
+  JobDescriptor descriptor = test_job_descriptor(40u);
+  descriptor.kind = JobKind::kIterative;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = 1u;
+  FailingRoutedBackend backend{};
+  std::array<JobAdapterRegistration, 1> entries{};
+  std::array<JobAdapterRegistry, 1> registries{JobAdapterRegistry{entries}};
+  ASSERT_TRUE(registries[0].add(make_routed_adapter(backend, job_route(descriptor), 0uz, 0uz)));
+  registries[0].freeze();
+  auto created =
+      JobWorkerPool::create(registries, 2uz, {}, 4uz, 1uz, WorkerPlacement::kNone, nullptr, 0uz, {},
+                            WorkerSupervisionPolicy{.consecutive_failure_threshold = 2uz});
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+
+  const auto fail_once = [&](std::uint64_t sequence, std::uint64_t session) {
+    JobDescriptor request_descriptor = descriptor;
+    request_descriptor.session_id = session;
+    JobRequestMessage request_message{};
+    EXPECT_EQ(make_job_request(request_message, sequence, request_descriptor, 0u, {},
+                               JobServiceClass::kInteractive),
+              ProtocolResult::kSuccess);
+    EXPECT_EQ(pool.submit(request_message), JobSubmitResult::kAccepted);
+    const JobResultMessage* result{};
+    const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{2};
+    while (result == nullptr && std::chrono::steady_clock::now() < timeout) {
+      result = pool.ready_result();
+      if (result == nullptr)
+        std::this_thread::yield();
+    }
+    EXPECT_NE(result, nullptr);
+    if (result != nullptr) {
+      EXPECT_EQ(job_result_code(*result), JobResultCode::kFailed);
+      EXPECT_EQ(result->metadata.service_class, JobServiceClass::kInteractive);
+      pool.release_ready_result();
+    }
+  };
+
+  fail_once(600u, 60u);
+  EXPECT_EQ(pool.failure_count(), 1u);
+  EXPECT_EQ(pool.worker_consecutive_failures(0uz), 1uz);
+  EXPECT_FALSE(pool.worker_quarantined(0uz));
+  fail_once(601u, 61u);
+  EXPECT_EQ(pool.failure_count(), 2u);
+  EXPECT_EQ(pool.quarantine_count(), 1u);
+  EXPECT_TRUE(pool.worker_quarantined(0uz));
+  EXPECT_TRUE(pool.worker_drained(0uz));
+  EXPECT_EQ(pool.recover_worker(1uz), WorkerRecoveryResult::kInvalidWorker);
+
+  JobTransportStats transport_stats{};
+  const std::string request_name = unique_name("flowedge-supervision-control");
+  const std::string response_name = unique_name("flowedge-supervision-status");
+  auto service_result =
+      JobControlService::create(request_name, response_name, pool, transport_stats, 2u);
+  ASSERT_TRUE(service_result) << service_result.error();
+  JobControlService service = std::move(*service_result);
+  auto client_result = JobControlClient::connect(request_name, response_name);
+  ASSERT_TRUE(client_result) << client_result.error();
+  JobControlClient client = std::move(*client_result);
+  JobControlResponse response{};
+  const auto administer = [&](JobControlOperation operation) {
+    const JobControlRequest request = make_job_control_request(700u, 70u, operation, 0u);
+    EXPECT_EQ(client.try_submit(request), ClientResult::kSuccess);
+    EXPECT_EQ(service.poll(), JobControlServiceResult::kProgress);
+    EXPECT_EQ(client.try_receive(response), ClientResult::kSuccess);
+  };
+  const JobControlRequest status =
+      make_job_control_request(699u, 70u, JobControlOperation::kStatus);
+  ASSERT_EQ(client.try_submit(status), ClientResult::kSuccess);
+  ASSERT_EQ(service.poll(), JobControlServiceResult::kProgress);
+  ASSERT_EQ(client.try_receive(response), ClientResult::kSuccess);
+  EXPECT_EQ(response.metadata.status.quarantined_mask, 1u);
+  EXPECT_EQ(response.metadata.status.worker_quarantines, 1u);
+  administer(JobControlOperation::kResumeWorker);
+  EXPECT_EQ(response.metadata.code, JobControlCode::kWorkerQuarantined);
+  administer(JobControlOperation::kRecoverWorker);
+  EXPECT_EQ(response.metadata.code, JobControlCode::kSuccess);
+  EXPECT_FALSE(pool.worker_quarantined(0uz));
+  EXPECT_FALSE(pool.worker_draining(0uz));
+  EXPECT_EQ(pool.accepting_worker_count(), 1uz);
+  EXPECT_EQ(pool.recover_worker(0uz), WorkerRecoveryResult::kNotQuarantined);
 }
 
 TEST(JobWorkerPool, DrainsActiveLaneByMigratingAtWorkBoundary)
@@ -1137,7 +1316,8 @@ TEST(JobTransport, PreservesTypedResultsAcrossOutputBackpressure)
   StateWriter writer{input};
   ASSERT_TRUE(writer.write(std::uint64_t{5u}));
   auto request_message = std::make_unique<JobRequestMessage>();
-  ASSERT_EQ(make_job_request(*request_message, 500u, descriptor, 0u, input),
+  ASSERT_EQ(make_job_request(*request_message, 500u, descriptor, 0u, input,
+                             JobServiceClass::kCritical),
             ProtocolResult::kSuccess);
   EXPECT_EQ(client.try_submit(*request_message), ClientResult::kSuccess);
 
@@ -1155,6 +1335,7 @@ TEST(JobTransport, PreservesTypedResultsAcrossOutputBackpressure)
   ASSERT_EQ(received, ClientResult::kSuccess);
   EXPECT_EQ(result->envelope.sequence, 500u);
   EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  EXPECT_EQ(result->metadata.service_class, JobServiceClass::kCritical);
 
   JobDescriptor missing = descriptor;
   ++missing.state_schema;
@@ -1247,6 +1428,15 @@ TEST(JobControl, ReportsStatusAndAdministersWorkerLifecycle)
   invalid_response = response;
   invalid_response.metadata.status.drained_mask = 1u;
   EXPECT_EQ(validate(invalid_response), ProtocolResult::kInvalidMetadata);
+  invalid_response = response;
+  invalid_response.metadata.status.quarantined_mask = 1u;
+  EXPECT_EQ(validate(invalid_response), ProtocolResult::kInvalidMetadata);
+
+  request = make_job_control_request(20u, 99u, JobControlOperation::kRecoverWorker, 0u);
+  ASSERT_EQ(client.try_submit(request), ClientResult::kSuccess);
+  ASSERT_EQ(service.poll(), JobControlServiceResult::kProgress);
+  ASSERT_EQ(client.try_receive(response), ClientResult::kSuccess);
+  EXPECT_EQ(response.metadata.code, JobControlCode::kWorkerNotQuarantined);
 
   request = make_job_control_request(2u, 99u, JobControlOperation::kResumeWorker, 0u);
   ASSERT_EQ(client.try_submit(request), ClientResult::kSuccess);
@@ -1317,7 +1507,7 @@ TEST(JobEvents, BuffersValidatedLifecycleRecordsWithoutGrowth)
   created->pop();
   EXPECT_TRUE(created->empty());
 
-  admitted.metadata.reserved = 1u;
+  admitted.metadata.service_class = static_cast<JobServiceClass>(99u);
   EXPECT_EQ(created->try_push(admitted), JobEventBufferResult::kInvalid);
   EXPECT_EQ(created->dropped(), 1u);
 }
@@ -1377,16 +1567,26 @@ TEST(JobMetrics, RecordsKindsProgressPreemptionMigrationAndLatency)
                                                   .cancellation_ns = 70u},
                          .worker_index = 1u,
                          .result_code = JobResultCode::kComplete});
-  metrics.observe_workers(2uz, 1u);
+  record(JobEventDetails{.event = JobEventKind::kRejected,
+                         .descriptor = descriptor,
+                         .progress = JobProgress{.state = JobState::kFailed,
+                                                 .completed_work_units = 0u,
+                                                 .remaining_work_units = 4u},
+                         .timestamp_ns = 1'110u,
+                         .result_code = JobResultCode::kRejectedQos,
+                         .service_class = JobServiceClass::kBestEffort});
+  metrics.observe_workers(2uz, 1u, 1u);
   metrics.record_event_drops(2u);
 
-  EXPECT_EQ(metrics.counters().events, 5u);
+  EXPECT_EQ(metrics.counters().events, 6u);
   EXPECT_EQ(metrics.counters().preempted, 1u);
   EXPECT_EQ(metrics.counters().migrations_completed, 1u);
   EXPECT_EQ(metrics.counters().completed_work_units, 4u);
   EXPECT_EQ(metrics.counters().queue_high_watermark, 3u);
   EXPECT_EQ(metrics.counters().busy_workers_high_watermark, 2u);
   EXPECT_EQ(metrics.counters().events_dropped, 2u);
+  EXPECT_EQ(metrics.counters().rejected_qos, 1u);
+  EXPECT_EQ(metrics.counters().worker_quarantines, 1u);
   ASSERT_NE(metrics.counters(JobKind::kStreaming), nullptr);
   EXPECT_EQ(metrics.counters(JobKind::kStreaming)->completed, 1u);
   EXPECT_EQ(metrics.queue_latency().sum_ns(), 10u);
@@ -1399,9 +1599,11 @@ TEST(JobMetrics, RecordsKindsProgressPreemptionMigrationAndLatency)
   EXPECT_NE(prometheus.str().find(
                 "flowedge_relay_job_completed_by_kind_total{kind=\"streaming\"} 1"),
             std::string::npos);
+  EXPECT_NE(prometheus.str().find("flowedge_relay_job_rejected_qos_total 1"), std::string::npos);
   std::ostringstream json{};
   write_metrics_json(json, metrics);
   EXPECT_NE(json.str().find("\"streaming\":{\"completed\":1"), std::string::npos);
+  EXPECT_NE(json.str().find("\"worker_quarantines\":1"), std::string::npos);
   std::ostringstream otlp{};
   write_otlp_json(otlp, metrics);
   EXPECT_NE(otlp.str().find("\"job.kind\""), std::string::npos);
@@ -1821,14 +2023,16 @@ TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
   StateWriter payload_writer{job_payload};
   ASSERT_TRUE(payload_writer.write(std::uint64_t{42u}));
   auto job_request = std::make_unique<JobRequestMessage>();
-  ASSERT_EQ(make_job_request(*job_request, 80u, descriptor, 1'000u, job_payload),
+  ASSERT_EQ(make_job_request(*job_request, 80u, descriptor, 1'000u, job_payload,
+                             JobServiceClass::kCritical),
             ProtocolResult::kSuccess);
   auto job_result = std::make_unique<JobResultMessage>();
   ASSERT_EQ(make_job_result(*job_result, 80u, descriptor,
                             JobProgress{.state = JobState::kComplete,
                                         .completed_work_units = 2u,
                                         .remaining_work_units = 0u},
-                            1'100u, JobResultCode::kComplete, job_payload),
+                            1'100u, JobResultCode::kComplete, job_payload,
+                            JobServiceClass::kCritical),
             ProtocolResult::kSuccess);
   JobEventMessage job_event{};
   ASSERT_EQ(make_job_event(job_event, 80u,
@@ -1842,7 +2046,8 @@ TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
                                                                     .execution_ns = 80u,
                                                                     .end_to_end_ns = 100u},
                                            .worker_index = 1u,
-                                           .result_code = JobResultCode::kComplete}),
+                                           .result_code = JobResultCode::kComplete,
+                                           .service_class = JobServiceClass::kCritical}),
             ProtocolResult::kSuccess);
 
   {

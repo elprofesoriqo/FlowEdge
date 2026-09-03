@@ -155,6 +155,9 @@ void record_job_counters(JobMetricCounters& counters, const JobEventMessage& eve
     case JobResultCode::kInvalidRequest:
       ++counters.invalid_request;
       break;
+    case JobResultCode::kRejectedQos:
+      ++counters.rejected_qos;
+      break;
     default:
       break;
     }
@@ -275,11 +278,13 @@ void JobMetrics::record(const JobEventMessage& event) noexcept
   }
 }
 
-void JobMetrics::observe_workers(std::size_t busy, std::uint64_t failures) noexcept
+void JobMetrics::observe_workers(std::size_t busy, std::uint64_t failures,
+                                 std::uint64_t quarantines) noexcept
 {
   total_.busy_workers_high_watermark =
       std::max(total_.busy_workers_high_watermark, static_cast<std::uint64_t>(busy));
   total_.worker_failures = failures;
+  total_.worker_quarantines = quarantines;
 }
 
 const JobMetricCounters* JobMetrics::counters(JobKind kind) const noexcept
@@ -396,6 +401,7 @@ void write_prometheus(std::ostream& output, const JobMetrics& metrics, std::stri
       std::pair{"rejected_capacity_total", c.rejected_capacity},
       std::pair{"adapter_not_found_total", c.adapter_not_found},
       std::pair{"invalid_request_total", c.invalid_request},
+      std::pair{"rejected_qos_total", c.rejected_qos},
       std::pair{"preempted_total", c.preempted},
       std::pair{"migrations_started_total", c.migrations_started},
       std::pair{"migrations_completed_total", c.migrations_completed},
@@ -403,6 +409,7 @@ void write_prometheus(std::ostream& output, const JobMetrics& metrics, std::stri
       std::pair{"queue_high_watermark", c.queue_high_watermark},
       std::pair{"busy_workers_high_watermark", c.busy_workers_high_watermark},
       std::pair{"worker_failures_total", c.worker_failures},
+      std::pair{"worker_quarantines_total", c.worker_quarantines},
       std::pair{"events_dropped_total", c.events_dropped},
   };
   for (const auto& [name, value] : totals)
@@ -433,9 +440,12 @@ void write_metrics_json(std::ostream& output, const JobMetrics& metrics)
          << ",\"dispatched\":" << c.dispatched << ",\"started\":" << c.started
          << ",\"completed\":" << c.completed << ",\"cancelled\":" << c.cancelled
          << ",\"failed\":" << c.failed << ",\"rejected\":" << c.rejected
-         << ",\"preempted\":" << c.preempted << ",\"migrations_started\":" << c.migrations_started
+         << ",\"rejected_qos\":" << c.rejected_qos << ",\"preempted\":" << c.preempted
+         << ",\"migrations_started\":" << c.migrations_started
          << ",\"migrations_completed\":" << c.migrations_completed
          << ",\"completed_work_units\":" << c.completed_work_units
+         << ",\"worker_failures\":" << c.worker_failures
+         << ",\"worker_quarantines\":" << c.worker_quarantines
          << ",\"events_dropped\":" << c.events_dropped << ",\"kinds\":{";
   for (std::size_t index{}; index < 3uz; ++index) {
     const JobMetricCounters* const kind = metrics.counters(static_cast<JobKind>(index + 1uz));
@@ -469,9 +479,12 @@ void write_otlp_json(std::ostream& output, const JobMetrics& metrics, std::strin
   write_otlp_sum(output, "job.cancelled_total", c.cancelled, first);
   write_otlp_sum(output, "job.failed_total", c.failed, first);
   write_otlp_sum(output, "job.rejected_total", c.rejected, first);
+  write_otlp_sum(output, "job.rejected_qos_total", c.rejected_qos, first);
   write_otlp_sum(output, "job.preempted_total", c.preempted, first);
   write_otlp_sum(output, "job.migrations_completed_total", c.migrations_completed, first);
   write_otlp_sum(output, "job.completed_work_units_total", c.completed_work_units, first);
+  write_otlp_sum(output, "job.worker_failures_total", c.worker_failures, first);
+  write_otlp_sum(output, "job.worker_quarantines_total", c.worker_quarantines, first);
   for (std::size_t index{}; index < 3uz; ++index) {
     const JobMetricCounters* const kind = metrics.counters(static_cast<JobKind>(index + 1uz));
     write_otlp_job_kind_sum(output, "completed_by_kind_total", job_kind_name(index),

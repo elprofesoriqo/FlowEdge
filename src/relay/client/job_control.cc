@@ -31,6 +31,7 @@ enum class Command : std::uint8_t
   kStatus,
   kDrain,
   kResume,
+  kRecover,
   kShutdown,
 };
 
@@ -49,6 +50,7 @@ struct Options
   std::uint64_t deadline_ms{1'000u};
   std::uint64_t timeout_ms{5'000u};
   std::uint32_t worker_index{kAllJobWorkers};
+  JobServiceClass service_class{JobServiceClass::kBestEffort};
   bool help{};
 };
 
@@ -79,6 +81,18 @@ template<typename Integer>
   return tokens;
 }
 
+[[nodiscard]] std::expected<JobServiceClass, std::string_view> parse_service_class(
+    std::string_view value) noexcept
+{
+  if (value == "best-effort")
+    return JobServiceClass::kBestEffort;
+  if (value == "interactive")
+    return JobServiceClass::kInteractive;
+  if (value == "critical")
+    return JobServiceClass::kCritical;
+  return std::unexpected("expected best-effort, interactive, or critical");
+}
+
 void usage(std::ostream& output)
 {
   output << "Usage:\n"
@@ -86,6 +100,7 @@ void usage(std::ostream& output)
             "  flowedge-jobctl status [options]\n"
             "  flowedge-jobctl drain --worker N [options]\n"
             "  flowedge-jobctl resume --worker N [options]\n"
+            "  flowedge-jobctl recover --worker N [options]\n"
             "  flowedge-jobctl shutdown [options]\n"
             "Options:\n"
             "  --request-shm NAME   job request ring\n"
@@ -93,6 +108,7 @@ void usage(std::ostream& output)
             "  --control-shm NAME   administration request ring\n"
             "  --status-shm NAME    administration response ring\n"
             "  --tokens CSV         streaming token IDs (default 1,2,3,4)\n"
+            "  --class CLASS        best-effort, interactive, or critical\n"
             "  --sequence N         request sequence\n"
             "  --session N          session identifier\n"
             "  --generation N       freshness generation\n"
@@ -119,6 +135,8 @@ void usage(std::ostream& output)
     options.command = Command::kDrain;
   else if (command == "resume")
     options.command = Command::kResume;
+  else if (command == "recover")
+    options.command = Command::kRecover;
   else if (command == "shutdown")
     options.command = Command::kShutdown;
   else
@@ -148,6 +166,11 @@ void usage(std::ostream& output)
       if (!tokens)
         return std::unexpected(tokens.error());
       options.tokens = std::move(*tokens);
+    } else if (argument == "--class") {
+      auto service_class = parse_service_class(value);
+      if (!service_class)
+        return std::unexpected("Invalid --class value; " + std::string{service_class.error()});
+      options.service_class = *service_class;
     } else if (argument == "--sequence") {
       if (!parse_integer(value, options.sequence))
         return std::unexpected("Invalid --sequence value");
@@ -172,7 +195,8 @@ void usage(std::ostream& output)
   }
   if (options.command == Command::kMamba && options.model.empty())
     return std::unexpected("mamba requires --model");
-  if ((options.command == Command::kDrain || options.command == Command::kResume) &&
+  if ((options.command == Command::kDrain || options.command == Command::kResume ||
+       options.command == Command::kRecover) &&
       options.worker_index == kAllJobWorkers)
     return std::unexpected("drain and resume require --worker");
   if (options.request_shm.empty() || options.result_shm.empty() || options.control_shm.empty() ||
@@ -234,7 +258,8 @@ template<typename Client, typename Connect>
                                                             options.tokens.size(), deadline);
   auto request = std::make_unique<JobRequestMessage>();
   if (make_job_request(*request, options.sequence, descriptor, now,
-                       std::span{payload}.first(*encoded)) != ProtocolResult::kSuccess)
+                       std::span{payload}.first(*encoded),
+                       options.service_class) != ProtocolResult::kSuccess)
     return 1;
 
   const auto timeout =
@@ -268,6 +293,7 @@ template<typename Client, typename Connect>
     std::memcpy(&hidden0, result->payload_values().data(), sizeof(hidden0));
   std::cout << "sequence=" << result->envelope.sequence
             << " outcome=" << to_string(job_result_code(*result))
+            << " class=" << to_string(result->metadata.service_class)
             << " completed=" << result->metadata.progress.completed_work_units
             << " result_bytes=" << result->metadata.payload_bytes << " hidden0=" << hidden0 << '\n';
   return job_result_code(*result) == JobResultCode::kComplete ? 0 : 1;
@@ -282,6 +308,8 @@ template<typename Client, typename Connect>
     return JobControlOperation::kDrainWorker;
   case Command::kResume:
     return JobControlOperation::kResumeWorker;
+  case Command::kRecover:
+    return JobControlOperation::kRecoverWorker;
   case Command::kShutdown:
     return JobControlOperation::kShutdown;
   case Command::kNone:
@@ -334,9 +362,13 @@ template<typename Client, typename Connect>
             << " code=" << to_string(response.metadata.code) << " workers=" << status.worker_count
             << " accepting=" << status.accepting_workers << " busy=" << status.busy_workers
             << " queued=" << status.queued_jobs << " draining_mask=" << status.draining_mask
-            << " drained_mask=" << status.drained_mask << " accepted=" << status.requests_accepted
-            << " rejected=" << status.requests_rejected << " published=" << status.results_published
-            << " worker_failures=" << status.worker_failures << '\n';
+            << " drained_mask=" << status.drained_mask
+            << " quarantined_mask=" << status.quarantined_mask
+            << " accepted=" << status.requests_accepted << " rejected=" << status.requests_rejected
+            << " published=" << status.results_published
+            << " qos_rejections=" << status.qos_rejections
+            << " worker_failures=" << status.worker_failures
+            << " worker_quarantines=" << status.worker_quarantines << '\n';
   return response.metadata.code == JobControlCode::kSuccess ? 0 : 1;
 }
 

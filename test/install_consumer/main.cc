@@ -94,7 +94,8 @@ int main()
     return 1;
   registry.freeze();
   fe::relay::JobRequestMessage request{};
-  if (fe::relay::make_job_request(request, 1u, descriptor, 0u, {}) !=
+  if (fe::relay::make_job_request(request, 1u, descriptor, 0u, {},
+                                  fe::relay::JobServiceClass::kCritical) !=
       fe::relay::ProtocolResult::kSuccess)
     return 1;
   auto routed = registry.bind(request);
@@ -152,7 +153,8 @@ int main()
   }
   const bool pooled_complete =
       received == fe::relay::ClientResult::kSuccess &&
-      fe::relay::job_result_code(pooled) == fe::relay::JobResultCode::kComplete;
+      fe::relay::job_result_code(pooled) == fe::relay::JobResultCode::kComplete &&
+      pooled.metadata.service_class == fe::relay::JobServiceClass::kCritical;
   fe::relay::JobMetrics metrics{};
   while (const fe::relay::JobEventMessage* event = events->front()) {
     metrics.record(*event);

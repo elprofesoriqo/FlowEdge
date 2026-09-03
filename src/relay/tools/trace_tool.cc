@@ -256,6 +256,8 @@ template<typename Message>
         std::cout << "{\"kind\":\"job_request\",\"sequence\":" << job_request.envelope.sequence
                   << ",\"session\":" << job_request.envelope.session_id << ",\"job_kind\":\""
                   << fe::relay::to_string(job_request.metadata.descriptor.kind)
+                  << "\",\"service_class\":\""
+                  << fe::relay::to_string(job_request.metadata.service_class)
                   << "\",\"schema\":" << job_request.metadata.descriptor.state_schema
                   << ",\"generation\":" << job_request.metadata.descriptor.generation
                   << ",\"work_units\":" << job_request.metadata.descriptor.total_work_units
@@ -264,6 +266,7 @@ template<typename Message>
         std::cout << "job_request sequence=" << job_request.envelope.sequence
                   << " session=" << job_request.envelope.session_id
                   << " kind=" << fe::relay::to_string(job_request.metadata.descriptor.kind)
+                  << " class=" << fe::relay::to_string(job_request.metadata.service_class)
                   << " schema=" << job_request.metadata.descriptor.state_schema
                   << " generation=" << job_request.metadata.descriptor.generation
                   << " work_units=" << job_request.metadata.descriptor.total_work_units << '\n';
@@ -273,7 +276,9 @@ template<typename Message>
       if (options.json_lines)
         std::cout << "{\"kind\":\"job_result\",\"sequence\":" << job_result.envelope.sequence
                   << ",\"session\":" << job_result.envelope.session_id << ",\"job_kind\":\""
-                  << fe::relay::to_string(job_result.metadata.descriptor.kind) << "\",\"state\":\""
+                  << fe::relay::to_string(job_result.metadata.descriptor.kind)
+                  << "\",\"service_class\":\""
+                  << fe::relay::to_string(job_result.metadata.service_class) << "\",\"state\":\""
                   << fe::relay::to_string(job_result.metadata.progress.state) << "\",\"outcome\":\""
                   << fe::relay::to_string(fe::relay::job_result_code(job_result))
                   << "\",\"completed_work_units\":"
@@ -282,6 +287,7 @@ template<typename Message>
         std::cout << "job_result sequence=" << job_result.envelope.sequence
                   << " session=" << job_result.envelope.session_id
                   << " kind=" << fe::relay::to_string(job_result.metadata.descriptor.kind)
+                  << " class=" << fe::relay::to_string(job_result.metadata.service_class)
                   << " state=" << fe::relay::to_string(job_result.metadata.progress.state)
                   << " outcome=" << fe::relay::to_string(fe::relay::job_result_code(job_result))
                   << " completed_work_units=" << job_result.metadata.progress.completed_work_units
@@ -294,7 +300,8 @@ template<typename Message>
         std::cout << "{\"kind\":\"job_event\",\"event\":\"" << fe::relay::to_string(metadata.event)
                   << "\",\"sequence\":" << job_event.envelope.sequence
                   << ",\"session\":" << job_event.envelope.session_id << ",\"job_kind\":\""
-                  << fe::relay::to_string(metadata.descriptor.kind)
+                  << fe::relay::to_string(metadata.descriptor.kind) << "\",\"service_class\":\""
+                  << fe::relay::to_string(metadata.service_class)
                   << "\",\"schema\":" << metadata.descriptor.state_schema
                   << ",\"generation\":" << metadata.descriptor.generation
                   << ",\"completed_work_units\":" << metadata.progress.completed_work_units
@@ -312,6 +319,7 @@ template<typename Message>
                   << " sequence=" << job_event.envelope.sequence
                   << " session=" << job_event.envelope.session_id
                   << " kind=" << fe::relay::to_string(metadata.descriptor.kind)
+                  << " class=" << fe::relay::to_string(metadata.service_class)
                   << " schema=" << metadata.descriptor.state_schema
                   << " generation=" << metadata.descriptor.generation
                   << " work=" << metadata.progress.completed_work_units << '/'

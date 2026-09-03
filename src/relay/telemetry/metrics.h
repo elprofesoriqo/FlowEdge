@@ -107,6 +107,7 @@ struct JobMetricCounters
   std::uint64_t rejected_capacity{};
   std::uint64_t adapter_not_found{};
   std::uint64_t invalid_request{};
+  std::uint64_t rejected_qos{};
   std::uint64_t preempted{};
   std::uint64_t migrations_started{};
   std::uint64_t migrations_completed{};
@@ -114,6 +115,7 @@ struct JobMetricCounters
   std::uint64_t queue_high_watermark{};
   std::uint64_t busy_workers_high_watermark{};
   std::uint64_t worker_failures{};
+  std::uint64_t worker_quarantines{};
   std::uint64_t events_dropped{};
 };
 
@@ -121,7 +123,8 @@ class JobMetrics
 {
 public:
   void record(const JobEventMessage& event) noexcept;
-  void observe_workers(std::size_t busy, std::uint64_t failures) noexcept;
+  void observe_workers(std::size_t busy, std::uint64_t failures,
+                       std::uint64_t quarantines = 0u) noexcept;
   void record_event_drops(std::uint64_t dropped) noexcept { total_.events_dropped = dropped; }
 
   [[nodiscard]] const JobMetricCounters& counters() const noexcept { return total_; }

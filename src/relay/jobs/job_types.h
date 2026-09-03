@@ -26,6 +26,13 @@ enum class JobState : std::uint16_t
   kFailed = 4u,
 };
 
+enum class JobServiceClass : std::uint32_t
+{
+  kBestEffort = 0u,
+  kInteractive = 1u,
+  kCritical = 2u,
+};
+
 struct JobDescriptor
 {
   std::uint32_t protocol_version{kCooperativeJobVersion};
@@ -74,6 +81,12 @@ struct JobError
   return state >= JobState::kReady && state <= JobState::kFailed;
 }
 
+[[nodiscard]] constexpr bool valid_job_service_class(JobServiceClass service_class) noexcept
+{
+  return service_class >= JobServiceClass::kBestEffort &&
+         service_class <= JobServiceClass::kCritical;
+}
+
 [[nodiscard]] constexpr std::string_view to_string(JobKind kind) noexcept
 {
   switch (kind) {
@@ -102,6 +115,19 @@ struct JobError
     return "cancelled";
   case JobState::kFailed:
     return "failed";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(JobServiceClass service_class) noexcept
+{
+  switch (service_class) {
+  case JobServiceClass::kBestEffort:
+    return "best_effort";
+  case JobServiceClass::kInteractive:
+    return "interactive";
+  case JobServiceClass::kCritical:
+    return "critical";
   }
   return "unknown";
 }

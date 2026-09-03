@@ -29,6 +29,21 @@ namespace {
   return JobControlCode::kInvalidRequest;
 }
 
+[[nodiscard]] JobControlCode map_recovery_result(WorkerRecoveryResult result) noexcept
+{
+  switch (result) {
+  case WorkerRecoveryResult::kRecovered:
+    return JobControlCode::kSuccess;
+  case WorkerRecoveryResult::kNotQuarantined:
+    return JobControlCode::kWorkerNotQuarantined;
+  case WorkerRecoveryResult::kNotDrained:
+    return JobControlCode::kWorkerNotDrained;
+  case WorkerRecoveryResult::kInvalidWorker:
+    return JobControlCode::kInvalidWorker;
+  }
+  return JobControlCode::kInvalidRequest;
+}
+
 } // namespace
 
 std::expected<JobControlService, std::string> JobControlService::create(
@@ -80,8 +95,12 @@ void JobControlService::capture_status() noexcept
       status.drained_mask |= bit;
     if (pool_->worker_binding(index).bound)
       status.bound_mask |= bit;
+    if (pool_->worker_quarantined(index))
+      status.quarantined_mask |= bit;
   }
   status.worker_failures = pool_->failure_count();
+  status.worker_quarantines = pool_->quarantine_count();
+  status.qos_rejections = pool_->qos_rejection_count();
   status.requests_received = transport_stats_->requests_received;
   status.requests_accepted = transport_stats_->requests_accepted;
   status.requests_rejected = transport_stats_->requests_rejected;
@@ -109,11 +128,17 @@ void JobControlService::build_response(const JobControlRequest& request) noexcep
   case JobControlOperation::kResumeWorker:
     if (request.metadata.worker_index >= pool_->worker_count())
       response_.metadata.code = JobControlCode::kInvalidWorker;
+    else if (pool_->worker_quarantined(request.metadata.worker_index))
+      response_.metadata.code = JobControlCode::kWorkerQuarantined;
     else if (!pool_->resume_worker(request.metadata.worker_index))
       response_.metadata.code = JobControlCode::kWorkerNotDrained;
     break;
   case JobControlOperation::kShutdown:
     stop_after_publish_ = true;
+    break;
+  case JobControlOperation::kRecoverWorker:
+    response_.metadata.code =
+        map_recovery_result(pool_->recover_worker(request.metadata.worker_index));
     break;
   }
   capture_status();

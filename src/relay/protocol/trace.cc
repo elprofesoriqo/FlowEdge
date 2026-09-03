@@ -209,7 +209,7 @@ void encode_job_request_metadata(std::span<std::byte> destination,
                                  const JobRequestMetadata& metadata) noexcept
 {
   write_le(destination, 0uz, metadata.struct_size);
-  write_le(destination, 4uz, metadata.reserved);
+  write_le(destination, 4uz, static_cast<std::uint32_t>(metadata.service_class));
   encode_job_descriptor(destination.subspan(8uz), metadata.descriptor);
   write_le(destination, 72uz, metadata.timestamp_ns);
   write_le(destination, 80uz, metadata.payload_bytes);
@@ -219,7 +219,8 @@ void encode_job_request_metadata(std::span<std::byte> destination,
     std::span<const std::byte> source) noexcept
 {
   return JobRequestMetadata{.struct_size = read_le<std::uint32_t>(source, 0uz),
-                            .reserved = read_le<std::uint32_t>(source, 4uz),
+                            .service_class =
+                                static_cast<JobServiceClass>(read_le<std::uint32_t>(source, 4uz)),
                             .descriptor = decode_job_descriptor(source.subspan(8uz)),
                             .timestamp_ns = read_le<std::uint64_t>(source, 72uz),
                             .payload_bytes = read_le<std::uint64_t>(source, 80uz)};
@@ -229,7 +230,7 @@ void encode_job_result_metadata(std::span<std::byte> destination,
                                 const JobResultMetadata& metadata) noexcept
 {
   write_le(destination, 0uz, metadata.struct_size);
-  write_le(destination, 4uz, metadata.reserved);
+  write_le(destination, 4uz, static_cast<std::uint32_t>(metadata.service_class));
   encode_job_descriptor(destination.subspan(8uz), metadata.descriptor);
   encode_job_progress(destination.subspan(72uz), metadata.progress);
   write_le(destination, 96uz, metadata.timestamp_ns);
@@ -240,7 +241,8 @@ void encode_job_result_metadata(std::span<std::byte> destination,
     std::span<const std::byte> source) noexcept
 {
   return JobResultMetadata{.struct_size = read_le<std::uint32_t>(source, 0uz),
-                           .reserved = read_le<std::uint32_t>(source, 4uz),
+                           .service_class =
+                               static_cast<JobServiceClass>(read_le<std::uint32_t>(source, 4uz)),
                            .descriptor = decode_job_descriptor(source.subspan(8uz)),
                            .progress = decode_job_progress(source.subspan(72uz)),
                            .timestamp_ns = read_le<std::uint64_t>(source, 96uz),
@@ -265,7 +267,7 @@ void encode_job_event_metadata(std::span<std::byte> destination,
   write_le(destination, 148uz, metadata.peer_worker_index);
   write_le(destination, 152uz, metadata.queue_depth);
   write_le(destination, 156uz, static_cast<std::uint32_t>(metadata.result_code));
-  write_le(destination, 160uz, metadata.reserved);
+  write_le(destination, 160uz, static_cast<std::uint32_t>(metadata.service_class));
   write_le(destination, 164uz, metadata.reserved2);
 }
 
@@ -287,7 +289,7 @@ void encode_job_event_metadata(std::span<std::byte> destination,
       .peer_worker_index = read_le<std::uint32_t>(source, 148uz),
       .queue_depth = read_le<std::uint32_t>(source, 152uz),
       .result_code = static_cast<JobResultCode>(read_le<std::uint32_t>(source, 156uz)),
-      .reserved = read_le<std::uint32_t>(source, 160uz),
+      .service_class = static_cast<JobServiceClass>(read_le<std::uint32_t>(source, 160uz)),
       .reserved2 = read_le<std::uint32_t>(source, 164uz),
   };
 }
