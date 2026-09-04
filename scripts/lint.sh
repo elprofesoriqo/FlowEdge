@@ -31,7 +31,7 @@ if [ -f "$BUILD_DIR/compile_commands.json" ]; then
 print('\0'.join(e['file'] for e in json.load(sys.stdin)
                 if not any(x in e['file'].replace(chr(92), '/') for x in ['/bench/', '/test/', '/python/', '/_deps/'])), end='')" \
     < "$BUILD_DIR/compile_commands.json" \
-    | xargs -0 clang-tidy -p "$BUILD_DIR" ${FIX:+--fix}
+    | xargs -0 -n 1 clang-tidy -p "$BUILD_DIR" ${FIX:+--fix}
 else
   echo "note: skipping clang-tidy because $BUILD_DIR/compile_commands.json is missing"
 fi

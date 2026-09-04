@@ -22,6 +22,8 @@ CheckOptions:
   - { key: readability-identifier-naming.StructCase,            value: CamelCase   }
   - { key: readability-identifier-naming.FunctionCase,          value: lower_case  }
   - { key: readability-identifier-naming.VariableCase,          value: lower_case  }
+  # Numeric tables and local constants intentionally retain domain-specific names.
+  - { key: readability-identifier-naming.ConstexprVariableIgnoredRegexp, value: ".*" }
   - { key: readability-identifier-naming.ParameterCase,         value: lower_case  }
   - { key: readability-identifier-naming.MemberCase,            value: lower_case  }
   - { key: readability-identifier-naming.PrivateMemberSuffix,   value: "_"         }

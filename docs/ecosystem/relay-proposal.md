@@ -1,8 +1,14 @@
-# FlowEdge Relay: In-Repository Component Proposal
+# FlowEdge Relay
 
 FlowEdge Core remains the small, allocation-free execution library. An optional component in this
-repository, provisionally **FlowEdge Relay**, should solve the system problem around it:
+repository, **FlowEdge Relay**, solves the system problem around it:
 freshness-aware, deadline-aware inference between perception/VLA services and robot controllers.
+
+The first local MVP is implemented behind `-DFLOWEDGE_RELAY=ON`. It provides versioned,
+fixed-capacity condition/action messages with compact wire payloads, checksummed SPSC shared-memory
+rings, bounded earliest-deadline-first
+scheduling, generation cancellation, a head-only worker, and replayable binary traces. Core has no
+dependency on Relay; Relay links only `FlowEdge::Core` and the platform shared-memory API.
 
 ## Problem
 
@@ -12,7 +18,7 @@ admission, and replay traces. Generic model servers optimize request throughput;
 newest valid action before a physical deadline. LLM infrastructure has a related need for resumable
 state, preemption, and fair scheduling of long-lived sessions.
 
-## Proposed shape
+## Shape
 
 ```{mermaid}
 graph LR
@@ -25,16 +31,19 @@ graph LR
   R --> X[Replay capsules and metrics]
 ```
 
-Relay would provide:
+The current MVP provides:
 
-- a versioned condition/action protocol with timestamps, schema hashes, model digest, solver budget,
+- a versioned condition/action protocol with timestamps, model digest, solver budget,
   and cancellation generation;
-- local shared-memory rings first, with optional ROS 2 and gRPC adapters kept in separate packages;
-- earliest-deadline-first admission measured in solver steps or calibrated NFE cost;
-- action-chunk freshness rules, overlap handling, and explicit degraded/fallback actions;
-- Mamba/SSM state capsules for session migration, speculative branches, and deterministic replay;
-- latency histograms and deadline-miss events without placing telemetry in the inference kernels;
-- adapter SDKs for PyTorch, JAX, TensorRT, ONNX Runtime, and common VLA serving processes.
+- local checksummed shared-memory rings with no ROS 2, gRPC, or cloud dependency;
+- bounded earliest-deadline-first admission and expiration before dispatch;
+- stale-request pruning and cancellation between complete solver steps;
+- binary condition/action traces with checksum validation and a C++ replay reader;
+- `flowedge-relayd`, which opens or creates rings and executes compatible head-only checkpoints.
+
+Action overlap policies, state-capsule migration, deadline-miss telemetry, worker pools, and adapters
+for training/serving runtimes remain later milestones. They should be justified by real traces rather
+than expanding the hot-path dependency footprint speculatively.
 
 ## Repository boundary
 
@@ -43,19 +52,32 @@ different dependency footprint from a static C++ inference engine. The repositor
 the boundary explicit instead of putting these concerns into the engine:
 
 - `src/core/` builds `FlowEdge::Core`, owns inference state and kernels, and has no Relay dependency;
-- `src/relay/` will build `FlowEdge::Relay` and the `flowedge-relayd` executable when implementation
-  begins;
+- `src/relay/` builds `FlowEdge::Relay` and the `flowedge-relayd` executable when Relay is enabled;
 - transport and robot integrations remain optional Relay adapters;
 - Relay may be packaged and versioned independently even while both components share one repository.
 
 Keeping Core and Relay together lets state capsules, protocols, model metadata, and cooperative
 execution evolve atomically. The one-way dependency preserves Core's embeddability. A repository
 split remains possible later if the release cadence or contributor community genuinely diverges.
-No empty `src/relay/` placeholder is kept before the first implementation milestone.
+The first milestone stays narrow: one-machine shared memory, one producer, one head-only FlowEdge
+engine, cancellation by generation number, and a replay log. Distributed scheduling should follow
+only after real traces show that local scheduling is insufficient.
 
-The first milestone should stay narrow: one-machine shared memory, one encoder producer, a pool of
-head-only FlowEdge engines, cancellation by generation number, and a replay log. Distributed
-scheduling should follow only after real traces show that local scheduling is insufficient.
+## Build and measure
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DFLOWEDGE_RELAY=ON -DFLOWEDGE_TESTS=ON -DFLOWEDGE_BENCH=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+./build/flowedge_relay_bench models/mamba_flow.safetensors 500
+```
+
+The benchmark measures the complete allocation-free local path: compact producer serialization,
+condition ring, EDF queue, cooperative head worker, action ring, and consumer validation.
+`scripts/relay_bench.sh` performs the
+same build and run on WSL, Linux, or Git Bash. The daemon uses `--create` when it owns both rings and
+`--trace FILE` to record accepted inputs and published outputs.
 
 ## Reuse outside robotics
 

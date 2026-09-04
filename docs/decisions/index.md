@@ -17,4 +17,5 @@ A pull request that makes an architectural choice adds an ADR.
 0009-bf16-weights
 0010-cooperative-execution
 0011-versioned-state-contracts
+0012-in-repository-relay
 ```
