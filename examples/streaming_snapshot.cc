@@ -1,5 +1,6 @@
 #include "api/engine.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>

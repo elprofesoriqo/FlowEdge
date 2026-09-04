@@ -37,6 +37,7 @@ struct JobDescriptor
 {
   std::uint32_t protocol_version{kCooperativeJobVersion};
   JobKind kind{JobKind::kUnknown};
+  std::uint16_t reserved{0u};
   ModelDigest model_digest{};
   std::uint64_t state_schema{};
   std::uint64_t session_id{};
@@ -44,13 +45,19 @@ struct JobDescriptor
   std::uint64_t deadline_ns{};
   std::uint64_t total_work_units{};
 };
+static_assert(sizeof(JobDescriptor) == 64uz);
+static_assert(std::is_trivially_copyable_v<JobDescriptor>);
 
 struct JobProgress
 {
   JobState state{JobState::kReady};
+  std::uint16_t reserved0{0u};
+  std::uint32_t reserved1{0u};
   std::uint64_t completed_work_units{};
   std::uint64_t remaining_work_units{};
 };
+static_assert(sizeof(JobProgress) == 24uz);
+static_assert(std::is_trivially_copyable_v<JobProgress>);
 
 enum class JobErrorCode : std::uint8_t
 {

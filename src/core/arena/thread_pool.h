@@ -78,7 +78,7 @@ void parallel_for(ThreadPool& pool, std::size_t total, unsigned task_count, Fn&&
   for (std::size_t i{0uz}; i < n && (i * sz) < total; ++i) {
     const std::size_t lo = i * sz;
     const std::size_t hi = (lo + sz < total) ? (lo + sz) : total;
-    void* const context = static_cast<void*>(std::addressof(callable));
+    void* const context = const_cast<void*>(static_cast<const void*>(std::addressof(callable)));
     while (!pool.enqueue({trampoline<Fn>, context, lo, hi}))
       cpu_pause();
   }

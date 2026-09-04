@@ -83,7 +83,7 @@ void softplus(std::span<float> x) noexcept
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
             std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {
-  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+  auto op = [&](std::size_t lo, std::size_t hi) noexcept {
     for (std::size_t o{lo}; o < hi; ++o) {
       const float* __restrict__ wr = w.data() + (o * in_dim);
       for (std::size_t r{0uz}; r < rows; ++r) {
@@ -105,7 +105,7 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
 void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<float> out,
             std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {
-  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+  auto op = [&](std::size_t lo, std::size_t hi) noexcept {
     for (std::size_t o{lo}; o < hi; ++o) {
       const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
       for (std::size_t r{0uz}; r < rows; ++r) {

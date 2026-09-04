@@ -165,7 +165,7 @@ void encode_job_descriptor(std::span<std::byte> destination,
 {
   write_le(destination, 0uz, descriptor.protocol_version);
   write_le(destination, 4uz, static_cast<std::uint16_t>(descriptor.kind));
-  write_le(destination, 6uz, std::uint16_t{});
+  write_le(destination, 6uz, descriptor.reserved);
   std::ranges::copy(std::as_bytes(std::span{descriptor.model_digest}), destination.begin() + 8uz);
   write_le(destination, 24uz, descriptor.state_schema);
   write_le(destination, 32uz, descriptor.session_id);
@@ -179,6 +179,7 @@ void encode_job_descriptor(std::span<std::byte> destination,
   JobDescriptor descriptor{};
   descriptor.protocol_version = read_le<std::uint32_t>(source, 0uz);
   descriptor.kind = static_cast<JobKind>(read_le<std::uint16_t>(source, 4uz));
+  descriptor.reserved = read_le<std::uint16_t>(source, 6uz);
   std::ranges::copy(source.subspan(8uz, descriptor.model_digest.size()),
                     reinterpret_cast<std::byte*>(descriptor.model_digest.data()));
   descriptor.state_schema = read_le<std::uint64_t>(source, 24uz);
@@ -192,8 +193,8 @@ void encode_job_descriptor(std::span<std::byte> destination,
 void encode_job_progress(std::span<std::byte> destination, const JobProgress& progress) noexcept
 {
   write_le(destination, 0uz, static_cast<std::uint16_t>(progress.state));
-  write_le(destination, 2uz, std::uint16_t{});
-  write_le(destination, 4uz, std::uint32_t{});
+  write_le(destination, 2uz, progress.reserved0);
+  write_le(destination, 4uz, progress.reserved1);
   write_le(destination, 8uz, progress.completed_work_units);
   write_le(destination, 16uz, progress.remaining_work_units);
 }
@@ -201,6 +202,8 @@ void encode_job_progress(std::span<std::byte> destination, const JobProgress& pr
 [[nodiscard]] JobProgress decode_job_progress(std::span<const std::byte> source) noexcept
 {
   return JobProgress{.state = static_cast<JobState>(read_le<std::uint16_t>(source, 0uz)),
+                     .reserved0 = read_le<std::uint16_t>(source, 2uz),
+                     .reserved1 = read_le<std::uint32_t>(source, 4uz),
                      .completed_work_units = read_le<std::uint64_t>(source, 8uz),
                      .remaining_work_units = read_le<std::uint64_t>(source, 16uz)};
 }

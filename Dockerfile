@@ -5,7 +5,9 @@ ENV CC=clang-23
 ENV CXX=clang++-23
 ENV FLOWEDGE_BUILD_DIR=/workspace/build
 
-RUN apt-get update && apt-get install -y \
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99disable-check-valid-until \
+    && echo 'Acquire::Check-Date "false";' >> /etc/apt/apt.conf.d/99disable-check-valid-until \
+    && apt-get update && apt-get install -y \
     build-essential \
     ca-certificates \
     cmake \
@@ -59,8 +61,10 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
     && "$FLOWEDGE_BUILD_DIR/flowedge_worker_drain_bench" 100 \
     && "$FLOWEDGE_BUILD_DIR/action_delivery_sample" \
     && "$FLOWEDGE_BUILD_DIR/flowedge_action_delivery_bench" 100 \
+    && FLOWEDGE_BUILD_DIR="$FLOWEDGE_BUILD_DIR" ./scripts/relay_demo.sh models/mamba_flow.safetensors \
     && FLOWEDGE_BUILD_DIR="$FLOWEDGE_BUILD_DIR" ./scripts/job_demo.sh models/mamba_flow.safetensors
 
-RUN python3 -m pip install --break-system-packages .
+RUN python3 -m pip install --break-system-packages . \
+    && python3 -c "import flowedge; print('import OK:', flowedge.Engine)"
 
 CMD ["ctest", "--test-dir", "/workspace/build", "--output-on-failure"]
