@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Deterministic, low-latency flow-matching policy inference for edge robotics"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "Apache-2.0"
 authors = []
 keywords = ["robotics", "embodied-ai", "inference", "flow-matching", "real-time"]
 dependencies = [

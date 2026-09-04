@@ -1,0 +1,122 @@
+name: "💡 Feature request"
+description: Propose a model, backend, API, integration, or runtime improvement.
+title: "[Proposal] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to FlowEdge.
+
+        Please focus on the use case and the smallest useful implementation.
+        Large architectural changes should be discussed before implementation begins.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and Discussions for a similar proposal.
+          required: true
+        - label: This proposal is related to low-latency robotics inference or the FlowEdge runtime.
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Proposal type
+      options:
+        - Model / backbone
+        - Action head
+        - Kernel / SIMD optimization
+        - Accelerator backend
+        - Quantization / precision
+        - Python API
+        - C API
+        - Robotics integration
+        - Model conversion
+        - Benchmarking
+        - Relay
+        - Developer tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Explain the real use case rather than only describing the implementation.
+      placeholder: |
+        I want to deploy ... because ...
+        Currently FlowEdge cannot ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful implementation.
+      placeholder: |
+        Add support for ...
+        The initial implementation could support ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Initial scope
+      description: Define what should be supported in the first implementation.
+      placeholder: |
+        - batch size 1
+        - BF16
+        - fixed horizon
+        - one reference checkpoint
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What should explicitly NOT be part of the first implementation?
+      placeholder: |
+        - training
+        - dynamic shapes
+        - multi-device execution
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: How should this be validated?
+      description: Describe tests, reference implementations, parity checks, or benchmarks.
+      placeholder: |
+        - compare against PyTorch reference
+        - fixed-seed parity test
+        - zero allocations after initialization
+        - p50/p95/p99 benchmark
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Papers, repositories, checkpoints, documentation, or related FlowEdge issues.
+      placeholder: |
+        Paper:
+        Reference implementation:
+        Checkpoint:
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be interested in implementing this.
+        - label: I can help test or benchmark this.
+        - label: I have access to relevant hardware.

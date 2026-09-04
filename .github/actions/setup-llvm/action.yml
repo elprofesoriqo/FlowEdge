@@ -10,7 +10,7 @@ runs:
     - shell: bash
       run: |
         sudo mkdir -p /etc/apt/trusted.gpg.d
-        wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+        wget --tries=5 --waitretry=5 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
           | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null
         sudo add-apt-repository -y \
           "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${{ inputs.version }} main"
