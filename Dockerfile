@@ -22,7 +22,7 @@ RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99disable-c
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
+RUN curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
       | gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
       > /etc/apt/sources.list.d/llvm.list \
