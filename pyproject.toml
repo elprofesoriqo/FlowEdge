@@ -17,7 +17,6 @@ dependencies = [
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: C++",
-    "License :: OSI Approved :: Apache Software License",
 ]
 
 [tool.scikit-build]
