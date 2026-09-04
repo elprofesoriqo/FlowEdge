@@ -41,7 +41,7 @@ WORKDIR /workspace
 COPY . .
 
 RUN mkdir -p models \
-    && curl -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
+    && curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
       -o models/mamba_flow.safetensors
 
 RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \

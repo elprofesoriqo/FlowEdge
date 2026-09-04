@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p models
-          curl -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" -o models/mamba_flow.safetensors
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" -o models/mamba_flow.safetensors
         
       - name: CTest Suite
         if: matrix.backend == 'cpu'
