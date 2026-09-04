@@ -32,11 +32,11 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
 <div class="fe-grid">
   <div class="fe-card">
     <h4>Backbones</h4>
-    <ul><li class="done">Mamba SSM</li><li>Transformer</li></ul>
+    <ul><li class="done">Mamba SSM</li><li>Transformer (planned)</li></ul>
   </div>
   <div class="fe-card">
     <h4>Heads</h4>
-    <ul><li class="done">Flow matching</li><li>Diffusion Policy</li><li>DiT</li></ul>
+    <ul><li class="done">Flow matching</li><li>Diffusion Policy (planned)</li><li>DiT (experimental)</li></ul>
   </div>
   <div class="fe-card">
     <h4>Solvers</h4>
@@ -44,11 +44,11 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
   </div>
   <div class="fe-card">
     <h4>Precision</h4>
-    <ul><li class="done">FP32</li><li class="done">BF16</li><li>INT8</li></ul>
+    <ul><li class="done">FP32</li><li class="done">BF16</li><li>INT8 (planned)</li></ul>
   </div>
   <div class="fe-card">
     <h4>Backends</h4>
-    <ul><li class="done">CPU (AVX2 / NEON)</li><li>CUDA</li><li>Tenstorrent</li></ul>
+    <ul><li class="done">CPU (AVX2 / NEON)</li><li>CUDA (planned)</li><li>Tenstorrent (planned)</li></ul>
   </div>
   <div class="fe-card">
     <h4>Interfaces</h4>
