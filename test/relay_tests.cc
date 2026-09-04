@@ -674,7 +674,7 @@ TEST(GenericJobRouting, ValidatesMessagesAndRoutesThroughFrozenRegistry)
   ASSERT_FALSE(rejected_payload);
   EXPECT_EQ(rejected_payload.error().code, JobRouteErrorCode::kPayloadTooLarge);
 
-  const std::string ring_name = unique_name("flowedge-generic-job-ring-test");
+  const std::string ring_name = unique_name("fe-gj-ring");
   constexpr std::size_t slot_bytes = std::max(sizeof(JobRequestMessage), sizeof(JobResultMessage));
   auto created = SharedMemoryRing::create(ring_name, RingConfig{2u, slot_bytes});
   ASSERT_TRUE(created) << created.error();
@@ -976,8 +976,8 @@ TEST(JobWorkerPool, QuarantinesRepeatedlyFailingLaneUntilExplicitRecovery)
   EXPECT_EQ(pool.recover_worker(1uz), WorkerRecoveryResult::kInvalidWorker);
 
   JobTransportStats transport_stats{};
-  const std::string request_name = unique_name("flowedge-supervision-control");
-  const std::string response_name = unique_name("flowedge-supervision-status");
+  const std::string request_name = unique_name("fe-sv-ctrl");
+  const std::string response_name = unique_name("fe-sv-stat");
   auto service_result =
       JobControlService::create(request_name, response_name, pool, transport_stats, 2u);
   ASSERT_TRUE(service_result) << service_result.error();
@@ -1303,8 +1303,8 @@ TEST(JobTransport, PreservesTypedResultsAcrossOutputBackpressure)
   ASSERT_TRUE(created_pool) << created_pool.error();
   JobWorkerPool pool = std::move(*created_pool);
 
-  const std::string request_name = unique_name("flowedge-job-service-requests");
-  const std::string result_name = unique_name("flowedge-job-service-results");
+  const std::string request_name = unique_name("fe-svc-req");
+  const std::string result_name = unique_name("fe-svc-res");
   auto created_service = JobService::create(request_name, result_name, pool, 2u);
   ASSERT_TRUE(created_service) << created_service.error();
   JobService service = std::move(*created_service);
@@ -1402,8 +1402,8 @@ TEST(JobControl, ReportsStatusAndAdministersWorkerLifecycle)
                                     .requests_accepted = 5u,
                                     .requests_rejected = 2u,
                                     .results_published = 6u};
-  const std::string request_name = unique_name("flowedge-job-control-requests");
-  const std::string response_name = unique_name("flowedge-job-control-responses");
+  const std::string request_name = unique_name("fe-ctrl-req");
+  const std::string response_name = unique_name("fe-ctrl-res");
   auto created_service =
       JobControlService::create(request_name, response_name, pool, transport_stats, 2u);
   ASSERT_TRUE(created_service) << created_service.error();
@@ -1963,7 +1963,7 @@ TEST(EdfScheduler, AdmitsIndependentDeadlineWorkAcrossWorkerLanes)
 
 TEST(SharedMemoryRing, ExchangesChecksummedVariableSizedMessages)
 {
-  const std::string name = unique_name("flowedge-relay-ring-test");
+  const std::string name = unique_name("fe-rl-ring");
   auto created = SharedMemoryRing::create(name, RingConfig{2u, sizeof(ConditionMessage)});
   ASSERT_TRUE(created) << created.error();
   auto opened = SharedMemoryRing::open(name);

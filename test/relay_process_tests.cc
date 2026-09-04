@@ -265,8 +265,8 @@ TEST(RelayProcess, ExchangesRequestWithDaemonAcrossProcessBoundary)
     metadata = opened->model_metadata();
   }
 
-  const std::string condition_name = unique_name("flowedge-relay-process-condition");
-  const std::string action_name = unique_name("flowedge-relay-process-action");
+  const std::string condition_name = unique_name("fe-cond");
+  const std::string action_name = unique_name("fe-act");
   auto daemon = ChildDaemon::start(std::filesystem::path{FLOWEDGE_RELAYD_PATH}, model,
                                    condition_name, action_name);
   ASSERT_TRUE(daemon) << "Failed to launch flowedge-relayd";
@@ -359,8 +359,8 @@ TEST(RelayProcess, ExchangesRequestWithDaemonAcrossProcessBoundary)
 
 TEST(RelayProcess, ExchangesGenericJobWithServiceAcrossProcessBoundary)
 {
-  const std::string request_name = unique_name("flowedge-job-process-request");
-  const std::string result_name = unique_name("flowedge-job-process-result");
+  const std::string request_name = unique_name("fe-j-req");
+  const std::string result_name = unique_name("fe-j-res");
   auto daemon =
       ChildDaemon::start_job_service(std::filesystem::path{FLOWEDGE_JOB_SERVICE_FIXTURE_PATH},
                                      request_name, result_name);
@@ -444,10 +444,10 @@ TEST(RelayProcess, AdministersStandaloneGenericJobDaemon)
   if (!std::filesystem::exists(model))
     GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
 
-  const std::string request_name = unique_name("flowedge-jobd-process-request");
-  const std::string result_name = unique_name("flowedge-jobd-process-result");
-  const std::string control_name = unique_name("flowedge-jobd-process-control");
-  const std::string status_name = unique_name("flowedge-jobd-process-status");
+  const std::string request_name = unique_name("fe-jd-req");
+  const std::string result_name = unique_name("fe-jd-res");
+  const std::string control_name = unique_name("fe-jd-ctrl");
+  const std::string status_name = unique_name("fe-jd-stat");
   auto daemon = ChildDaemon::start_job_daemon(std::filesystem::path{FLOWEDGE_JOBD_PATH}, model,
                                               request_name, result_name, control_name, status_name);
   ASSERT_TRUE(daemon) << "Failed to launch flowedge-jobd";
