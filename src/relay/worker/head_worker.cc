@@ -31,6 +31,31 @@ std::expected<HeadWorker, std::string> HeadWorker::open(std::string_view model_p
   }
 }
 
+std::expected<HeadWorker, std::string> HeadWorker::open(const fe_weights* weights,
+                                                        std::optional<unsigned> threads) noexcept
+{
+  try {
+    fe_engine* const engine = threads ? fe_engine_create_from_weights(weights, *threads)
+                                      : fe_engine_create_from_weights_auto(weights);
+    if (engine == nullptr)
+      return std::unexpected(fe_engine_last_error());
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine, &metadata) != 0) {
+      const std::string error = fe_engine_last_error();
+      fe_engine_free(engine);
+      return std::unexpected(error);
+    }
+    if (metadata.condition_dim == 0u || metadata.action_dim == 0u ||
+        metadata.condition_dim > kMaxConditionDim || metadata.action_dim > kMaxActionDim) {
+      fe_engine_free(engine);
+      return std::unexpected("Relay worker requires a compatible flow-head checkpoint");
+    }
+    return HeadWorker{engine, metadata};
+  } catch (...) {
+    return std::unexpected("Out of memory opening shared-weight Relay worker");
+  }
+}
+
 HeadWorker::~HeadWorker()
 {
   fe_engine_free(engine_);
@@ -39,6 +64,7 @@ HeadWorker::~HeadWorker()
 HeadWorker::HeadWorker(HeadWorker&& other) noexcept
     : engine_{std::exchange(other.engine_, nullptr)}, model_metadata_{other.model_metadata_},
       request_envelope_{other.request_envelope_}, generation_{other.generation_},
+      remaining_nfe_{std::exchange(other.remaining_nfe_, 0u)},
       busy_{std::exchange(other.busy_, false)}, last_error_{std::move(other.last_error_)}
 {
 }
@@ -51,6 +77,7 @@ HeadWorker& HeadWorker::operator=(HeadWorker&& other) noexcept
     model_metadata_ = other.model_metadata_;
     request_envelope_ = other.request_envelope_;
     generation_ = other.generation_;
+    remaining_nfe_ = std::exchange(other.remaining_nfe_, 0u);
     busy_ = std::exchange(other.busy_, false);
     last_error_ = std::move(other.last_error_);
   }
@@ -73,6 +100,7 @@ bool HeadWorker::begin(const ConditionMessage& request) noexcept
   }
   request_envelope_ = request.envelope;
   generation_ = request.metadata.generation;
+  remaining_nfe_ = request.metadata.remaining_nfe;
   busy_ = true;
   return true;
 }
@@ -95,6 +123,7 @@ WorkerStep HeadWorker::advance(ActionMessage& result) noexcept
     busy_ = false;
     return WorkerStep::kError;
   }
+  remaining_nfe_ = result.metadata.remaining_nfe;
   result.envelope.struct_size = static_cast<std::uint32_t>(wire_size(result));
   if (rc == 8) {
     busy_ = false;

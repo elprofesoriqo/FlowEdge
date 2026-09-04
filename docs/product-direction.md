@@ -5,6 +5,10 @@ real hardware. It should not compete with training frameworks, dataset tools, or
 runtime. The highest-leverage additions are small, verifiable deployment contracts around the
 existing C ABI.
 
+The initial Relay implementation now supplies model identity, portable action traces, calibrated
+deadline admission, generation cancellation, and bounded parallel workers. The items below describe
+the remaining product surface rather than unimplemented research ideas.
+
 ## Recommended Differentiators
 
 ### Checkpoint preflight report
@@ -22,12 +26,19 @@ noise, solver, action output, build revision, and timing summary. The engine sta
 the capsule becomes a portable reproducer for a surprising action across a robot, simulator, and CI.
 This is especially valuable to early-stage teams that cannot afford an extensive observability stack.
 
+Relay trace v2 implements the deterministic condition/action core. Generic cooperative jobs now add
+checksummed, model- and schema-bound state capsules for exact worker migration. Build revision and
+step-level scheduling events remain to be added to complete a single incident artifact.
+
 ### Deadline budget contract
 
 Expose a host-side benchmark profile with p50, p99, p999, maximum, allocation count, and CPU
 affinity for the exact checkpoint and solver. Let deployment define a control period and fail the
 profile when tail latency exceeds the budget. The novelty is treating a policy's deadline as an API
 contract, rather than publishing only throughput numbers.
+
+Relay already accepts a deployment-calibrated nanoseconds-per-NFE bound. Persistent profiles with
+p999, affinity, thermal context, and automatic safety-margin selection remain future work.
 
 ### Deployment profile
 

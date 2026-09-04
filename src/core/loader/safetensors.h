@@ -6,8 +6,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace fe {
 
@@ -20,7 +22,7 @@ struct TensorView
     INT8
   };
 
-  void* data{};
+  const void* data{};
   Dtype dtype{};
   std::array<std::size_t, 4> shape{};
   std::array<char, 64> name{}; // null-terminated; safetensors keys are short
@@ -73,5 +75,37 @@ struct WeightView
 // shape of a named tensor from the header, for pre-load arena sizing
 [[nodiscard]] std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
                                                                   std::string_view name) noexcept;
+
+// One immutable, reference-counted checkpoint store. Engine instances retain a
+// shared reference while keeping all scratch, sampler, and decode state private.
+class ModelWeights
+{
+public:
+  [[nodiscard]] static std::expected<std::shared_ptr<const ModelWeights>, const char*> open(
+      std::string_view path) noexcept;
+
+  ModelWeights(const ModelWeights&) = delete;
+  ModelWeights& operator=(const ModelWeights&) = delete;
+  ModelWeights(ModelWeights&&) = delete;
+  ModelWeights& operator=(ModelWeights&&) = delete;
+  ~ModelWeights() = default;
+
+  [[nodiscard]] std::span<const TensorView> tensors() const noexcept
+  {
+    return {views_.data(), tensor_count_};
+  }
+  [[nodiscard]] std::size_t weight_bytes() const noexcept { return weight_bytes_; }
+
+private:
+  static constexpr std::size_t kMaxTensors = 1024uz;
+
+  explicit ModelWeights(std::size_t weight_bytes);
+
+  std::vector<std::byte> storage_{};
+  Arena arena_;
+  std::array<TensorView, kMaxTensors> views_{};
+  std::size_t tensor_count_{};
+  std::size_t weight_bytes_{};
+};
 
 } // namespace fe

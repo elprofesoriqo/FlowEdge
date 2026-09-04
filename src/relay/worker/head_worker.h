@@ -23,6 +23,8 @@ class HeadWorker
 public:
   [[nodiscard]] static std::expected<HeadWorker, std::string> open(
       std::string_view model_path, std::optional<unsigned> threads = std::nullopt) noexcept;
+  [[nodiscard]] static std::expected<HeadWorker, std::string> open(
+      const fe_weights* weights, std::optional<unsigned> threads = std::nullopt) noexcept;
 
   ~HeadWorker();
   HeadWorker(const HeadWorker&) = delete;
@@ -33,6 +35,7 @@ public:
   [[nodiscard]] const fe_model_metadata& model_metadata() const noexcept { return model_metadata_; }
   [[nodiscard]] bool busy() const noexcept { return busy_; }
   [[nodiscard]] std::uint64_t generation() const noexcept { return generation_; }
+  [[nodiscard]] std::uint64_t remaining_nfe() const noexcept { return remaining_nfe_; }
   [[nodiscard]] const std::string& last_error() const noexcept { return last_error_; }
 
   [[nodiscard]] bool begin(const ConditionMessage& request) noexcept;
@@ -49,6 +52,7 @@ private:
   fe_model_metadata model_metadata_{};
   MessageEnvelope request_envelope_{};
   std::uint64_t generation_{};
+  std::uint64_t remaining_nfe_{};
   bool busy_{false};
   std::string last_error_{};
 };

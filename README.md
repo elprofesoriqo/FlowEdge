@@ -18,17 +18,25 @@ FlowEdge is a custom C++ inference engine designed to execute flow-matching acti
 - decoupled compute backends
 - native `.safetensors` loading, plus a torch/HF checkpoint converter
 - C API and Python bindings
+- an optional deadline-aware Relay with shared-memory inference, generic cooperative jobs, and
+  portable state migration
 - verification against PyTorch
 
-It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused on edge robotics with hard real-time latency constraints and zero dynamic allocations.
+It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused
+on predictable edge-robotics latency and zero dynamic allocations on supported hot paths.
 
 The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
-`FlowEdge::Core`. A future optional Relay systems layer will live in `src/relay/` and depend on Core;
-Core will not depend on transport, telemetry, ROS, or daemon libraries.
+`FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
+typed action and job clients, worker-aware EDF admission, portable traces and state capsules, generic
+iterative, streaming, and speculative adapters, managed Mamba streaming, and preallocated parallel
+workers with live draining, reserved service classes, and failure quarantine. Core does not depend on
+transport, telemetry, ROS, or daemon libraries.
 
 ## How FlowEdge compares
 
-- **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge is significantly faster for small control models due to zero interpreter overhead and static memory graphs (see the Performance section).
+- **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge removes
+  interpreter and hot-path allocator overhead for its supported fixed models; use the matched
+  benchmark scripts before claiming a speedup.
 - **ONNX Runtime:** ONNX is a massive framework with heavy dependencies. FlowEdge compiles to a tiny static binary and executes with zero heap allocations on the hot path.
 - **ggml / llama.cpp:** While `ggml` is optimized for LLM text generation, FlowEdge is built for robotics: prioritizing low-latency continuous control (flow-matching ODE solvers) over auto-regressive token generation.
 
@@ -42,10 +50,13 @@ FlowEdge supports the following hardware accelerators:
 
 ## Quick Start
 
+Not sure which path fits? See the [capability guide](docs/capabilities.md) for complete-policy,
+external-encoder, streaming, Relay, and custom cooperative-job workflows.
+
 <details open>
 <summary><b>C++: build and sample</b></summary>
 
-Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated in WSL.
+Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated on Linux.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -83,9 +94,29 @@ ctest --test-dir build --output-on-failure
 FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench
 ```
 
-On WSL, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
+On Linux, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
 
-Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
+Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its allocation-checked
+single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
+`--threads` setting; workers share one immutable checkpoint store. Begin with
+`--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
+`scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
+Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
+`scripts/job_demo.sh` runs the generic-job daemon, submits interactive and critical Mamba streams,
+administers worker lanes, and validates lifecycle traces and metrics.
+`cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
+`routed_job_sample` demonstrates process-compatible job transport, bounded adapter lanes, and
+lifecycle metrics; `mamba_relay_stream` demonstrates exact cross-engine Mamba continuation; and
+`flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry;
+`flowedge_job_queue_bench` measures saturated deadline-queue dispatch;
+`flowedge_mamba_stream_bench` measures production adapter overhead and migration; and
+`flowedge_worker_drain_bench` measures bounded live handoff; `flowedge_job_qos_bench` measures typed
+overload rejection with reserved queue capacity.
+`action_delivery_sample` demonstrates a 25 Hz policy feeding a 100 Hz controller through freshness,
+overlap, bounds, and rate limits; `flowedge_action_delivery_bench` measures that final gate.
+
+Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
+`FlowEdge::flowedge_engine` remains available as a compatibility target.
 </details>
 
 ## Architectures & Heads
@@ -109,21 +140,17 @@ Installed CMake consumers should link `FlowEdge::Core`; `FlowEdge::flowedge_engi
 - ☑ BF16
 - ☐ INT8
 
-## Performance
+## Backend Performance
 
-| Benchmark | Backend | PyTorch | FlowEdge | Speedup (vs PyTorch) |
-|---|---|---:|---:|---:|
-| `BM_engine_forward` | CPU | 0.983 ms | 0.120 ms | 8.19x |
-| `BM_engine_forward` | CUDA | TBD | TBD | TBD |
-| `BM_engine_forward` | Metal | TBD | TBD | TBD |
-| `BM_engine_forward` | Vulkan | TBD | TBD | TBD |
-| `BM_engine_forward` | Tenstorrent | TBD | TBD | TBD |
-| Flow action latency, mean (Euler, NFE=10) | CPU | 962.39 us | 294.42 us | 3.27x |
-| Flow action latency, p99 (Euler, NFE=10) | CPU | 1,472.40 us | 482.72 us | 3.05x |
+Mamba backbone forward, one CPU thread, matched checkpoint and tokens. Lower is better.
 
-| Measurements | FlowEdge | PyTorch |
-|---|---|---|
-| Engine forward | [`bench/engine_bench.cc`](bench/engine_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`bench`) |
-| Flow action latency | [`bench/latency_bench.cc`](bench/latency_bench.cc) | [`scripts/torch_ref.py`](scripts/torch_ref.py) (`latency`) |
+| Backend | FlowEdge | PyTorch | Speedup |
+|---|---:|---:|---:|
+| CPU (Windows) | 0.091 ms | 1.650 ms | 18.1x |
+| CPU (Linux) | 0.071 ms | 0.990 ms | 13.9x |
+| CUDA | TBD | TBD | TBD |
+| Tenstorrent TTNN | TBD | TBD | TBD |
+| Metal | TBD | TBD | TBD |
+| Vulkan | TBD | TBD | TBD |
 
-These numbers use the included two-layer smoke checkpoint on one host; use `scripts/bench.sh` and `scripts/ab_bench.sh` on the same idle machine for deployment decisions.
+See [performance](docs/performance.md#backbone-forward) for exact commands and the complete results.

@@ -3,6 +3,7 @@ venv/
 /docs/_build/
 /models/
 .cache/
+.agents/
 ab_results.md
 /bench-results/
 __pycache__/

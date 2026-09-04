@@ -123,7 +123,7 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
   const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kF32);
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();
-    const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+    auto op = [&](std::size_t lo, std::size_t hi) noexcept {
       for (std::size_t o{lo}; o < hi; ++o) {
         const float* __restrict__ wr = w.data() + (o * in_dim);
         float acc{0.0F};
@@ -154,7 +154,7 @@ void matmul(std::span<const float> in, std::span<const float> w, std::span<float
     return;
   }
 
-  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+  auto op = [&](std::size_t lo, std::size_t hi) noexcept {
     for (std::size_t o{lo}; o < hi; ++o) {
       const float* __restrict__ wr = w.data() + (o * in_dim);
       for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
@@ -213,7 +213,7 @@ void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<fl
   const unsigned tasks = matmul_task_count(pool, rows, in_dim, out_dim, MatmulWeightType::kBF16);
   if (rows == 1uz) { // single vector
     const float* __restrict__ ir = in.data();
-    const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+    auto op = [&](std::size_t lo, std::size_t hi) noexcept {
       for (std::size_t o{lo}; o < hi; ++o) {
         const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
         float acc{0.0F};
@@ -243,7 +243,7 @@ void matmul(std::span<const float> in, std::span<const uint16_t> w, std::span<fl
   }
 
   // multi-row
-  const auto op = [&](std::size_t lo, std::size_t hi) noexcept {
+  auto op = [&](std::size_t lo, std::size_t hi) noexcept {
     for (std::size_t o{lo}; o < hi; ++o) {
       const uint16_t* __restrict__ wr = w.data() + (o * in_dim);
       for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {

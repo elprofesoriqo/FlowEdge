@@ -7,9 +7,33 @@ BUILD_DIR="${FLOWEDGE_BUILD_DIR:-$ROOT/build}"
 FIX="${1:-}"
 FORMAT_FLAG=$([[ "$FIX" == "--fix" ]] && echo "-i" || echo "--dry-run")
 
+reject_source_pattern() {
+  local pattern="$1"
+  local message="$2"
+  shift 2
+  if command -v rg >/dev/null; then
+    if rg -n "$pattern" "$@"; then
+      echo "error: $message"
+      exit 1
+    fi
+  elif grep -RInE "$pattern" "$@"; then
+    echo "error: $message"
+    exit 1
+  fi
+}
+
 find "$ROOT/src" "$ROOT/bench" "$ROOT/test" "$ROOT/examples" "$ROOT/convert" \
   -type f \( -name "*.h" -o -name "*.cc" -o -name "*.cpp" \) -print0 \
   | xargs -0 clang-format --style=file --Werror "$FORMAT_FLAG"
+
+reject_source_pattern 'std::mutex|memory_order_seq_cst' \
+  'blocking mutexes and sequentially consistent atomics are forbidden in Core and Relay' \
+  "$ROOT/src/core" "$ROOT/src/relay"
+reject_source_pattern '\.load\(\)' \
+  'atomic loads require an explicit memory order' "$ROOT/src/core" "$ROOT/src/relay"
+reject_source_pattern '\b(new|delete)\b|std::(vector|map|unordered_map|deque|list)<' \
+  'Core compute paths must use caller-owned or arena-backed fixed storage' \
+  "$ROOT/src/core/kernels" "$ROOT/src/core/heads" "$ROOT/src/core/models"
 
 PY="$(command -v py || command -v python3 || command -v python)"
 if [ -f "$BUILD_DIR/compile_commands.json" ]; then

@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstring>
 #include <expected>
+#include <limits>
 #include <memory>
 
 #ifdef _WIN32
@@ -332,6 +333,33 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   }));
   mf.close();
   return out;
+}
+
+ModelWeights::ModelWeights(std::size_t weight_bytes)
+    : storage_(weight_bytes + (kMaxTensors * (kSimdAlign - 1uz))),
+      arena_{std::span<std::byte>{storage_.data(), storage_.size()}}, weight_bytes_{weight_bytes}
+{
+}
+
+std::expected<std::shared_ptr<const ModelWeights>, const char*> ModelWeights::open(
+    std::string_view path) noexcept
+{
+  const std::size_t bytes = safetensors_weight_bytes(path);
+  if (bytes == 0uz)
+    return std::unexpected("Failed to load safetensors file or find supported tensors");
+  constexpr std::size_t alignment_padding = kMaxTensors * (kSimdAlign - 1uz);
+  if (bytes > std::numeric_limits<std::size_t>::max() - alignment_padding)
+    return std::unexpected("Checkpoint weight storage size overflows this platform");
+  try {
+    std::shared_ptr<ModelWeights> weights{new ModelWeights{bytes}};
+    const auto loaded =
+        load_safetensors(path, weights->arena_, weights->views_, weights->tensor_count_);
+    if (!loaded)
+      return std::unexpected(loaded.error());
+    return std::shared_ptr<const ModelWeights>{std::move(weights)};
+  } catch (...) {
+    return std::unexpected("Out of memory loading immutable model weights");
+  }
 }
 
 } // namespace fe

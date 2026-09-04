@@ -22,33 +22,36 @@ public:
 
   Arena(const Arena&) = delete;
   Arena& operator=(const Arena&) = delete;
+  Arena(Arena&&) = delete;
+  Arena& operator=(Arena&&) = delete;
+  ~Arena() = default;
 
-  template<std::size_t align = alignof(std::max_align_t)>
+  template<std::size_t Align = alignof(std::max_align_t)>
   [[nodiscard]] void* alloc(std::size_t n) noexcept
   {
-    static_assert(std::has_single_bit(align));
+    static_assert(std::has_single_bit(Align));
     void* p = cursor_;
-    std::size_t space = static_cast<std::size_t>(end_ - cursor_);
-    if (std::align(align, n, p, space) == nullptr) [[unlikely]]
+    auto space = static_cast<std::size_t>(end_ - cursor_);
+    if (std::align(Align, n, p, space) == nullptr) [[unlikely]]
       return nullptr;
     cursor_ = static_cast<std::byte*>(p) + n;
     return p;
   }
 
-  template<typename T, std::size_t align = alignof(T)>
+  template<typename T, std::size_t Align = alignof(T)>
     requires std::is_trivially_copyable_v<T>
   [[nodiscard]] T* alloc_array(std::size_t count) noexcept
   {
     if (count > std::numeric_limits<std::size_t>::max() / sizeof(T)) [[unlikely]]
       return nullptr;
-    return static_cast<T*>(alloc<align>(count * sizeof(T)));
+    return static_cast<T*>(alloc<Align>(count * sizeof(T)));
   }
 
-  template<typename T, std::size_t align = alignof(T)>
+  template<typename T, std::size_t Align = alignof(T)>
     requires std::is_trivially_copyable_v<T>
   [[nodiscard]] std::span<T> alloc_span(std::size_t count) noexcept
   {
-    T* const data = alloc_array<T, align>(count);
+    T* const data = alloc_array<T, Align>(count);
     return data != nullptr ? std::span<T>{data, count} : std::span<T>{};
   }
 

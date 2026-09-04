@@ -1,50 +1,89 @@
 # Verification
 
-The engine output is checked against PyTorch in CI. Kernels are checked against naive references in unit tests.
+## Release gates
+
+| Gate | Proves |
+|---|---|
+| Kernel/unit tests | C++ kernels match independent references |
+| PyTorch parity | Same checkpoint/input stays within ULP and relative-error limits |
+| Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
+| Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
+| Worker-pool tests | Parallel lanes, freshness, QoS, rolling drain, quarantine, recovery |
+| Action-delivery tests | Chunk shape, replacement, timing, freshness, bounds, delta limits |
+| Mamba adapter tests | Exact migrated output and real-model generic routing |
+| Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
+| Trace round-trip | Canonical bytes for action and generic job records |
+| Install consumer | Installed `FlowEdge::Core` and `FlowEdge::Relay` configure, link, run |
 
 ```{mermaid}
-%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
-graph LR
-  CK[checkpoint] --> CPP["FlowEdge engine"]
-  CK --> REF["torch_ref.py"]
-  CPP --> D[compare]
-  REF --> D
-  D --> P{"pass? ULP + rel error"}
+flowchart LR
+  C[Checkpoint] --> F[FlowEdge]
+  C --> P[PyTorch reference]
+  F --> V[ULP + relative error]
+  P --> V
+  V --> T[Unit + process + package gates]
 ```
 
-## The gate
+## Run everything
 
-- `scripts/torch_ref.py` builds the golden. It runs the model in PyTorch and dumps the trajectory.
-- `scripts/verify_ulp.py` runs the engine on the same input and compares per dimension.
-- Two thresholds, both per dimension: relative error below `2e-3` and a ULP distance below `4096`. The build fails on drift.
-
-The gate is deliberately looser than what the engine actually achieves. On the reference checkpoint the flow head lands around 1e-6, so the thresholds leave room for a different host, compiler, or ISA to reorder floating-point work without turning CI red. They catch a real regression, not a last-bit difference.
+Linux:
 
 ```bash
-python scripts/verify_ulp.py models/mamba_flow.safetensors
+./scripts/verify_all.sh models/mamba_flow.safetensors
 ```
 
-## Round-trip
+Windows PowerShell with Git Bash available:
 
-The converter is checked too. CI converts a model, then asserts the engine gives identical output from the original and the converted file. A broken mapping fails here.
+```powershell
+bash scripts/verify_all.sh models/mamba_flow.safetensors
+```
 
-## Unit tests
+The script builds Core, Relay, tests, benchmarks, every C++ example, generic-job JSONL inspection,
+the Relay lifecycle demo, action replay, all metric formats, installation, and a downstream consumer.
+Python checks run when their dependencies are available.
 
-`test/tests.cc` compares a kernel to a naive reference written inline, so each
-test checks the real kernel against a second implementation. Covered: `matmul`,
-`silu`, `softplus`, `rmsnorm`, `conv1d_causal`, `discretize_and_scan`,
-`ThreadPool`, and the flow head. Not yet covered: `gate_silu` and
-`conv1d_step`.
+## Focused commands
 
-Add a reference and a test for every new kernel and head.
+| Need | Command |
+|---|---|
+| C++ tests | `ctest --test-dir build --output-on-failure` |
+| PyTorch parity | `python scripts/verify_ulp.py models/mamba_flow.safetensors` |
+| External-head + streaming smoke | `python scripts/verify_external_head.py build` |
+| Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |
+| Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
+| Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |
+| Relay benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_bench.sh` |
+| QoS overload | `./build/flowedge_job_qos_bench 1000000` |
 
-## External-head and streaming smoke test
+## Key invariants
 
-`scripts/verify_external_head.py` generates two small checkpoints without downloading model data.
-One contains only a flow head and verifies direct conditions plus bit-identical resumable solving.
-The other verifies Mamba batch/streaming parity and decode-state branch restoration through the
-Python extension.
+| Invariant | Coverage |
+|---|---|
+| Older generations cannot publish as current | Scheduler, head-pool, job-pool cancellation tests |
+| Full result rings cannot lose work | `JobTransport.PreservesTypedResultsAcrossOutputBackpressure` |
+| Admission includes active and queued lanes | Multi-lane EDF tests |
+| Migration is exact and corruption-safe | Cooperative capsule and Mamba cross-engine tests |
+| Draining cannot strand accepted work | Worker drain handoff and queued-work tests |
+| Lower service classes cannot consume reserved slots | QoS reservation and equal-deadline tests |
+| A failed lane cannot silently rejoin | Quarantine and explicit-recovery tests |
+| Trace bytes are portable | Representative little-endian byte assertions |
+| Event overflow is bounded | `JobEvents.BuffersValidatedLifecycleRecordsWithoutGrowth` |
+| Job metrics keep fixed kinds | `JobMetrics.RecordsKindsProgressPreemptionMigrationAndLatency` |
+| Hot paths allocate nothing | Relay and cooperative-job benchmarks |
+| Queue depth does not multiply clock reads | Deadline queue benchmark |
+| Live handoff remains bounded | Worker drain benchmark |
+| Controller publication stays bounded | Action delivery benchmark and multi-rate example |
+| Public API works after install | `test/install_consumer` |
+
+## Install consumer
 
 ```bash
-python scripts/verify_external_head.py build
+cmake --install build --prefix build/install-check
+cmake -S test/install_consumer -B build/install-consumer \
+  -DCMAKE_PREFIX_PATH="$PWD/build/install-check"
+cmake --build build/install-consumer -j
+./build/install-consumer/flowedge_install_consumer
 ```
+
+New kernels, protocols, adapters, event types, and exporters require a focused test plus inclusion in
+`verify_all.sh` when they add a runnable surface.

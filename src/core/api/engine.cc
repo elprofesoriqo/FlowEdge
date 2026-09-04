@@ -74,33 +74,40 @@ void copy_digest(fe_model_digest& destination, const fe::ModelDigest& source) no
 
 struct FeEngine
 {
-  FeEngine(const char* path, std::size_t slab_bytes, unsigned worker_threads, const char*& error)
-      : runtime{path, slab_bytes, worker_threads, error}
+  FeEngine(std::shared_ptr<const fe::ModelWeights> weights, std::size_t slab_bytes,
+           unsigned worker_threads, const char*& error)
+      : runtime{std::move(weights), slab_bytes, worker_threads, error}
   {
   }
 
   fe::EngineRuntime runtime;
 };
 
+struct FeWeights
+{
+  std::shared_ptr<const fe::ModelWeights> value{};
+};
+
 namespace {
 
-fe_engine* load_engine(const char* path, unsigned worker_threads)
+fe_engine* create_engine(std::shared_ptr<const fe::ModelWeights> weights, unsigned worker_threads)
 {
-  if (path == nullptr) {
-    last_error() = "Invalid null model path";
-    return nullptr;
-  }
   if (worker_threads > fe::EngineRuntime::kMaxPoolThreads) {
     last_error() = "Worker thread count must be from 0 through 8";
     return nullptr;
   }
+  if (!weights) {
+    last_error() = "Invalid null model weights";
+    return nullptr;
+  }
   try {
-    const std::size_t slab_bytes = fe::EngineRuntime::required_slab_bytes(path);
+    const std::size_t slab_bytes = fe::EngineRuntime::required_slab_bytes(*weights);
     if (slab_bytes == 0uz) {
-      last_error() = "Failed to load safetensors file or find required tensors";
+      last_error() = "Failed to size model runtime state";
       return nullptr;
     }
-    auto engine = std::make_unique<FeEngine>(path, slab_bytes, worker_threads, last_error());
+    auto engine =
+        std::make_unique<FeEngine>(std::move(weights), slab_bytes, worker_threads, last_error());
     if (!engine->runtime.valid()) {
       last_error() = "Model architecture initialization failed";
       return nullptr;
@@ -110,6 +117,20 @@ fe_engine* load_engine(const char* path, unsigned worker_threads)
     last_error() = "Exception during engine load (likely OOM)";
     return nullptr;
   }
+}
+
+fe_engine* load_engine(const char* path, unsigned worker_threads)
+{
+  if (path == nullptr) {
+    last_error() = "Invalid null model path";
+    return nullptr;
+  }
+  const auto weights = fe::ModelWeights::open(path);
+  if (!weights) {
+    last_error() = weights.error();
+    return nullptr;
+  }
+  return create_engine(*weights, worker_threads);
 }
 
 } // namespace
@@ -130,6 +151,57 @@ fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads
 {
   last_error() = "";
   return load_engine(path, worker_threads);
+}
+
+fe_weights* fe_weights_load(const char* path)
+{
+  last_error() = "";
+  if (path == nullptr) {
+    last_error() = "Invalid null model path";
+    return nullptr;
+  }
+  const auto weights = fe::ModelWeights::open(path);
+  if (!weights) {
+    last_error() = weights.error();
+    return nullptr;
+  }
+  try {
+    return new FeWeights{*weights}; // NOLINT(cppcoreguidelines-owning-memory)
+  } catch (const std::exception&) {
+    last_error() = "Exception creating immutable weight handle (likely OOM)";
+    return nullptr;
+  }
+}
+
+std::size_t fe_weights_size_bytes(const fe_weights* weights)
+{
+  return weights != nullptr && weights->value ? weights->value->weight_bytes() : 0uz;
+}
+
+void fe_weights_free(fe_weights* weights)
+{
+  const std::unique_ptr<FeWeights> owner{weights};
+}
+
+fe_engine* fe_engine_create_from_weights(const fe_weights* weights, unsigned worker_threads)
+{
+  last_error() = "";
+  if (weights == nullptr) {
+    last_error() = "Invalid null model weights";
+    return nullptr;
+  }
+  return create_engine(weights->value, worker_threads);
+}
+
+fe_engine* fe_engine_create_from_weights_auto(const fe_weights* weights)
+{
+  last_error() = "";
+  if (weights == nullptr) {
+    last_error() = "Invalid null model weights";
+    return nullptr;
+  }
+  const std::optional<unsigned> worker_threads = environment_thread_count(last_error());
+  return worker_threads ? create_engine(weights->value, *worker_threads) : nullptr;
 }
 
 void fe_engine_free(fe_engine* engine)

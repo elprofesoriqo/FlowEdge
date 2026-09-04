@@ -50,4 +50,11 @@ html_theme_options = {
     },
 }
 
-exclude_patterns = ["_build", "skill.md", "overview.md", "tasks.md", "README.md"]
+exclude_patterns = [
+    "_build",
+    "skill.md",
+    "overview.md",
+    "tasks.md",
+    "README.md",
+    "ecosystem/relay-issue-draft.md",
+]

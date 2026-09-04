@@ -5,7 +5,9 @@ ENV CC=clang-23
 ENV CXX=clang++-23
 ENV FLOWEDGE_BUILD_DIR=/workspace/build
 
-RUN apt-get update && apt-get install -y \
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99disable-check-valid-until \
+    && echo 'Acquire::Check-Date "false";' >> /etc/apt/apt.conf.d/99disable-check-valid-until \
+    && apt-get update && apt-get install -y \
     build-essential \
     ca-certificates \
     cmake \
@@ -38,16 +40,31 @@ WORKDIR /workspace
 
 COPY . .
 
+RUN mkdir -p models \
+    && curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
+      -o models/mamba_flow.safetensors
+
 RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
       -DCMAKE_C_COMPILER=/usr/bin/clang-23 \
       -DCMAKE_CXX_COMPILER=/usr/bin/clang++-23 \
       -DCMAKE_BUILD_TYPE=Release \
       -DFLOWEDGE_TESTS=ON \
       -DFLOWEDGE_BENCH=ON \
+      -DFLOWEDGE_RELAY=ON \
       -DFLOWEDGE_PYTHON=ON \
     && cmake --build "$FLOWEDGE_BUILD_DIR" \
-    && ctest --test-dir "$FLOWEDGE_BUILD_DIR" --output-on-failure
+    && ctest --test-dir "$FLOWEDGE_BUILD_DIR" --output-on-failure \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_job_queue_bench" 100 \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_job_qos_bench" 10000 \
+    && "$FLOWEDGE_BUILD_DIR/mamba_relay_stream" models/mamba_flow.safetensors \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_mamba_stream_bench" models/mamba_flow.safetensors 100 \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_worker_drain_bench" 100 \
+    && "$FLOWEDGE_BUILD_DIR/action_delivery_sample" \
+    && "$FLOWEDGE_BUILD_DIR/flowedge_action_delivery_bench" 100 \
+    && FLOWEDGE_BUILD_DIR="$FLOWEDGE_BUILD_DIR" ./scripts/relay_demo.sh models/mamba_flow.safetensors \
+    && FLOWEDGE_BUILD_DIR="$FLOWEDGE_BUILD_DIR" ./scripts/job_demo.sh models/mamba_flow.safetensors
 
-RUN python3 -m pip install --break-system-packages .
+RUN python3 -m pip install --break-system-packages . \
+    && python3 -c "import flowedge; print('import OK:', flowedge.Engine)"
 
-CMD ["./build/flowedge_tests"]
+CMD ["ctest", "--test-dir", "/workspace/build", "--output-on-failure"]

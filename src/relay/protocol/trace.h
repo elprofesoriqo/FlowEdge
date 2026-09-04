@@ -1,7 +1,10 @@
 #pragma once
 
+#include "relay/protocol/job_events.h"
 #include "relay/protocol/messages.h"
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdio>
 #include <expected>
@@ -50,6 +53,18 @@ public:
   {
     return append(wire_bytes(message));
   }
+  [[nodiscard]] std::expected<void, std::string> append(const JobRequestMessage& message) noexcept
+  {
+    return append(wire_bytes(message));
+  }
+  [[nodiscard]] std::expected<void, std::string> append(const JobResultMessage& message) noexcept
+  {
+    return append(wire_bytes(message));
+  }
+  [[nodiscard]] std::expected<void, std::string> append(const JobEventMessage& message) noexcept
+  {
+    return append(wire_bytes(message));
+  }
 
   template<typename Message>
     requires std::is_trivially_copyable_v<Message>
@@ -63,6 +78,10 @@ public:
 private:
   explicit TraceWriter(std::FILE* file) noexcept : file_{file} {}
   detail::TraceFileHandle file_{};
+  static constexpr std::size_t kEncodedBytes =
+      std::max({sizeof(ConditionMessage), sizeof(JobRequestMessage), sizeof(JobResultMessage),
+                sizeof(JobEventMessage)});
+  std::array<std::byte, kEncodedBytes> encoded_{};
 };
 
 class TraceReader
@@ -78,8 +97,12 @@ public:
   [[nodiscard]] std::expected<std::optional<TraceRecord>, std::string> next() noexcept;
 
 private:
-  explicit TraceReader(std::FILE* file) noexcept : file_{file} {}
+  explicit TraceReader(std::FILE* file, std::uint32_t version) noexcept
+      : file_{file}, version_{version}
+  {
+  }
   detail::TraceFileHandle file_{};
+  std::uint32_t version_{};
 };
 
 } // namespace fe::relay

@@ -74,6 +74,34 @@ article { line-height: 1.72; }
 .fe-card li::before { content: "\25CB"; position: absolute; left: 0; color: var(--color-foreground-muted); }
 .fe-card li.done::before { content: "\2713"; color: var(--color-brand-primary); font-weight: 700; }
 
+.fe-explorer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 0.9rem;
+  margin: 1.4rem 0;
+}
+.fe-explorer {
+  background: var(--color-background-secondary);
+  border: 1px solid var(--color-background-border);
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(43, 31, 20, 0.09);
+}
+.fe-explorer summary {
+  cursor: pointer;
+  color: var(--color-brand-primary);
+  font-family: var(--font-stack--headings);
+  font-size: 1.08rem;
+  font-weight: 600;
+  padding: 0.85rem 1rem;
+}
+.fe-explorer summary:hover { background: var(--color-background-hover); }
+.fe-explorer[open] summary { border-bottom: 1px solid var(--color-background-border); }
+.fe-explorer p { margin: 0; padding: 0.55rem 1rem; font-size: 0.92rem; }
+.fe-explorer p + p { padding-top: 0; }
+.fe-explorer code { font-size: 0.88em; }
+
 .sidebar-logo-container { margin: 0.7rem 0 0.4rem; }
 .sidebar-logo {
   max-width: 100%;

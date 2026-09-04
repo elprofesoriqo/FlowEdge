@@ -17,6 +17,8 @@ set(FLOWEDGE_RELAY_MAX_CONDITION_DIM "4096" CACHE STRING
     "Maximum condition width stored in a Relay message")
 set(FLOWEDGE_RELAY_MAX_ACTION_DIM "1024" CACHE STRING
     "Maximum action width stored in a Relay message")
+set(FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES "65536" CACHE STRING
+    "Maximum opaque payload stored in a generic Relay job message")
 
 # Core compute kernels. CPU auto-selects the host ISA; scalar is also explicit
 # for compatibility testing and targets where deploying AVX2 is undesirable.
@@ -30,10 +32,26 @@ if(FLOWEDGE_RELAY)
 endif()
 
 # EXAMPLES
-foreach(ex flow_sample mamba_forward external_flow_sample)
+foreach(ex flow_sample mamba_forward external_flow_sample streaming_snapshot)
   add_executable(${ex} examples/${ex}.cc)
   target_link_libraries(${ex} PRIVATE FlowEdge::Core)
 endforeach()
+if(FLOWEDGE_RELAY)
+  add_executable(relay_client_sample examples/relay_client_sample.cc)
+  target_link_libraries(relay_client_sample PRIVATE FlowEdge::Relay)
+
+  add_executable(cooperative_job_sample examples/cooperative_job_sample.cc)
+  target_link_libraries(cooperative_job_sample PRIVATE FlowEdge::Relay)
+
+  add_executable(routed_job_sample examples/routed_job_sample.cc)
+  target_link_libraries(routed_job_sample PRIVATE FlowEdge::Relay)
+
+  add_executable(mamba_relay_stream examples/mamba_relay_stream.cc)
+  target_link_libraries(mamba_relay_stream PRIVATE FlowEdge::Relay)
+
+  add_executable(action_delivery_sample examples/action_delivery_sample.cc)
+  target_link_libraries(action_delivery_sample PRIVATE FlowEdge::Relay)
+endif()
 
 # BENCHMARKS
 if(FLOWEDGE_BENCH)
@@ -73,6 +91,27 @@ if(FLOWEDGE_BENCH)
   if(FLOWEDGE_RELAY)
     add_executable(flowedge_relay_bench bench/relay_bench.cc)
     target_link_libraries(flowedge_relay_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_relay_pool_bench bench/relay_pool_bench.cc)
+    target_link_libraries(flowedge_relay_pool_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_cooperative_job_bench bench/cooperative_job_bench.cc)
+    target_link_libraries(flowedge_cooperative_job_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_job_queue_bench bench/job_queue_bench.cc)
+    target_link_libraries(flowedge_job_queue_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_job_qos_bench bench/job_qos_bench.cc)
+    target_link_libraries(flowedge_job_qos_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_mamba_stream_bench bench/mamba_stream_bench.cc)
+    target_link_libraries(flowedge_mamba_stream_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_worker_drain_bench bench/worker_drain_bench.cc)
+    target_link_libraries(flowedge_worker_drain_bench PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_action_delivery_bench bench/action_delivery_bench.cc)
+    target_link_libraries(flowedge_action_delivery_bench PRIVATE FlowEdge::Relay)
   endif()
 endif()
 
@@ -95,16 +134,27 @@ if(FLOWEDGE_TESTS)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
 
   if(FLOWEDGE_RELAY)
-    add_executable(flowedge_relay_tests test/relay_tests.cc)
+    add_executable(flowedge_job_service_fixture test/job_service_fixture.cc)
+    target_link_libraries(flowedge_job_service_fixture PRIVATE FlowEdge::Relay)
+
+    add_executable(flowedge_relay_tests test/relay_tests.cc test/relay_process_tests.cc)
     target_link_libraries(flowedge_relay_tests PRIVATE FlowEdge::Relay GTest::gtest_main)
     target_compile_definitions(flowedge_relay_tests PRIVATE
-      FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+      FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+      FLOWEDGE_RELAYD_PATH="$<TARGET_FILE:flowedge-relayd>"
+      FLOWEDGE_JOBD_PATH="$<TARGET_FILE:flowedge-jobd>"
+      FLOWEDGE_JOB_SERVICE_FIXTURE_PATH="$<TARGET_FILE:flowedge_job_service_fixture>")
+    add_dependencies(flowedge_relay_tests flowedge-relayd flowedge-jobd flowedge_job_service_fixture)
   endif()
   
   include(GoogleTest)
   gtest_discover_tests(flowedge_tests)
   if(FLOWEDGE_RELAY)
     gtest_discover_tests(flowedge_relay_tests)
+    add_test(NAME RelayTools.ClientHelp COMMAND flowedge-relayctl --help)
+    add_test(NAME RelayTools.JobClientHelp COMMAND flowedge-jobctl --help)
+    add_test(NAME RelayTools.JobDaemonHelp COMMAND flowedge-jobd --help)
+    add_test(NAME RelayTools.TraceHelp COMMAND flowedge-relay-trace --help)
   endif()
 endif()
 
