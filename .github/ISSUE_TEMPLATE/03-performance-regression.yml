@@ -1,0 +1,108 @@
+name: "📉 Performance regression"
+description: Report a reproducible latency, throughput, memory, or allocation regression.
+title: "[Performance] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for reproducible performance regressions.
+
+        Performance comparisons must use equivalent workloads and environments.
+
+  - type: textarea
+    id: regression
+    attributes:
+      label: What regressed?
+      placeholder: |
+        p99 action latency increased from ~480 µs to ~620 µs after...
+    validations:
+      required: true
+
+  - type: input
+    id: good_commit
+    attributes:
+      label: Last known good version / commit
+      placeholder: "commit SHA or release"
+
+  - type: input
+    id: bad_commit
+    attributes:
+      label: First known affected version / commit
+      placeholder: "commit SHA or release"
+
+  - type: textarea
+    id: benchmark
+    attributes:
+      label: Benchmark command
+      placeholder: |
+        ./scripts/bench.sh ...
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      placeholder: |
+        Before:
+          p50:
+          p95:
+          p99:
+
+        After:
+          p50:
+          p95:
+          p99:
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: "CPU/device, RAM"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04"
+    validations:
+      required: true
+
+  - type: input
+    id: compiler
+    attributes:
+      label: Compiler
+      placeholder: "GCC 13.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build type
+      options:
+        - Release
+        - RelWithDebInfo
+        - Debug
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: workload
+    attributes:
+      label: Workload
+      description: Model, precision, batch size, solver, number of steps, shapes, and iteration count.
+    validations:
+      required: true
+
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling / additional information
+      description: Add profiler output, allocation counts, traces, or observations if available.

@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: "💬 Ask a question"
+    url: https://github.com/elprofesoriqo/FlowEdge/discussions
+    about: Ask usage, architecture, integration, or general FlowEdge questions in Discussions.
+
+  - name: "📚 FlowEdge documentation"
+    url: https://elprofesoriqo.github.io/FlowEdge/
+    about: Check the documentation, architecture, APIs, and guides before opening an issue.

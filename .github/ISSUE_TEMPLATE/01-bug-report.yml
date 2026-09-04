@@ -1,0 +1,132 @@
+name: "🐛 Bug report"
+description: Report a crash, incorrect behavior, build failure, or other reproducible problem.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a FlowEdge issue.
+
+        Please provide enough information for someone else to reproduce the problem.
+        For general questions, use GitHub Discussions instead.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find the same problem.
+          required: true
+        - label: I can reproduce this issue on the latest `main` branch or a recent FlowEdge release.
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the behavior you observed.
+      placeholder: |
+        FlowEdge fails to load the checkpoint when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect FlowEdge to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest set of commands or code that reproduces the problem.
+      placeholder: |
+        cmake -S . -B build ...
+        cmake --build build -j
+        ./build/flow_sample ...
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: FlowEdge version / commit
+      placeholder: "v0.1.0 or commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Area
+      options:
+        - Core runtime
+        - Kernels / SIMD
+        - Mamba backbone
+        - Flow-matching head
+        - Relay
+        - Python API
+        - C API
+        - Model conversion
+        - Build / CMake
+        - Benchmarking
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / Windows 11 / macOS 15"
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Include CPU and accelerator if relevant.
+      placeholder: "Ryzen 9 9950X, 64 GB RAM / Raspberry Pi 5 / ..."
+    validations:
+      required: true
+
+  - type: input
+    id: compiler
+    attributes:
+      label: Compiler
+      placeholder: "GCC 13.3 / Clang 18 / MSVC 19.40"
+    validations:
+      required: true
+
+  - type: textarea
+    id: model
+    attributes:
+      label: Model / checkpoint
+      description: If model-related, provide the model, architecture, tensor shapes, precision, and relevant configuration.
+      placeholder: |
+        Model:
+        Precision: BF16
+        Batch size:
+        Horizon:
+        Solver / steps:
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant error messages or logs here.
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that may help reproduce or understand the issue.
