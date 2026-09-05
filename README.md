@@ -1,125 +1,54 @@
 <div align="center">
-<img src="assets/surfingtux.png" alt="FlowEdge" width="820">
-<h1>FlowEdge</h1>
-<p><b>Real-time flow-matching action-head inference for robotics</b></p>
-<p>
-  ⚙️&nbsp;<b>CPU</b>
-  &nbsp;&nbsp;·&nbsp;&nbsp;
-  <img alt="CUDA" height="22" src="assets/nvidia.svg">&nbsp;<b>CUDA</b>
-  &nbsp;&nbsp;·&nbsp;&nbsp;
-  <img alt="Tenstorrent" height="22" src="assets/tenstorrent.jpg">&nbsp;<b>Tenstorrent</b>
-</p>
+
+<img src="assets/surfingtux.png" width="600" alt="FlowEdge">
+
+# FlowEdge
+
+**Low-latency inference for real-time robotics policies**
+
+Flow-matching action policies, static memory, deterministic execution, and deadline-aware local inference.
+
+<br/>
+
+⚙️ **CPU** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="CUDA" height="22" src="assets/nvidia.svg">&nbsp;**CUDA** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="TT-Metal" height="22" src="assets/tenstorrent.jpg">&nbsp;**TT-Metal**
+
+[Documentation](https://elprofesoriqo.github.io/FlowEdge/) &nbsp;&nbsp;·&nbsp;&nbsp; [Getting Started](https://elprofesoriqo.github.io/FlowEdge/getting-started.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Performance](https://elprofesoriqo.github.io/FlowEdge/performance.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Contributing](CONTRIBUTING.md) &nbsp;&nbsp;·&nbsp;&nbsp; [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions)
+
 </div>
 
 ***
 
-FlowEdge is a custom C++ inference engine designed to execute flow-matching action heads for robotics:
-- zero external dependencies
-- decoupled compute backends
-- native `.safetensors` loading, plus a torch/HF checkpoint converter
-- C API and Python bindings
-- an optional deadline-aware Relay with shared-memory inference, generic cooperative jobs, and
-  portable state migration
-- verification against PyTorch
+<div align="center">
+  <img src="assets/perf.gif" width="600" alt="Performance Comparison">
+</div>
 
-It’s inspired by `ggml` (minimalism and performance) and `PyTorch` (abstractions), but stays focused
-on predictable edge-robotics latency and zero dynamic allocations on supported hot paths.
+## Performance Highlights
 
-The allocation-free engine lives in `src/core/` and is exported to CMake consumers as
-`FlowEdge::Core`. The optional Relay systems layer lives in `src/relay/`, depends on Core, and adds a
-typed action and job clients, worker-aware EDF admission, portable traces and state capsules, generic
-iterative, streaming, and speculative adapters, managed Mamba streaming, and preallocated parallel
-workers with live draining, reserved service classes, and failure quarantine. Core does not depend on
-transport, telemetry, ROS, or daemon libraries.
+On the included deterministic smoke checkpoint, FlowEdge reaches up to **18.1x faster Mamba backbone inference** and a **3.93x p99 action-latency speedup** over the matched PyTorch CPU reference.
 
-## How FlowEdge compares
+See [Performance](#performance) for methodology and complete results.
 
-- **PyTorch:** PyTorch is designed for training and general-purpose inference. FlowEdge removes
-  interpreter and hot-path allocator overhead for its supported fixed models; use the matched
-  benchmark scripts before claiming a speedup.
-- **ONNX Runtime:** ONNX is a massive framework with heavy dependencies. FlowEdge compiles to a tiny static binary and executes with zero heap allocations on the hot path.
-- **ggml / llama.cpp:** While `ggml` is optimized for LLM text generation, FlowEdge is built for robotics: prioritizing low-latency continuous control (flow-matching ODE solvers) over auto-regressive token generation.
+## What is FlowEdge?
+
+FlowEdge is a C++23 inference runtime for low-latency robotics policies, currently focused on Mamba backbones and flow-matching action heads:
+- static memory with zero heap allocations on supported hot paths
+- native `.safetensors` loading and checkpoint conversion
+- C++, C API, and Python interfaces
+- deterministic state snapshot and restore
+- optional Relay layer for deadline-aware local inference
 
 ## Accelerators
 
-FlowEdge supports the following hardware accelerators:
+Checked items are available on the current `main` branch.
+
 - ☑ CPU (AVX2 / NEON)
 - ☐ CUDA
 - ☐ Metal
 - ☐ Vulkan
 
-## Quick Start
-
-Not sure which path fits? See the [capability guide](docs/capabilities.md) for complete-policy,
-external-encoder, streaming, Relay, and custom cooperative-job workflows.
-
-<details open>
-<summary><b>C++: build and sample</b></summary>
-
-Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated on Linux.
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
-./build/flow_sample models/mamba_flow.safetensors euler 10
-```
-
-The checkpoint must contain `backbone.*` Mamba tensors and `flow.*` action-head tensors. Download the smoke-test model:
-
-```bash
-mkdir -p models
-wget -qO models/mamba_flow.safetensors \
-  https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors
-```
-</details>
-
-<details>
-<summary><b>Python: install and sample</b></summary>
-
-```bash
-python -m pip install .
-python examples/flow_sample.py models/mamba_flow.safetensors
-```
-
-The Python wheel builds the same C++ engine. Use `Engine.sample(prefix, noise, steps, method)` for `euler`, `heun`, or `rk4`.
-</details>
-
-<details>
-<summary><b>Validate locally</b></summary>
-
-```bash
-cmake -S . -B build -DFLOWEDGE_TESTS=ON -DFLOWEDGE_BENCH=ON
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench
-```
-
-On Linux, `scripts/build.sh`, `scripts/test.sh`, `scripts/lint.sh`, and `scripts/bench.sh` run the same workflow. Set `FLOWEDGE_LATENCY_ITERS=5000` to shorten the latency sample during development.
-
-Build Relay with `-DFLOWEDGE_RELAY=ON`; use `scripts/relay_bench.sh` for its allocation-checked
-single-worker and multi-worker paths. The daemon accepts `--workers 1..8` independently of the Core
-`--threads` setting; workers share one immutable checkpoint store. Begin with
-`--workers 2 --threads 0 --placement compact` and measure compact versus spread on the deployment CPU.
-`scripts/relay_demo.sh` exercises the typed client, deadline outcome, trace inspection, replay, and
-Prometheus/JSON/OTLP metrics; `scripts/verify_all.sh` runs the complete local release gate.
-`scripts/job_demo.sh` runs the generic-job daemon, submits interactive and critical Mamba streams,
-administers worker lanes, and validates lifecycle traces and metrics.
-`cooperative_job_sample` demonstrates runtime-neutral state migration and cancellation;
-`routed_job_sample` demonstrates process-compatible job transport, bounded adapter lanes, and
-lifecycle metrics; `mamba_relay_stream` demonstrates exact cross-engine Mamba continuation; and
-`flowedge_cooperative_job_bench` enforces zero allocations across routing and telemetry;
-`flowedge_job_queue_bench` measures saturated deadline-queue dispatch;
-`flowedge_mamba_stream_bench` measures production adapter overhead and migration; and
-`flowedge_worker_drain_bench` measures bounded live handoff; `flowedge_job_qos_bench` measures typed
-overload rejection with reserved queue capacity.
-`action_delivery_sample` demonstrates a 25 Hz policy feeding a 100 Hz controller through freshness,
-overlap, bounds, and rate limits; `flowedge_action_delivery_bench` measures that final gate.
-
-Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
-`FlowEdge::flowedge_engine` remains available as a compatibility target.
-</details>
-
 ## Architectures & Heads
+
+Checked items are available on the current `main` branch.
 
 **Backbones:**
 - ☑ Mamba selective-SSM
@@ -128,6 +57,7 @@ Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
 **Heads (Action Policies):**
 - ☑ Flow-Matching CNF
 - ☐ Diffusion Policy
+- ☐ π0
 - ☐ DiT
 
 **ODE Solvers:**
@@ -140,17 +70,171 @@ Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`;
 - ☑ BF16
 - ☐ INT8
 
-## Backend Performance
+## Quick Start
 
-Mamba backbone forward, one CPU thread, matched checkpoint and tokens. Lower is better.
+<details open>
+<summary><b>C++: build and sample</b></summary>
+
+Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated on Linux.
+
+**Build**
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+**Download checkpoint**
+```bash
+mkdir -p models
+wget -qO models/mamba_flow.safetensors \
+  https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors
+```
+
+The included smoke checkpoint contains the required `backbone.*` Mamba tensors and `flow.*` action-head tensors.
+
+**Run**
+```bash
+./build/flow_sample models/mamba_flow.safetensors euler 10
+```
+</details>
+
+<details>
+<summary><b>Python: install and sample</b></summary>
+
+```bash
+python -m pip install .
+python examples/flow_sample.py models/mamba_flow.safetensors
+```
+
+The Python package uses the same C++ engine. Use `Engine.sample(prefix, noise, steps, method)` with `euler`, `heun`, or `rk4`.
+</details>
+
+For external encoders, streaming inference, Relay, and cooperative jobs, see the [capability guide](docs/capabilities.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Client[Python / C++ Client] -->|State + Condition| Core[FlowEdge::Core]
+    subgraph Engine [FlowEdge Runtime]
+        Core --> Backbone[Mamba Backbone]
+        Backbone --> Solver[ODE Solver]
+        Solver <-->|Recurrent step| Head[Flow-Matching Head]
+    end
+    Solver -->|Final Action| Output[Robot Controller]
+    Relay[Relay / Job Queue] -.->|Optional IPC| Core
+```
+
+The allocation-free engine lives in `src/core/` and is exported to CMake consumers as `FlowEdge::Core`. Core does not depend on transport, telemetry, ROS, or daemon libraries.
+
+Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
+
+## FlowEdge Relay
+
+Relay is the optional local systems layer around `FlowEdge::Core`.
+
+```mermaid
+flowchart LR
+    Job[Job Client] -->|IPC| Daemon[Relay Daemon]
+    Daemon -->|EDF Scheduler| Worker[Worker Pool]
+    Worker -->|Shared Memory Inference| Core[FlowEdge::Core]
+```
+
+It adds:
+- shared-memory IPC
+- deadline-aware admission
+- cancellation and freshness handling
+- preallocated worker pools
+- state migration
+- iterative and streaming cooperative jobs
+- traces and fixed-memory metrics
+
+Build with:
+
+```bash
+cmake -S . -B build-relay \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DFLOWEDGE_RELAY=ON
+
+cmake --build build-relay -j
+```
+
+## Performance
+
+Mamba backbone forward with one CPU thread and matched checkpoint/input. Lower is better.
+
+> These results use the included deterministic smoke checkpoint. They are not yet a production-policy benchmark.
 
 | Backend | FlowEdge | PyTorch | Speedup |
-|---|---:|---:|---:|
-| CPU (Windows) | 0.091 ms | 1.650 ms | 18.1x |
-| CPU (Linux) | 0.071 ms | 0.990 ms | 13.9x |
-| CUDA | TBD | TBD | TBD |
-| Tenstorrent TTNN | TBD | TBD | TBD |
-| Metal | TBD | TBD | TBD |
-| Vulkan | TBD | TBD | TBD |
+| :--- | ---: | ---: | ---: |
+| CPU (Windows) | 0.091 ms | 1.650 ms | **18.1x** |
+| CPU (Linux) | 0.071 ms | 0.990 ms | **13.9x** |
 
-See [performance](docs/performance.md#backbone-forward) for exact commands and the complete results.
+### End-to-end action latency
+
+| Platform | FlowEdge p99 | PyTorch p99 | Speedup |
+| :--- | ---: | ---: | ---: |
+| Windows | 0.579 ms | 2.277 ms | **3.93x** |
+| Linux | 0.650 ms | 1.695 ms | **2.61x** |
+
+See [performance](docs/performance.md#backbone-forward) for methodology and exact commands.
+
+## External encoder / head-only usage
+
+```mermaid
+flowchart LR
+    Vision[External Vision Encoder] -->|Condition / Latents| FlowEdge[FlowEdge Action Head]
+    Proprioception[State Vector] --> FlowEdge
+    FlowEdge -->|Action Chunk| Robot[Robot Controller]
+```
+
+FlowEdge can run only the action-policy path while observation encoding is handled by another process, model, or accelerator. Use the head-only routines in `Engine.sample` or the C++ equivalent.
+
+## Verification
+
+Run the local test and benchmark suite:
+
+```bash
+cmake -S . -B build \
+  -DFLOWEDGE_TESTS=ON \
+  -DFLOWEDGE_BENCH=ON
+
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+On Linux:
+
+```bash
+./scripts/test.sh
+./scripts/bench.sh
+./scripts/verify_all.sh
+```
+
+Relay-specific verification and benchmark commands are documented in the [performance](docs/performance.md) and Relay guides.
+
+## Contributing
+
+Contributions are welcome in models, kernels, deployment tooling, backends,
+benchmarks, and integrations.
+
+- [`good first issue`](https://github.com/elprofesoriqo/FlowEdge/labels/good%20first%20issue)
+- [`help wanted`](https://github.com/elprofesoriqo/FlowEdge/labels/help%20wanted)
+- [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
+
+## Scope
+
+FlowEdge deliberately does not try to provide:
+
+- model training
+- dataset pipelines
+- general-purpose graph execution
+- built-in vision/language encoders
+- distributed cluster scheduling
+- robot safety control
+
+PyTorch, ONNX Runtime, TensorRT, and llama.cpp solve broader or different
+inference problems. FlowEdge focuses on predictable execution of fixed
+robotics policies and the systems contracts around that deployment path.
