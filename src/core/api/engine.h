@@ -42,8 +42,27 @@ typedef struct fe_diffusion_metadata
   float reserved_float;
 } fe_diffusion_metadata;
 
+/** Stable return values shared by all C ABI operations that return int. */
+enum
+{
+  FE_STATUS_OK = 0,
+  FE_STATUS_INVALID_ARGUMENT = 1,
+  FE_STATUS_RESOURCE_EXHAUSTED = 2,
+  FE_STATUS_TOKEN_OUT_OF_RANGE = 3,
+  FE_STATUS_UNSUPPORTED_MODEL = 4,
+  FE_STATUS_INVALID_SOLVER = 5,
+  FE_STATUS_NO_ACTIVE_OPERATION = 6,
+  FE_STATUS_STATE_UNAVAILABLE = 7,
+  FE_STATUS_CANCELLED = 8,
+  FE_STATUS_INCOMPATIBLE_STATE = 9,
+  FE_STATUS_CORRUPT_STATE = 10,
+};
 /**
  * @brief Returns the last error message encountered by the engine on the current thread.
+ *
+ * The returned pointer is never NULL and remains valid until the next FlowEdge C ABI call on
+ * the same thread. Error storage is thread-local; copy the string if it must outlive that call.
+ * Successful operations clear the current-thread error.
  * @return A null-terminated string describing the error, or an empty string if no error occurred.
  */
 const char* fe_engine_last_error(void);
@@ -94,7 +113,7 @@ void fe_engine_dims(const fe_engine* engine, size_t* d_model, size_t* n_layers);
  * @param tokens Array of input token IDs.
  * @param seq_len Length of the token array.
  * @param out Output buffer of size [seq_len * d_model] for the hidden states.
- * @return 0 on success, non-zero on error.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_run(fe_engine* engine, const int32_t* tokens, size_t seq_len, float* out);
 
@@ -103,7 +122,7 @@ int fe_engine_run(fe_engine* engine, const int32_t* tokens, size_t seq_len, floa
  * @param engine The engine instance.
  * @param token The input token ID.
  * @param out Output buffer of size [d_model] for the current hidden state.
- * @return 0 on success, non-zero on error.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_step(fe_engine* engine, int32_t token, float* out);
 
@@ -181,7 +200,7 @@ int fe_engine_diffusion_denoise(fe_engine* engine, const float* condition,
  * @param steps Number of ODE solver steps.
  * @param method One of FE_SOLVER_EULER, FE_SOLVER_HEUN, or FE_SOLVER_RK4.
  * @param action Output buffer of size [action_dim] for the final action.
- * @return 0 on success, non-zero on error.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_sample(fe_engine* engine, const int32_t* tokens, size_t seq_len, const float* noise,
                      size_t steps, int method, float* action);
@@ -199,7 +218,7 @@ int fe_engine_sample(fe_engine* engine, const int32_t* tokens, size_t seq_len, c
  * @param steps Number of ODE solver steps.
  * @param method One of FE_SOLVER_EULER, FE_SOLVER_HEUN, or FE_SOLVER_RK4.
  * @param action Output buffer of size [action_dim].
- * @return 0 on success, non-zero on error.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_sample_condition(fe_engine* engine, const float* condition, const float* noise,
                                size_t steps, int method, float* action);
@@ -210,7 +229,7 @@ int fe_engine_sample_condition(fe_engine* engine, const float* condition, const 
  * Only one resumable solve may be active per engine. Starting another replaces
  * the previous solve. Use fe_engine_flow_advance() to run bounded work units.
  *
- * @return 0 on success, non-zero on error.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_flow_begin(fe_engine* engine, const float* condition, const float* noise,
                          size_t steps, int method);
@@ -243,7 +262,7 @@ void fe_engine_cancel_before(fe_engine* engine, uint64_t generation);
  * @param step_budget Maximum number of ODE steps to execute in this call.
  * @param action Output buffer of size [action_dim].
  * @param steps_remaining Optional output for the number of unfinished steps.
- * @return 0 on success, non-zero on error.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_flow_advance(fe_engine* engine, size_t step_budget, float* action,
                            size_t* steps_remaining);
@@ -260,13 +279,17 @@ size_t fe_engine_decode_state_bytes(const fe_engine* engine);
 
 /**
  * @brief Copy the streaming decode state into caller-owned storage.
- * @param destination Buffer with at least fe_engine_decode_state_bytes() bytes.
+ * @param destination Non-null caller-owned buffer with at least
+ * fe_engine_decode_state_bytes() bytes. The buffer is unchanged on failure.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_export_decode_state(const fe_engine* engine, void* destination, size_t bytes);
 
 /**
  * @brief Restore a validated streaming state from the same model.
- * @param source Snapshot buffer of exactly fe_engine_decode_state_bytes() bytes.
+ * @param source Non-null caller-owned snapshot buffer of exactly
+ * fe_engine_decode_state_bytes() bytes. The engine state is unchanged on failure.
+ * @return FE_STATUS_OK on success, otherwise one of the FE_STATUS_* values.
  */
 int fe_engine_import_decode_state(fe_engine* engine, const void* source, size_t bytes);
 

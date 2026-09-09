@@ -26,6 +26,7 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
 | Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
 | Compare FlowEdge with PyTorch | [Performance](performance) |
 | Convert or port a supported checkpoint | [Converter](guides/converter) |
+| Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
 
 ## Implementation status
 
@@ -95,6 +96,7 @@ performance
 architecture/overview
 architecture/memory
 architecture/loader
+architecture/deployment-profile
 architecture/kernels
 architecture/backbones
 architecture/heads
@@ -116,6 +118,7 @@ api/python
 guides/add-a-head
 guides/add-a-backbone
 guides/converter
+guides/checkpoint-preflight
 guides/verification
 guides/observability
 guides/cooperative-jobs
