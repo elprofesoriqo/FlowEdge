@@ -107,6 +107,7 @@ if [[ "$PYTHON_OPTION" == ON ]]; then
   fi
   if "$PYTHON" -c 'import numpy, torch, safetensors' >/dev/null 2>&1; then
     (cd "$ROOT" && "$PYTHON" scripts/verify_ulp.py "$MODEL")
+    (cd "$ROOT" && "$PYTHON" scripts/verify_diffusion.py "$BUILD_DIR")
   else
     echo "note: PyTorch ULP verification dependencies unavailable"
   fi

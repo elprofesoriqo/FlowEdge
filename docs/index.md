@@ -2,7 +2,7 @@
 
 <img class="fe-hero-img" src="_static/hero.png" alt="FlowEdge" />
 
-<p class="fe-lede">FlowEdge is a small C++23 engine for running flow-matching action policies on the edge. It compiles to a dependency-free static binary and runs the whole control loop without a single heap allocation.</p>
+<p class="fe-lede">FlowEdge is a small C++23 engine for running flow-matching and diffusion action policies on the edge. It compiles to a dependency-free static binary and runs the whole control loop without a single heap allocation.</p>
 
 ## What it is
 
@@ -26,6 +26,7 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
 | Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
 | Compare FlowEdge with PyTorch | [Performance](performance) |
 | Convert or port a supported checkpoint | [Converter](guides/converter) |
+| Run a LeRobot Diffusion Policy head | [Diffusion Policy](guides/diffusion-policy) |
 
 ## Implementation status
 
@@ -36,11 +37,11 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
   </div>
   <div class="fe-card">
     <h4>Heads</h4>
-    <ul><li class="done">Flow matching</li><li>Diffusion Policy (planned)</li><li>DiT (experimental)</li></ul>
+    <ul><li class="done">Flow matching</li><li class="done">Diffusion Policy</li><li>DiT (experimental)</li></ul>
   </div>
   <div class="fe-card">
     <h4>Solvers</h4>
-    <ul><li class="done">Euler</li><li class="done">Heun</li><li class="done">RK4</li></ul>
+    <ul><li class="done">Euler</li><li class="done">Heun</li><li class="done">RK4</li><li class="done">DDIM / DDPM</li></ul>
   </div>
   <div class="fe-card">
     <h4>Precision</h4>
@@ -116,6 +117,7 @@ api/python
 guides/add-a-head
 guides/add-a-backbone
 guides/converter
+guides/diffusion-policy
 guides/verification
 guides/observability
 guides/cooperative-jobs

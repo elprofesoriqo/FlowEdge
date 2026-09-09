@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from safetensors.torch import save_file
+from safetensors.torch import load_file, save_file
 from torch import nn
 
 
@@ -207,6 +207,48 @@ def reference_sample(model, condition, noise, inference_steps, scheduler, seed, 
     return ((sample + 1) * 0.5 * (action_max - action_min) + action_min).numpy()[0]
 
 
+def _write_modern_processor_fixture(directory, state, config, action_min, action_max):
+    modern_directory = directory / "modern-processor"
+    modern_directory.mkdir()
+    modern_state = {
+        key: value for key, value in state.items() if not key.startswith("unnormalize_outputs.")
+    }
+    save_file(modern_state, modern_directory / "model.safetensors")
+    modern_config = dict(config)
+    modern_config.pop("normalization_mapping")
+    (modern_directory / "config.json").write_text(
+        json.dumps(modern_config), encoding="utf-8"
+    )
+    (modern_directory / "policy_postprocessor.json").write_text(
+        json.dumps(
+            {
+                "name": "policy_postprocessor",
+                "steps": [
+                    {
+                        "registry_name": "unnormalizer_processor",
+                        "config": {
+                            "eps": 1e-8,
+                            "features": {"action": {"type": "ACTION", "shape": [2]}},
+                            "norm_map": {
+                                "VISUAL": "MEAN_STD",
+                                "STATE": "MIN_MAX",
+                                "ACTION": "MIN_MAX",
+                            },
+                        },
+                        "state_file": "policy_postprocessor_step_0.safetensors",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    save_file(
+        {"action.min": action_min, "action.max": action_max},
+        modern_directory / "policy_postprocessor_step_0.safetensors",
+    )
+    return modern_directory
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     build_dir = None
@@ -256,6 +298,52 @@ def main():
              "--arch", "diffusion"],
             check=True,
         )
+        modern_directory = _write_modern_processor_fixture(
+            directory, state, config, action_min, action_max
+        )
+        modern_converted = directory / "modern-flowedge.safetensors"
+        subprocess.run(
+            [
+                sys.executable,
+                str(root / "convert" / "convert.py"),
+                str(modern_directory),
+                str(modern_converted),
+                "--arch",
+                "diffusion",
+            ],
+            check=True,
+        )
+        legacy_output = load_file(converted)
+        modern_output = load_file(modern_converted)
+        assert torch.equal(legacy_output["dp.action_min"], modern_output["dp.action_min"])
+        assert torch.equal(legacy_output["dp.action_max"], modern_output["dp.action_max"])
+        print("modern LeRobot processor normalization conversion OK")
+        unsupported_processor = json.loads(
+            (modern_directory / "policy_postprocessor.json").read_text(encoding="utf-8")
+        )
+        unsupported_processor["steps"][0]["config"]["norm_map"]["ACTION"] = "MEAN_STD"
+        unsupported_processor_path = modern_directory / "unsupported-processor.json"
+        unsupported_processor_path.write_text(
+            json.dumps(unsupported_processor), encoding="utf-8"
+        )
+        rejected_processor = subprocess.run(
+            [
+                sys.executable,
+                str(root / "convert" / "convert.py"),
+                str(modern_directory),
+                str(directory / "rejected-processor.safetensors"),
+                "--arch",
+                "diffusion",
+                "--processor",
+                str(unsupported_processor_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert rejected_processor.returncode != 0
+        assert "processor ACTION normalization" in rejected_processor.stderr
+        assert not (directory / "rejected-processor.safetensors").exists()
         unsupported = dict(config)
         unsupported["prediction_type"] = "sample"
         unsupported_path = directory / "unsupported.json"

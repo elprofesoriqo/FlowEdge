@@ -84,6 +84,7 @@ jobs:
           print("convert round-trip OK", xa[:3])
           PY
           python scripts/verify_external_head.py
+          python scripts/verify_diffusion.py build
         env:
           PYTHONPATH: build
 

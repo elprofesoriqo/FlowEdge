@@ -81,3 +81,24 @@ versioned and checksummed; restore rejects a different model digest, architectur
 dimensions, truncated payload, or corruption before changing state.
 
 Source: `python/flowedge_ext.cc`.
+
+## Diffusion Policy
+
+```python
+e = flowedge.Engine("models/diffusion_pusht.flowedge.safetensors")
+condition = observation_encoder(history).astype(np.float32, copy=False)
+noise = np.random.default_rng(7).standard_normal(
+    (e.action_horizon, e.action_dim), dtype=np.float32)
+actions = e.sample_diffusion(condition, noise, steps=10, scheduler="ddim")
+```
+
+`actions` is `[action_horizon, action_dim]` and is already in dataset action
+units. `sample_diffusion_into` writes into a caller-owned C-contiguous float32
+buffer. Seeded `scheduler="ddpm"` is deterministic; the DDIM result depends only
+on the condition and supplied initial noise. `diffusion_denoise` runs one
+normalized U-Net pass for verification or profiling.
+
+`e.diffusion_metadata` exposes `horizon`, `action_steps`, `observation_steps`,
+`train_timesteps`, and the clipping policy. LeRobot normally executes
+`actions[observation_steps - 1: observation_steps - 1 + action_steps]` from the
+returned horizon; the controller owns that slicing decision.
