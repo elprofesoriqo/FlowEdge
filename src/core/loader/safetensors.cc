@@ -339,7 +339,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
                        tv.bytes = static_cast<std::size_t>(byte_len);
-                        tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
+                       tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
                          tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
@@ -394,7 +394,7 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   std::array<std::size_t, 4> out{};
   static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
                                              const std::array<std::uint64_t, 4>& shape,
-                                             std::uint8_t ndim, TensorView::Dtype) noexcept {
+                                             std::uint8_t ndim, bool) noexcept {
     if (n != name)
       return true; // keep scanning
     for (std::size_t i{0uz}; i < ndim; ++i)
@@ -423,12 +423,12 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
   const bool ok =
       foreach_tensor(mapped.json,
                      [&](std::string_view name, std::uint64_t, std::uint64_t byte_len,
-                          const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                          bool bf16) noexcept -> bool {
+                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
+                         bool bf16) noexcept -> bool {
                        if (tensors_loaded >= out.size())
                          return false;
                        TensorMetadata& metadata = out[tensors_loaded++];
-                        metadata.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
+                       metadata.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        metadata.bytes = static_cast<std::size_t>(byte_len);
                        metadata.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
