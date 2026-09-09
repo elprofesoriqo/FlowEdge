@@ -339,7 +339,7 @@ void print_json(const Report& report)
   json_strings(report.missing);
   std::cout << ",\"unsupported_tensors\":";
   json_strings(report.unsupported);
-  std::cout << "}}}\n";
+  std::cout << "}}\n";
 }
 
 void usage()
