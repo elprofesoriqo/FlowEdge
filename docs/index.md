@@ -95,6 +95,7 @@ performance
 architecture/overview
 architecture/memory
 architecture/loader
+architecture/deployment-profile
 architecture/kernels
 architecture/backbones
 architecture/heads
