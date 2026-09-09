@@ -214,9 +214,8 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
       continue;
     const bool bf16 = obj.find("\"BF16\"") != std::string_view::npos;
     const bool f32 = obj.find("\"F32\"") != std::string_view::npos;
-    const TensorView::Dtype dtype = bf16  ? TensorView::Dtype::BF16
-                                    : f32 ? TensorView::Dtype::F32
-                                          : TensorView::Dtype::Unsupported;
+    if (!bf16 && !f32)
+      continue;
 
     std::array<std::uint64_t, 4> shape{};
     const auto shape_count = parse_u64s(after_colon(obj, "\"shape\""), std::span{shape});
@@ -324,26 +323,13 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
       foreach_tensor(json,
                      [&](std::string_view name, std::uint64_t byte_off, std::uint64_t byte_len,
                          const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         TensorView::Dtype dtype) noexcept -> bool {
-                       if (dtype == TensorView::Dtype::Unsupported)
-                         return true;
+                         bool bf16) noexcept -> bool {
                        if (tensors_loaded >= out.size()) [[unlikely]]
                          return false;
                        if (!spans.add(byte_off, byte_len)) [[unlikely]]
                          return false;
                        if (!valid_tensor_shape(shape, ndim, byte_len, bf16))
                          return false;
-                       std::size_t elements{1uz};
-                       for (std::size_t axis{0uz}; axis < ndim; ++axis) {
-                         if (shape[axis] > std::numeric_limits<std::size_t>::max() / elements)
-                             [[unlikely]]
-                           return false;
-                         elements *= static_cast<std::size_t>(shape[axis]);
-                       }
-                       if (elements > std::numeric_limits<std::size_t>::max() / elem ||
-                           elements * elem != byte_len) [[unlikely]]
-                         return false;
-
                        // store bytes; matmul widens inline
                        auto* const dst = arena.alloc_array<std::byte, kSimdAlign>(byte_len);
                        if (!dst) [[unlikely]]
@@ -353,7 +339,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
                        tv.bytes = static_cast<std::size_t>(byte_len);
-                       tv.dtype = dtype;
+                        tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
                          tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
@@ -437,12 +423,12 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
   const bool ok =
       foreach_tensor(mapped.json,
                      [&](std::string_view name, std::uint64_t, std::uint64_t byte_len,
-                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         TensorView::Dtype dtype) noexcept -> bool {
+                          const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
+                          bool bf16) noexcept -> bool {
                        if (tensors_loaded >= out.size())
                          return false;
                        TensorMetadata& metadata = out[tensors_loaded++];
-                       metadata.dtype = dtype;
+                        metadata.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        metadata.bytes = static_cast<std::size_t>(byte_len);
                        metadata.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
