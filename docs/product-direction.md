@@ -1,56 +1,42 @@
-# Product Direction
+# Product direction
 
-FlowEdge's advantage is predictable action generation at the point where a trained policy meets
-real hardware. It should not compete with training frameworks, dataset tools, or a broad graph
-runtime. The highest-leverage additions are small, verifiable deployment contracts around the
-existing C ABI.
+## Position
 
-The initial Relay implementation now supplies model identity, portable action traces, calibrated
-deadline admission, generation cancellation, and bounded parallel workers. The items below describe
-the remaining product surface rather than unimplemented research ideas.
+```{mermaid}
+flowchart LR
+  Train[Training stack] -->|checkpoint + metadata| Preflight[FlowEdge preflight]
+  Preflight --> Runtime[Predictable Core runtime]
+  Runtime --> Relay[Optional local Relay]
+  Relay --> Robot[Robot / simulator]
+  Runtime --> Replay[Replay + timing evidence]
+```
 
-## Recommended Differentiators
+| FlowEdge owns | Integrator owns |
+|---|---|
+| Checkpoint validation and fixed inference | Training and dataset pipelines |
+| Static runtime state and solver execution | Camera/state encoders |
+| State identity, migration, traces, metrics | Robot safety controller |
+| Deadline admission and action gate | OS/board real-time configuration |
 
-### Checkpoint preflight report
+## Highest-leverage additions
 
-Provide a host-side command that reads a checkpoint without constructing a live engine and emits:
-model family, tensor schema, action dimensions, precision, static arena bytes, estimated persistent
-state, and unsupported tensors. A startup can put this report in CI before a model reaches a robot.
-It makes the current self-describing checkpoint format operationally useful and prevents a failed
-deploy from becoming a field debugging session.
+| Feature | Why it matters | Smallest useful form |
+|---|---|---|
+| Checkpoint preflight | Fail before a model reaches a robot | Schema, precision, dimensions, arena, unsupported tensors |
+| Replay capsule | Reproduce a surprising action | Model digest, encoded input, noise, solver, output, timing |
+| Deadline profile | Turn latency into a deployment contract | p50/p99/p999, max, allocations, CPU affinity |
+| Deployment profile | Share training/runtime assumptions | Units, normalization, observation hash, horizon, solver |
 
-### Replay capsule
+## Partner path
 
-Define a small, versioned artifact containing the model digest, tokens or already-encoded condition,
-noise, solver, action output, build revision, and timing summary. The engine stays deterministic, so
-the capsule becomes a portable reproducer for a surprising action across a robot, simulator, and CI.
-This is especially valuable to early-stage teams that cannot afford an extensive observability stack.
+```{mermaid}
+flowchart TD
+  A[Stable C/Python contract] --> B[LeRobot adapter]
+  B --> C[One supported robot rollout]
+  C --> D[Trace + latency + allocation evidence]
+  D --> E[Partner feedback]
+  E --> F[Only then: backend or middleware expansion]
+```
 
-Relay trace v2 implements the deterministic condition/action core. Generic cooperative jobs now add
-checksummed, model- and schema-bound state capsules for exact worker migration. Build revision and
-step-level scheduling events remain to be added to complete a single incident artifact.
-
-### Deadline budget contract
-
-Expose a host-side benchmark profile with p50, p99, p999, maximum, allocation count, and CPU
-affinity for the exact checkpoint and solver. Let deployment define a control period and fail the
-profile when tail latency exceeds the budget. The novelty is treating a policy's deadline as an API
-contract, rather than publishing only throughput numbers.
-
-Relay already accepts a deployment-calibrated nanoseconds-per-NFE bound. Persistent profiles with
-p999, affinity, thermal context, and automatic safety-margin selection remain future work.
-
-### Deployment profile
-
-Package checkpoint metadata beside the weights: action units, normalization parameters, observation
-schema hash, action horizon, solver default, allowed solver range, and model compatibility version.
-The runtime need only validate and expose this data; training still owns it. That creates a clean
-handshake between a startup's training code and its robot integration without making FlowEdge an
-observation encoder.
-
-## Deliberately Out Of Scope
-
-These ideas should not pull vision encoders, dataset readers, training loops, or arbitrary graph
-execution into FlowEdge. Those are separate systems with different latency and dependency budgets.
-The engine should stay narrow: validate the deployed artifact, run its fixed policy predictably, and
-make that execution easy to reproduce and measure.
+The product stays narrow: validate the deployed artifact, execute the fixed policy predictably, and
+make failures reproducible.
