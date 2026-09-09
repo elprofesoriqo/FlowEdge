@@ -1,7 +1,7 @@
 #include "relay/client/relay_client.h"
+#include "relay/tools/parse.h"
 #include "relay/worker/head_worker.h"
 
-#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <expected>
@@ -21,6 +21,7 @@ using fe::relay::ClientResult;
 using fe::relay::HeadWorker;
 using fe::relay::RelayClient;
 using fe::relay::RelayRequest;
+using fe::relay::cli::parse_number;
 
 enum class Command : std::uint8_t
 {
@@ -53,13 +54,6 @@ struct Options
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         std::chrono::steady_clock::now().time_since_epoch())
                                         .count());
-}
-
-template<typename Number>
-[[nodiscard]] bool parse_number(std::string_view text, Number& value) noexcept
-{
-  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  return error == std::errc{} && end == text.data() + text.size();
 }
 
 void usage(std::ostream& output)

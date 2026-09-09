@@ -138,7 +138,8 @@ if(FLOWEDGE_TESTS)
     add_executable(flowedge_job_service_fixture test/job_service_fixture.cc)
     target_link_libraries(flowedge_job_service_fixture PRIVATE FlowEdge::Relay)
 
-    add_executable(flowedge_relay_tests test/relay_tests.cc test/relay_process_tests.cc)
+    add_executable(flowedge_relay_tests test/relay_tests.cc test/relay_process_tests.cc
+                                         test/relay_parse_tests.cc)
     target_link_libraries(flowedge_relay_tests PRIVATE FlowEdge::Relay GTest::gtest_main)
     target_compile_definitions(flowedge_relay_tests PRIVATE
       FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"

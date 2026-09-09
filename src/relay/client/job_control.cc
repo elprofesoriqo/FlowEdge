@@ -2,9 +2,9 @@
 #include "relay/client/job_client.h"
 #include "relay/client/job_control_client.h"
 #include "relay/jobs/state_codec.h"
+#include "relay/tools/parse.h"
 
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +23,7 @@
 namespace {
 
 using namespace fe::relay;
+using fe::relay::cli::parse_integer;
 
 enum class Command : std::uint8_t
 {
@@ -53,13 +54,6 @@ struct Options
   JobServiceClass service_class{JobServiceClass::kBestEffort};
   bool help{};
 };
-
-template<typename Integer>
-[[nodiscard]] bool parse_integer(std::string_view text, Integer& value) noexcept
-{
-  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  return error == std::errc{} && end == text.data() + text.size();
-}
 
 [[nodiscard]] std::expected<std::vector<std::int32_t>, std::string> parse_tokens(
     std::string_view text)

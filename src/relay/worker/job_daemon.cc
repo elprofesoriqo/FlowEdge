@@ -3,6 +3,7 @@
 #include "relay/protocol/trace.h"
 #include "relay/telemetry/job_event_buffer.h"
 #include "relay/telemetry/metrics.h"
+#include "relay/tools/parse.h"
 #include "relay/worker/job_control_service.h"
 #include "relay/worker/job_service.h"
 #include "relay/worker/job_worker_pool.h"
@@ -11,7 +12,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstddef>
@@ -30,6 +30,7 @@
 namespace {
 
 using namespace fe::relay;
+using fe::relay::cli::parse_integer;
 
 struct Options
 {
@@ -67,13 +68,6 @@ std::atomic_bool stop_requested{false};
 void request_stop(int) noexcept
 {
   stop_requested.store(true, std::memory_order_relaxed);
-}
-
-template<typename Integer>
-[[nodiscard]] bool parse_integer(std::string_view text, Integer& value) noexcept
-{
-  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  return error == std::errc{} && end == text.data() + text.size();
 }
 
 void usage(std::ostream& output)
