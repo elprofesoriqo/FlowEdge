@@ -1,8 +1,8 @@
 #include "relay/protocol/trace.h"
+#include "relay/tools/parse.h"
 #include "relay/worker/head_worker.h"
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -30,6 +30,7 @@ using fe::relay::ProtocolResult;
 using fe::relay::TraceReader;
 using fe::relay::TraceRecord;
 using fe::relay::WorkerStep;
+using fe::relay::cli::parse_number;
 
 enum class Command : std::uint8_t
 {
@@ -65,13 +66,6 @@ struct RequestKeyHash
     return static_cast<std::size_t>(mixed);
   }
 };
-
-template<typename Number>
-[[nodiscard]] bool parse_number(std::string_view text, Number& value) noexcept
-{
-  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  return error == std::errc{} && end == text.data() + text.size();
-}
 
 void usage(std::ostream& output)
 {
