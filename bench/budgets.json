@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "max_library_bytes": {
+    "core": 350000,
+    "relay": 450000
+  },
+  "max_model_setup_allocations": 32
+}

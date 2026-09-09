@@ -53,6 +53,14 @@ FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/build.sh" Release \
   -DFLOWEDGE_PYTHON="$PYTHON_OPTION"
 ctest --test-dir "$BUILD_DIR" --output-on-failure
 
+if [[ -n "$PYTHON" ]]; then
+  "$PYTHON" "$ROOT/scripts/report_budgets.py" \
+    --build-dir "$BUILD_DIR" --model "$MODEL" \
+    --budget "$ROOT/bench/budgets.json" --report "$BUILD_DIR/budget-report.md"
+else
+  echo "note: Python unavailable; skipping size/setup budget report"
+fi
+
 "$(resolve_executable flow_sample)" "$MODEL" euler 6
 "$(resolve_executable flowedge-inspect)" "$MODEL" --json > "$BUILD_DIR/checkpoint-inspect.json"
 "$(resolve_executable flow_sample)" "$MODEL" heun 6
