@@ -26,6 +26,7 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
 | Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
 | Compare FlowEdge with PyTorch | [Performance](performance) |
 | Convert or port a supported checkpoint | [Converter](guides/converter) |
+| Deploy a supported LeRobot policy | [LeRobot adapter](guides/lerobot) |
 | Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
 
 ## Implementation status
@@ -79,6 +80,7 @@ graph TD
 - [Capabilities](capabilities). Choose a workflow and understand current limitations.
 - [Performance](performance). PyTorch comparisons and exact commands.
 - [Diffusion Policy](guides/diffusion-policy). Run the fixed-shape robotics policy path.
+- [LeRobot adapter](guides/lerobot). Connect a converted LeRobot Diffusion Policy checkpoint.
 - [Relay Quickstart](guides/relay-quickstart). Run the service and understand outcomes.
 - [C-ABI](api/c-abi). The public surface.
 
@@ -121,6 +123,7 @@ guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
 guides/diffusion-policy
+guides/lerobot
 guides/sanitizers
 guides/verification
 guides/observability

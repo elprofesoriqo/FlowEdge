@@ -58,6 +58,11 @@ jobs:
           pip install .
           python -c "import flowedge; print('import OK:', flowedge.Engine)"
 
+      - name: Verify LeRobot adapter contract
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: PYTHONPATH=integrations/lerobot/src python -m unittest discover -s integrations/lerobot/tests -v
+
       - name: Verify ULP vs PyTorch
         if: matrix.backend == 'cpu'
         shell: bash
