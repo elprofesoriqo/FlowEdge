@@ -37,7 +37,7 @@ flowchart LR
 
 | Track | Planned |
 |---|---|
-| Heads | Diffusion Policy, ACT, VQ-BeT, π0 |
+| Heads | ACT, VQ-BeT, π0; Diffusion Policy `diffusion_pusht` is done |
 | Backbone | Transformer and KV cache |
 | Weight traffic | NUMA replication experiments, INT8 |
 | Backends | CUDA, Tenstorrent |
