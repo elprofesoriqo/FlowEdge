@@ -19,7 +19,8 @@ graph TD
   AR --> HD
 ```
 
-- Arena. Fixed bump allocator. Holds all weights and scratch. No malloc on the hot path.
+- Arena. Fixed bump allocator. Holds all weights and scratch. Model loading may allocate the
+  arena and loader metadata; no malloc occurs on the hot path.
 - Loader. Zero-dependency safetensors mmap. Reads F32 and BF16.
 - Runtime. `src/core/runtime/engine_runtime.*` owns arena-carved persistent state, model assembly,
   and the SPMC thread pool. The C ABI remains a narrow adapter in `src/core/api/`.

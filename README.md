@@ -31,7 +31,7 @@ See [Performance](#performance) for methodology and complete results.
 ## What is FlowEdge?
 
 FlowEdge is a C++23 inference runtime for low-latency robotics policies, currently focused on Mamba backbones and flow-matching action heads:
-- static memory with zero heap allocations on supported hot paths
+- static runtime memory with zero heap allocations after engine initialization
 - native `.safetensors` loading and checkpoint conversion
 - C++, C API, and Python interfaces
 - deterministic state snapshot and restore
@@ -56,7 +56,7 @@ Checked items are available on the current `main` branch.
 
 **Heads (Action Policies):**
 - ☑ Flow-Matching CNF
-- ☐ Diffusion Policy
+- ☑ Diffusion Policy (fixed LeRobot head)
 - ☐ π0
 - ☐ DiT
 
@@ -125,7 +125,10 @@ flowchart LR
     Relay[Relay / Job Queue] -.->|Optional IPC| Core
 ```
 
-The allocation-free engine lives in `src/core/` and is exported to CMake consumers as `FlowEdge::Core`. Core does not depend on transport, telemetry, ROS, or daemon libraries.
+The allocation-free execution path lives in `src/core/` and is exported to CMake consumers as
+`FlowEdge::Core`. Model loading may allocate once for weights and runtime setup; repeated
+inference is allocation-free. Core does not depend on transport, telemetry, ROS, or daemon
+libraries.
 
 Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 
@@ -179,6 +182,42 @@ Mamba backbone forward with one CPU thread and matched checkpoint/input. Lower i
 
 See [performance](docs/performance.md#backbone-forward) for methodology and exact commands.
 
+### Diffusion Policy
+
+The fixed LeRobot `diffusion_pusht` head is available through the current CPU backend. On the pinned
+public checkpoint, a single denoiser measured **365.4 ms p50** and a 10-step DDIM sample measured
+**3.765 s p50** with four workers. Dense-kernel optimization currently ranges from **1.09x to
+3.18x** against the pre-optimization implementation; these are reference measurements, not
+real-time guarantees.
+
+### Relay and cooperative jobs
+
+Measured on the documented Windows and Linux hosts; lower latency and higher throughput are better.
+
+| Benchmark | Windows | Linux |
+| --- | ---: | ---: |
+| Relay synchronous p99 | 47.60 us | 40.10 us |
+| Relay pool, 1 worker | 37,240 req/s | 55,719 req/s |
+| Relay pool, 2 workers | 73,187 req/s | 109,507 req/s |
+| Migrate and finish | 478.56 ns/job | 292.08 ns/job |
+| Direct route, run, and return | 274.80 ns/job | 88.94 ns/job |
+| EDF pool + lifecycle metrics | 3.49 us/job | 1.19 us/job |
+| Shared-memory job service + pool + metrics | 4.60 us/job | 1.78 us/job |
+
+| Additional path | Windows | Linux |
+| --- | ---: | ---: |
+| Deadline dispatch, current | 1.36 us/job | 1.22 us/job |
+| Mamba stream, direct adapter | 108.16 us/job | 115.74 us/job |
+| Mamba stream, migrate and finish | 114.32 us/job | 129.32 us/job |
+| Worker drain handoff, p99 | 144.20 us | 108.81 us |
+| Action delivery, accept + publish | 49.13 ns/step | 60.75 ns/step |
+| QoS overload rejection | 114.481 ns | 65.6609 ns |
+
+The complete [performance report](docs/performance.md) also covers deadline dispatch, Mamba stream
+migration, worker draining, action delivery, QoS overload admission, binary-size budgets, and the
+initialization/hot-path allocation checks. Current verification records stable initialization
+allocations and **zero allocations during repeated inference**.
+
 ## External encoder / head-only usage
 
 ```mermaid
@@ -212,6 +251,46 @@ On Linux:
 ```
 
 Relay-specific verification and benchmark commands are documented in the [performance](docs/performance.md) and Relay guides.
+
+## Integrations and capabilities
+
+The current runtime covers both in-process control loops and a local multi-process deployment:
+
+| Use case | Entry point | Result |
+| --- | --- | --- |
+| Mamba + flow policy | `flow_sample` | Tokens to a deterministic action chunk |
+| Existing VLA/vision encoder | `external_flow_sample` or head-only API | Condition vector to FlowEdge action head |
+| Incremental decoding | `mamba_forward` | Persistent Mamba recurrence state |
+| State transfer | `streaming_snapshot` | Exact continuation in another engine |
+| Live stream migration | `mamba_relay_stream` | Resume tokens on another Relay lane |
+| Cross-process action service | `scripts/relay_demo.sh` | Client, daemon, deadlines, replay, and metrics |
+| Fresh action delivery | `action_delivery_sample` | Freshness, overlap, bounds, and rate limits |
+| Custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative jobs |
+| Cross-process custom work | `routed_job_sample` | Typed results, lifecycle metrics, and traces |
+| Managed Mamba streams | `scripts/job_demo.sh` | QoS, lane recovery, traces, and metrics |
+
+Available interfaces and runtime features include:
+
+- C, CMake (`FlowEdge::Core` and `FlowEdge::Relay`), and Python APIs.
+- Mamba streaming and flow heads with Euler, Heun, and RK4 solvers.
+- A fixed LeRobot Diffusion Policy head, FP32/BF16 safetensors, and immutable shared weights.
+- CPU scalar/AVX2/NEON backends with adaptive worker placement.
+- Versioned snapshots, canonical job capsules, exact restore, and model identity checks.
+- Relay shared-memory transport, EDF scheduling, cancellation, freshness, safe action delivery,
+  cooperative jobs, QoS reservations, drain/quarantine/recovery, portable traces, and fixed-memory
+  Prometheus/JSON/OTLP metrics.
+
+ROS 2, Zenoh, CUDA, Metal, Vulkan, TTNN, Transformer, and external runtime adapters remain planned;
+see the [capability matrix](docs/capabilities.md) for the current boundary.
+
+### Allocation contract
+
+FlowEdge separates one-time initialization from the control loop. Loading a model may allocate
+weights, loader metadata, and fixed runtime state. After the engine and worker pool are initialized,
+the supported inference and Relay hot paths must perform zero heap allocations. The verification
+report checks this contract across repeated `load -> run -> free` cycles and fails on any hot-path
+allocation. A stricter caller-owned, zero-allocation load API is tracked in
+[issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63).
 
 ## Contributing
 

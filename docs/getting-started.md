@@ -120,7 +120,8 @@ a = e.sample(prefix=prefix,
 
 ## What to expect
 
-- The supported hot paths allocate no heap memory after engine/worker initialization.
+- Model loading may allocate once for weights and runtime setup. The supported hot paths
+  allocate no heap memory after engine/worker initialization.
 - One engine owns one mutable stream or active solve; use separate engines for concurrent sessions.
 - The implemented execution backend is CPU. CUDA, Tenstorrent, transformer, and diffusion work is
   tracked but not available through the current build.

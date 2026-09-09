@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report checked-in binary-size and setup-allocation budgets."""
+"""Report checked-in binary-size and model-initialization budgets."""
 
 from __future__ import annotations
 
@@ -19,9 +19,16 @@ def find_library(build_dir: Path, names: tuple[str, ...]) -> Path:
     return max(candidates, key=lambda path: path.stat().st_size)
 
 
-def setup_allocations(executable: Path, model: Path) -> int:
+def initialization_allocations(executable: Path, model: Path) -> int:
     completed = subprocess.run(
-        [str(executable), str(model), str(model), "1"],
+        [
+            str(executable),
+            str(model),
+            str(model),
+            "1",
+            "--lifecycle-cycles",
+            "3",
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -35,7 +42,7 @@ def setup_allocations(executable: Path, model: Path) -> int:
         r"^FP32\s+\|.*\|\s*(\d+)\s+\|\s*(\d+)\s*$", completed.stdout, re.MULTILINE
     )
     if match is None:
-        raise RuntimeError("model latency benchmark did not report an FP32 allocation row")
+        raise RuntimeError("model latency benchmark did not report an FP32 initialization row")
     hot_allocations = int(match.group(2))
     if hot_allocations != 0:
         raise RuntimeError(f"model hot path allocated {hot_allocations} times")
@@ -44,7 +51,7 @@ def setup_allocations(executable: Path, model: Path) -> int:
 
 def render(measured: dict[str, int], budgets: dict[str, int]) -> tuple[str, bool]:
     rows = [
-        "# FlowEdge size and setup budget",
+        "# FlowEdge size and initialization budget",
         "",
         "| Metric | Measured | Budget | Result |",
         "|---|---:|---:|---|",
@@ -53,7 +60,7 @@ def render(measured: dict[str, int], budgets: dict[str, int]) -> tuple[str, bool
     for name, label in (
         ("core_bytes", "Core library bytes"),
         ("relay_bytes", "Relay library bytes"),
-        ("model_setup_allocations", "Model setup allocations"),
+        ("model_initialization_allocations", "Model initialization allocations"),
     ):
         actual = measured[name]
         budget = budgets[name]
@@ -63,8 +70,8 @@ def render(measured: dict[str, int], budgets: dict[str, int]) -> tuple[str, bool
     rows.extend(
         [
             "",
-            "The setup allocation count covers engine construction; the benchmark also fails if the "
-            "measured model hot path allocates.",
+            "The initialization allocation count covers engine construction and is checked across "
+            "three load/run/free cycles; the benchmark also fails if the measured hot path allocates.",
         ]
     )
     return "\n".join(rows) + "\n", failed
@@ -86,7 +93,9 @@ def main() -> int:
         budgets = {
             "core_bytes": int(max_library["core"]),
             "relay_bytes": int(max_library["relay"]),
-            "model_setup_allocations": int(budget_document["max_model_setup_allocations"]),
+            "model_initialization_allocations": int(
+                budget_document["max_model_initialization_allocations"]
+            ),
         }
         core = find_library(args.build_dir, ("libflowedge_engine.a", "flowedge_engine.lib"))
         relay = find_library(args.build_dir, ("libflowedge_relay.a", "flowedge_relay.lib"))
@@ -107,7 +116,7 @@ def main() -> int:
         measured = {
             "core_bytes": core.stat().st_size,
             "relay_bytes": relay.stat().st_size,
-            "model_setup_allocations": setup_allocations(benchmark, args.model),
+            "model_initialization_allocations": initialization_allocations(benchmark, args.model),
         }
         report, failed = render(measured, budgets)
     except (OSError, KeyError, TypeError, ValueError, RuntimeError, json.JSONDecodeError) as error:
