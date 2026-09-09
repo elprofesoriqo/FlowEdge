@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +23,14 @@ double percentile(const std::vector<double>& sorted, double quantile)
 {
   const auto index = static_cast<std::size_t>(quantile * static_cast<double>(sorted.size() - 1uz));
   return sorted[index];
+}
+
+bool parse_size(std::string_view text, std::size_t& value) noexcept
+{
+  if (text.empty())
+    return false;
+  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+  return error == std::errc{} && end == text.data() + text.size();
 }
 
 int check_lifecycle(std::string_view label, const char* path, std::size_t cycles)
@@ -187,13 +196,26 @@ int main(int argc, char** argv)
                stderr);
     return 2;
   }
-  const bool has_bf16 = argc >= 3 && std::string_view{argv[2]} != "--lifecycle-cycles";
-  std::size_t next_argument = has_bf16 ? 3uz : 2uz;
+  std::size_t next_argument{2uz};
+  std::string_view bf16_model{};
   std::size_t iterations{100uz};
   if (next_argument < static_cast<std::size_t>(argc) &&
       std::string_view{argv[next_argument]} != "--lifecycle-cycles") {
-    iterations = std::strtoull(argv[next_argument], nullptr, 10);
-    ++next_argument;
+    const std::string_view argument{argv[next_argument]};
+    if (parse_size(argument, iterations))
+      ++next_argument;
+    else {
+      bf16_model = argument;
+      ++next_argument;
+      if (next_argument < static_cast<std::size_t>(argc) &&
+          std::string_view{argv[next_argument]} != "--lifecycle-cycles") {
+        if (!parse_size(argv[next_argument], iterations)) {
+          std::fputs("iterations must be a positive integer\n", stderr);
+          return 2;
+        }
+        ++next_argument;
+      }
+    }
   }
   std::size_t lifecycle_cycles{0uz};
   if (next_argument < static_cast<std::size_t>(argc)) {
@@ -202,7 +224,10 @@ int main(int argc, char** argv)
       std::fputs("expected --lifecycle-cycles N\n", stderr);
       return 2;
     }
-    lifecycle_cycles = std::strtoull(argv[next_argument + 1uz], nullptr, 10);
+    if (!parse_size(argv[next_argument + 1uz], lifecycle_cycles)) {
+      std::fputs("lifecycle cycles must be a non-negative integer\n", stderr);
+      return 2;
+    }
   }
   if (iterations == 0uz) {
     std::fputs("iterations must be positive\n", stderr);
@@ -213,7 +238,7 @@ int main(int argc, char** argv)
   std::puts("--------------------------------------------------------------------------------------"
             "-----------------------------");
   int result = measure("FP32", argv[1], iterations, lifecycle_cycles);
-  if (has_bf16)
-    result |= measure("BF16", argv[2], iterations, lifecycle_cycles);
+  if (!bf16_model.empty())
+    result |= measure("BF16", bf16_model.data(), iterations, lifecycle_cycles);
   return result;
 }
