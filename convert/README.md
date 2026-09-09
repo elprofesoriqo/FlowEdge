@@ -24,7 +24,10 @@ Diffusion Policy it may also be the downloaded model directory.
   the action U-Net and MIN_MAX action statistics and deliberately drops the
   ResNet image encoder. Runtime input is the flattened observation condition
   immediately before LeRobot's U-Net (132 float values for the reference
-  checkpoint).
+  checkpoint). Modern model directories with `policy_postprocessor.json` are
+  detected automatically; their `action.min` and `action.max` tensors are read
+  from the referenced processor state file. Use `--processor` when the sidecar
+  has a non-standard filename.
 
 ```bash
 hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
@@ -35,4 +38,5 @@ python convert/convert.py models/diffusion_pusht \
 
 The initial diffusion path supports `squaredcos_cap_v2`, epsilon prediction,
 FiLM scale modulation, GroupNorm, fixed horizons, and MIN_MAX action
-normalization. Unsupported variants fail conversion with a targeted error.
+normalization. Legacy embedded statistics and modern processor sidecars are
+supported; other normalization modes fail conversion with a targeted error.
