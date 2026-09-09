@@ -64,6 +64,18 @@ class RolloutTests(unittest.TestCase):
             run_rollout(policy, robot, fail, steps=1)
         self.assertEqual(robot.stop_count, 1)
 
+    def test_stop_runs_when_robot_reset_fails(self):
+        robot = FakeRobot()
+        policy = FlowEdgeDiffusionPolicy(FakeEngine())
+
+        def fail_reset():
+            raise RuntimeError("reset failure")
+
+        robot.reset = fail_reset
+        with self.assertRaisesRegex(RuntimeError, "reset failure"):
+            run_rollout(policy, robot, lambda value: value, steps=1)
+        self.assertEqual(robot.stop_count, 1)
+
     def test_steps_must_be_positive(self):
         with self.assertRaisesRegex(ValueError, "steps must be positive"):
             run_rollout(

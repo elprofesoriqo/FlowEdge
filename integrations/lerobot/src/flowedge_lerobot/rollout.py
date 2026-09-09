@@ -52,10 +52,10 @@ def run_rollout(
         raise ValueError("diffusion_steps must be positive")
 
     policy.reset()
-    robot.reset()
     rng = np.random.default_rng(seed)
     completed = 0
     try:
+        robot.reset()
         for _ in range(steps):
             condition = encode_condition(robot.observe())
             noise_shape = (policy.metadata.horizon, policy.action_dim)
