@@ -2,10 +2,10 @@
 #include "relay/scheduler/edf_scheduler.h"
 #include "relay/shared_memory/shared_memory_ring.h"
 #include "relay/telemetry/metrics.h"
+#include "relay/tools/parse.h"
 #include "relay/worker/head_worker_pool.h"
 
 #include <atomic>
-#include <charconv>
 #include <chrono>
 #include <csignal>
 #include <cstddef>
@@ -39,6 +39,7 @@ using fe::relay::SharedMemoryRing;
 using fe::relay::SubmitResult;
 using fe::relay::TraceWriter;
 using fe::relay::WorkerPlacement;
+using fe::relay::cli::parse_integer;
 
 struct Options
 {
@@ -74,13 +75,6 @@ void request_stop(int) noexcept
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         std::chrono::steady_clock::now().time_since_epoch())
                                         .count());
-}
-
-template<typename Integer>
-[[nodiscard]] bool parse_integer(std::string_view text, Integer& value) noexcept
-{
-  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
-  return error == std::errc{} && end == text.data() + text.size();
 }
 
 void usage(std::ostream& output)

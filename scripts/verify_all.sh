@@ -54,6 +54,7 @@ FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/build.sh" Release \
 ctest --test-dir "$BUILD_DIR" --output-on-failure
 
 "$(resolve_executable flow_sample)" "$MODEL" euler 6
+"$(resolve_executable flowedge-inspect)" "$MODEL" --json > "$BUILD_DIR/checkpoint-inspect.json"
 "$(resolve_executable flow_sample)" "$MODEL" heun 6
 "$(resolve_executable flow_sample)" "$MODEL" rk4 6
 "$(resolve_executable mamba_forward)" "$MODEL"
