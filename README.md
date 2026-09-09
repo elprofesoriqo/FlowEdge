@@ -197,9 +197,21 @@ Measured on the documented Windows and Linux hosts; lower latency and higher thr
 | Benchmark | Windows | Linux |
 | --- | ---: | ---: |
 | Relay synchronous p99 | 47.60 us | 40.10 us |
+| Relay pool, 1 worker | 37,240 req/s | 55,719 req/s |
 | Relay pool, 2 workers | 73,187 req/s | 109,507 req/s |
 | Migrate and finish | 478.56 ns/job | 292.08 ns/job |
+| Direct route, run, and return | 274.80 ns/job | 88.94 ns/job |
+| EDF pool + lifecycle metrics | 3.49 us/job | 1.19 us/job |
 | Shared-memory job service + pool + metrics | 4.60 us/job | 1.78 us/job |
+
+| Additional path | Windows | Linux |
+| --- | ---: | ---: |
+| Deadline dispatch, current | 1.36 us/job | 1.22 us/job |
+| Mamba stream, direct adapter | 108.16 us/job | 115.74 us/job |
+| Mamba stream, migrate and finish | 114.32 us/job | 129.32 us/job |
+| Worker drain handoff, p99 | 144.20 us | 108.81 us |
+| Action delivery, accept + publish | 49.13 ns/step | 60.75 ns/step |
+| QoS overload rejection | 114.481 ns | 65.6609 ns |
 
 The complete [performance report](docs/performance.md) also covers deadline dispatch, Mamba stream
 migration, worker draining, action delivery, QoS overload admission, binary-size budgets, and the
