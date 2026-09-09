@@ -88,6 +88,24 @@ jobs:
         env:
           PYTHONPATH: build
 
+  sanitizers:
+    name: ASan/UBSan (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Environment
+        uses: ./.github/actions/setup-llvm
+      - name: Run bounded sanitizer verification
+        run: bash ./scripts/sanitize.sh
+      - name: Upload sanitizer logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowedge-sanitizer-logs
+          path: build-sanitizers/Testing/Temporary/*.log
+          if-no-files-found: ignore
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
