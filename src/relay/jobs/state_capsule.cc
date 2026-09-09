@@ -1,12 +1,12 @@
 #include "relay/jobs/state_capsule.h"
 
+#include "protocol/byte_codec.h"
 #include "protocol/model_identity.h"
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <ranges>
-#include <type_traits>
 
 namespace fe::relay {
 namespace {
@@ -15,27 +15,8 @@ constexpr std::array<std::byte, 8> kMagic{std::byte{'F'}, std::byte{'E'}, std::b
                                           std::byte{'A'}, std::byte{'P'}, std::byte{'0'},
                                           std::byte{'0'}, std::byte{'1'}};
 constexpr std::uint16_t kVersion = 1u;
-
-template<typename Integer>
-void write_le(std::span<std::byte> destination, std::size_t offset, Integer value) noexcept
-{
-  using Unsigned = std::make_unsigned_t<Integer>;
-  const auto bits = static_cast<Unsigned>(value);
-  for (std::size_t index{}; index < sizeof(Integer); ++index)
-    destination[offset + index] = static_cast<std::byte>((bits >> (index * 8uz)) & Unsigned{0xffu});
-}
-
-template<typename Integer>
-[[nodiscard]] Integer read_le(std::span<const std::byte> source, std::size_t offset) noexcept
-{
-  using Unsigned = std::make_unsigned_t<Integer>;
-  Unsigned value{};
-  for (std::size_t index{}; index < sizeof(Integer); ++index) {
-    value |= static_cast<Unsigned>(std::to_integer<std::uint8_t>(source[offset + index]))
-             << (index * 8uz);
-  }
-  return static_cast<Integer>(value);
-}
+using fe::protocol::read_le;
+using fe::protocol::write_le;
 
 [[nodiscard]] bool valid_progress(const StateCapsuleMetadata& metadata) noexcept
 {

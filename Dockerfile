@@ -1,8 +1,8 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV CC=clang-23
-ENV CXX=clang++-23
+ENV CC=clang
+ENV CXX=clang++
 ENV FLOWEDGE_BUILD_DIR=/workspace/build
 
 RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99disable-check-valid-until \
@@ -22,19 +22,34 @@ RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99disable-c
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key \
-      | gpg --dearmor -o /usr/share/keyrings/apt.llvm.org.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
-      > /etc/apt/sources.list.d/llvm.list \
-    && apt-get update \
-    && apt-get install -y clang-23 clang-format-23 clang-tidy-23 \
-    && rm -rf /var/lib/apt/lists/* \
-    && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-23 100 \
-    && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-23 100 \
-    && update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-23 100 \
-    && update-alternatives --install /usr/bin/clang-tidy clang-tidy /usr/bin/clang-tidy-23 100 \
-    && update-alternatives --install /usr/bin/cc cc /usr/bin/clang-23 100 \
-    && update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++-23 100
+RUN set -eux; \
+    if curl --connect-timeout 10 --max-time 60 --retry 5 --retry-delay 5 --retry-all-errors \
+      -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm-snapshot.gpg.key \
+      && gpg --dearmor --yes -o /usr/share/keyrings/apt.llvm.org.gpg /tmp/llvm-snapshot.gpg.key \
+      && echo "deb [signed-by=/usr/share/keyrings/apt.llvm.org.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-23 main" \
+        > /etc/apt/sources.list.d/llvm.list \
+      && apt-get update \
+      && apt-get install -y clang-23 clang-format-23 clang-tidy-23; then \
+        compiler=clang-23; \
+        compiler_plus=clang++-23; \
+        formatter=clang-format-23; \
+        tidy=clang-tidy-23; \
+      else \
+        rm -f /usr/share/keyrings/apt.llvm.org.gpg /etc/apt/sources.list.d/llvm.list; \
+        apt-get update; \
+        apt-get install -y clang clang-format clang-tidy; \
+        compiler=clang; \
+        compiler_plus=clang++; \
+        formatter=clang-format; \
+        tidy=clang-tidy; \
+    fi; \
+    rm -rf /var/lib/apt/lists/* /tmp/llvm-snapshot.gpg.key; \
+    update-alternatives --install /usr/bin/clang clang "/usr/bin/$compiler" 100; \
+    update-alternatives --install /usr/bin/clang++ clang++ "/usr/bin/$compiler_plus" 100; \
+    update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/$formatter" 100; \
+    update-alternatives --install /usr/bin/clang-tidy clang-tidy "/usr/bin/$tidy" 100; \
+    update-alternatives --install /usr/bin/cc cc "/usr/bin/$compiler" 100; \
+    update-alternatives --install /usr/bin/c++ c++ "/usr/bin/$compiler_plus" 100
 
 WORKDIR /workspace
 
@@ -45,8 +60,8 @@ RUN mkdir -p models \
       -o models/mamba_flow.safetensors
 
 RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
-      -DCMAKE_C_COMPILER=/usr/bin/clang-23 \
-      -DCMAKE_CXX_COMPILER=/usr/bin/clang++-23 \
+      -DCMAKE_C_COMPILER=/usr/bin/clang \
+      -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \
       -DCMAKE_BUILD_TYPE=Release \
       -DFLOWEDGE_TESTS=ON \
       -DFLOWEDGE_BENCH=ON \
