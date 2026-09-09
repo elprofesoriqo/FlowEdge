@@ -66,20 +66,19 @@ private:
 using FloatBuffer = TypedBuffer<float>;
 using Int32Buffer = TypedBuffer<std::int32_t>;
 
-py::object float_array(std::size_t size)
+py::object float_array(py::handle numpy, std::size_t size)
 {
-  return py::module_::import("numpy").attr("empty")(py::int_(size), py::str("float32"));
+  return numpy.attr("empty")(py::int_(size), py::str("float32"));
 }
 
-py::object float_matrix(std::size_t rows, std::size_t columns)
+py::object float_matrix(py::handle numpy, std::size_t rows, std::size_t columns)
 {
-  return py::module_::import("numpy").attr(
-      "empty")(py::make_tuple(py::int_(rows), py::int_(columns)), py::str("float32"));
+  return numpy.attr("empty")(py::make_tuple(py::int_(rows), py::int_(columns)), py::str("float32"));
 }
 
-py::object contiguous_array(py::handle object, const char* dtype)
+py::object contiguous_array(py::handle numpy, py::handle object, const char* dtype)
 {
-  return py::module_::import("numpy").attr("ascontiguousarray")(object, py::str(dtype));
+  return numpy.attr("ascontiguousarray")(object, py::str(dtype));
 }
 
 int method_id(std::string_view method)
@@ -108,7 +107,8 @@ class Engine
 public:
   explicit Engine(const std::string& path, std::optional<unsigned> threads)
       : engine_{threads ? fe_engine_load_with_threads(path.c_str(), *threads)
-                        : fe_engine_load(path.c_str())}
+                        : fe_engine_load(path.c_str())},
+        numpy_{py::module_::import("numpy")}
   {
     if (engine_ == nullptr)
       throw std::runtime_error("FlowEdge: cannot load " + path + ": " + fe_engine_last_error());
@@ -167,9 +167,9 @@ public:
   // tokens -> hidden states [seq_len, d_model]
   py::object run(py::handle tokens_object)
   {
-    py::object tokens_array = contiguous_array(tokens_object, "int32");
+    py::object tokens_array = contiguous_array(numpy_, tokens_object, "int32");
     const Int32Buffer tokens{tokens_array};
-    py::object out = float_matrix(tokens.size(), d_model());
+    py::object out = float_matrix(numpy_, tokens.size(), d_model());
     FloatBuffer output{out, true};
     run_native(tokens, output);
     return out;
@@ -184,7 +184,7 @@ public:
 
   py::object step(std::int32_t token)
   {
-    py::object out = float_array(d_model());
+    py::object out = float_array(numpy_, d_model());
     FloatBuffer output{out, true};
     step_native(token, output);
     return out;
@@ -213,16 +213,25 @@ public:
 
   py::bytes decode_state() const
   {
-    std::string snapshot(fe_engine_decode_state_bytes(engine_), '\0');
-    if (fe_engine_export_decode_state(engine_, snapshot.data(), snapshot.size()) != 0)
+    const std::size_t size = fe_engine_decode_state_bytes(engine_);
+    if (size > static_cast<std::size_t>(std::numeric_limits<Py_ssize_t>::max()))
+      throw std::runtime_error("decode snapshot is too large for a Python bytes object");
+    py::bytes snapshot = py::reinterpret_steal<py::bytes>(
+        PyBytes_FromStringAndSize(nullptr, static_cast<Py_ssize_t>(size)));
+    if (!snapshot)
+      throw py::error_already_set{};
+    if (fe_engine_export_decode_state(engine_, PyBytes_AS_STRING(snapshot.ptr()), size) != 0)
       throw std::runtime_error(fe_engine_last_error());
-    return py::bytes(snapshot);
+    return snapshot;
   }
 
   void restore_decode_state(const py::bytes& snapshot)
   {
-    const std::string data = snapshot;
-    if (fe_engine_import_decode_state(engine_, data.data(), data.size()) != 0)
+    char* data = nullptr;
+    Py_ssize_t size = 0;
+    if (PyBytes_AsStringAndSize(snapshot.ptr(), &data, &size) != 0)
+      throw py::error_already_set{};
+    if (fe_engine_import_decode_state(engine_, data, static_cast<std::size_t>(size)) != 0)
       throw std::runtime_error(fe_engine_last_error());
   }
 
@@ -231,11 +240,11 @@ public:
   py::object sample(py::handle prefix_object, py::handle noise_object, std::size_t steps,
                     std::string_view method)
   {
-    py::object prefix_array = contiguous_array(prefix_object, "int32");
-    py::object noise_array = contiguous_array(noise_object, "float32");
+    py::object prefix_array = contiguous_array(numpy_, prefix_object, "int32");
+    py::object noise_array = contiguous_array(numpy_, noise_object, "float32");
     const Int32Buffer prefix{prefix_array};
     const FloatBuffer noise{noise_array};
-    py::object action = float_array(action_dim());
+    py::object action = float_array(numpy_, action_dim());
     FloatBuffer output{action, true};
     sample_native(prefix, noise, output, steps, method);
     return action;
@@ -272,11 +281,11 @@ public:
   py::object sample_diffusion(py::handle condition_object, py::handle noise_object,
                               std::size_t steps, std::string_view scheduler, std::uint64_t seed)
   {
-    py::object condition_array = contiguous_array(condition_object, "float32");
-    py::object noise_array = contiguous_array(noise_object, "float32");
+    py::object condition_array = contiguous_array(numpy_, condition_object, "float32");
+    py::object noise_array = contiguous_array(numpy_, noise_object, "float32");
     const FloatBuffer condition{condition_array};
     const FloatBuffer noise{noise_array};
-    py::object result = float_matrix(action_horizon(), action_dim());
+    py::object result = float_matrix(numpy_, action_horizon(), action_dim());
     FloatBuffer action{result, true};
     sample_diffusion_native(condition, noise, action, steps, scheduler, seed);
     return result;
@@ -285,11 +294,11 @@ public:
   py::object diffusion_denoise(py::handle condition_object, py::handle sample_object,
                                float timestep)
   {
-    py::object condition_array = contiguous_array(condition_object, "float32");
-    py::object sample_array = contiguous_array(sample_object, "float32");
+    py::object condition_array = contiguous_array(numpy_, condition_object, "float32");
+    py::object sample_array = contiguous_array(numpy_, sample_object, "float32");
     const FloatBuffer condition{condition_array};
     const FloatBuffer sample{sample_array};
-    py::object result = float_matrix(action_horizon(), action_dim());
+    py::object result = float_matrix(numpy_, action_horizon(), action_dim());
     FloatBuffer predicted_noise{result, true};
     const std::size_t values = action_horizon() * action_dim();
     if (condition.size() != condition_dim() || sample.size() != values)
@@ -466,6 +475,7 @@ private:
   }
 
   fe_engine* engine_;
+  py::object numpy_;
 };
 
 } // namespace
