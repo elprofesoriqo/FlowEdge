@@ -18,7 +18,7 @@ size_t fe_engine_action_horizon(const fe_engine*);
 size_t fe_engine_condition_dim(const fe_engine*);
 unsigned fe_engine_thread_count(const fe_engine*);
 int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
-int fe_engine_diffusion_metadata(const fe_engine*, fe_diffusion_metadata*);
+int fe_engine_deployment_profile(const fe_engine*, fe_deployment_profile*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
@@ -73,13 +73,10 @@ Rules:
   `engine.h` instead of literal method values. Unknown values fail with a non-zero return code.
 - `fe_engine_sample_condition` accepts the output of an encoder owned by another runtime. A
   checkpoint may therefore contain only `flow.*` tensors and no built-in backbone.
-- `fe_engine_sample_diffusion` consumes `action_horizon * action_dim` noise values and returns
-  the same fixed shape after action un-normalization. Use `FE_DIFFUSION_DDIM` for deterministic
-  sampling or `FE_DIFFUSION_DDPM` with a fixed seed. `fe_engine_diffusion_denoise` exposes one
-  normalized epsilon-prediction pass for parity checks and profiling.
-- `fe_engine_diffusion_metadata` reports the fixed horizon, action/condition dimensions,
-  LeRobot observation/action slice, training timestep count, and clipping policy. Its output is
-  versioned with `struct_size` and `protocol_version` like the model metadata contract.
+- `fe_engine_deployment_profile` returns the validated checkpoint profile through borrowed pointers.
+  Those pointers remain valid until `fe_engine_free`; return code `2` explicitly identifies a
+  legacy checkpoint without a profile. The profile is descriptive metadata: FlowEdge does not
+  execute observation preprocessing from it.
 - `fe_engine_flow_begin` projects the condition once. Each `fe_engine_flow_advance` executes at
   most `step_budget` complete solver steps and reports how many remain. Starting a new solve
   replaces the previous one.

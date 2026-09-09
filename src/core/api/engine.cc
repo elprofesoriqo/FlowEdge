@@ -265,6 +265,46 @@ int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadat
   return 0;
 }
 
+int fe_engine_deployment_profile(const fe_engine* engine, fe_deployment_profile* profile)
+{
+  last_error() = "";
+  if (engine == nullptr || profile == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_deployment_profile";
+    return 1;
+  }
+  const fe::DeploymentProfile* const source = engine->runtime.deployment_profile();
+  if (source == nullptr) {
+    last_error() = "Checkpoint has no deployment profile";
+    return 2;
+  }
+  fe_deployment_profile result{};
+  result.struct_size = sizeof(result);
+  result.profile_version = source->profile_version;
+  result.model_compatibility_version = source->model_compatibility_version;
+  result.action_units = source->action_units == fe::DeploymentActionUnits::kNormalized
+                            ? FE_ACTION_UNITS_NORMALIZED
+                            : FE_ACTION_UNITS_PHYSICAL;
+  result.normalization_type = source->normalization_type == fe::DeploymentNormalization::kNone
+                                  ? FE_NORMALIZATION_NONE
+                                  : FE_NORMALIZATION_MINMAX;
+  result.solver_default =
+      source->solver_default == fe::DeploymentSolver::kEuler  ? FE_PROFILE_SOLVER_EULER
+      : source->solver_default == fe::DeploymentSolver::kHeun ? FE_PROFILE_SOLVER_HEUN
+                                                              : FE_PROFILE_SOLVER_RK4;
+  result.observation_schema_hash = source->observation_schema_hash.data();
+  result.action_dim = source->action_dim;
+  result.action_horizon = source->action_horizon;
+  result.normalization_count = source->normalization_min.size();
+  result.normalization_min =
+      source->normalization_min.empty() ? nullptr : source->normalization_min.data();
+  result.normalization_max =
+      source->normalization_max.empty() ? nullptr : source->normalization_max.data();
+  result.solver_min_steps = source->solver_min_steps;
+  result.solver_max_steps = source->solver_max_steps;
+  *profile = result;
+  return 0;
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif
