@@ -119,6 +119,8 @@ guides/add-a-head
 guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
+guides/diffusion-policy
+guides/sanitizers
 guides/verification
 guides/observability
 guides/cooperative-jobs
