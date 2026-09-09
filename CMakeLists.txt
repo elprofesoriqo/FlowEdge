@@ -130,8 +130,9 @@ if(FLOWEDGE_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   find_package(Threads REQUIRED)
-  add_executable(flowedge_tests test/tests.cc)
+  add_executable(flowedge_tests test/tests.cc test/cabi_tests.cc)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
+  target_compile_definitions(flowedge_tests PRIVATE FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
   if(FLOWEDGE_RELAY)
     add_executable(flowedge_job_service_fixture test/job_service_fixture.cc)
