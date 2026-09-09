@@ -9,6 +9,11 @@ runs:
   steps:
     - shell: bash
       run: |
+        # The hosted runner's Chrome index is unrelated to FlowEdge and can
+        # publish stale hashes while the LLVM packages are being refreshed.
+        for source in /etc/apt/sources.list.d/*chrome*; do
+          [[ -e "$source" ]] && sudo rm -f "$source"
+        done
         sudo mkdir -p /etc/apt/trusted.gpg.d
         wget --tries=5 --waitretry=5 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
           | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc >/dev/null

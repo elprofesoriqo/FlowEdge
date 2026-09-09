@@ -253,3 +253,18 @@ Windows PowerShell:
 ```
 
 These results are references, not deployment guarantees.
+
+## Size and setup budgets
+
+The complete verification script also reports the checked-in budgets in
+`bench/budgets.json`:
+
+```bash
+FLOWEDGE_BUILD_DIR=build-all ./scripts/verify_all.sh models/mamba_flow.safetensors
+cat build-all/budget-report.md
+```
+
+The report measures Core and Relay static-library bytes and model setup
+allocations. It fails when a checked-in limit is exceeded and separately rejects
+any allocation in the measured model hot path. The limits are review thresholds
+for the Release build, not claims about every compiler or linker configuration.
