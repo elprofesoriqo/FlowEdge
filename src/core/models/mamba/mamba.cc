@@ -173,8 +173,6 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   const std::span<float> dbl = arena_span(l * wd);
   const std::span<float> dt_in = arena_span(l * dr); // gathered dt slice of dbl
   const std::span<float> dt = arena_span(l * di);
-  const std::span<float> c_buf = arena_span(l * ds);
-  const std::span<float> b_buf = arena_span(l * ds);
 
   fe_md::mdspan x_cm_md{x_cm.data(), di, l};
   fe_md::mdspan xz_md{xz.data(), l, 2uz * di};
@@ -184,8 +182,6 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
   fe_md::mdspan dbl_md{dbl.data(), l, wd};
   fe_md::mdspan dt_in_md{dt_in.data(), l, dr};
   fe_md::mdspan dt_md{dt.data(), l, di};
-  fe_md::mdspan b_buf_md{b_buf.data(), l, ds};
-  fe_md::mdspan c_buf_md{c_buf.data(), l, ds};
 
   const std::span<float> h = arena_span(ds * di);
   const std::span<float> yv = arena_span(l * di);
@@ -218,14 +214,8 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
       dt_md[t, o] += lw.dt_b[o];
   softplus(dt);
 
-  for (std::size_t t{0uz}; t < l; ++t)
-    for (std::size_t nn{0uz}; nn < ds; ++nn) {
-      b_buf_md[t, nn] = dbl_md[t, dr + nn];
-      c_buf_md[t, nn] = dbl_md[t, dr + ds + nn];
-    }
-
-  discretize_and_scan(dt, {lw.a_neg, di * ds}, b_buf, x_sm, c_buf, {lw.d, di}, h, yv, l, di, ds,
-                      true);
+  discretize_and_scan(dt, {lw.a_neg, di * ds}, dbl.subspan(dr), x_sm, dbl.subspan(dr + ds),
+                      {lw.d, di}, h, yv, l, di, ds, true, wd);
   gate_silu(yv, z, yv); // y · silu(z)
   matmul_weight(yv, lw.out_proj, out, l, di, dm, pool_);
 
@@ -263,8 +253,6 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   const std::span<float> dbl = arena_span(wd);
   const std::span<float> dt_in = arena_span(dr);
   const std::span<float> dt = arena_span(di);
-  const std::span<float> b_buf = arena_span(ds);
-  const std::span<float> c_buf = arena_span(ds);
   const std::span<float> yv = arena_span(di);
   const std::span<float> out = arena_span(dm);
 
@@ -287,13 +275,8 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   for (std::size_t o{0uz}; o < di; ++o)
     dt[o] += lw.dt_b[o];
   softplus(dt);
-  for (std::size_t nn{0uz}; nn < ds; ++nn) {
-    b_buf[nn] = dbl[dr + nn];
-    c_buf[nn] = dbl[dr + ds + nn];
-  }
-
-  discretize_and_scan(dt, {lw.a_neg, di * ds}, b_buf, x_conv, c_buf, {lw.d, di}, h, yv, 1uz, di, ds,
-                      false);
+  discretize_and_scan(dt, {lw.a_neg, di * ds}, dbl.subspan(dr), x_conv, dbl.subspan(dr + ds),
+                      {lw.d, di}, h, yv, 1uz, di, ds, false, wd);
   gate_silu(yv, z, yv);
   matmul_weight(yv, lw.out_proj, out, 1uz, di, dm);
 

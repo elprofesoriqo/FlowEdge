@@ -127,7 +127,8 @@ FE_FORCE_ALIGN void discretize_and_scan(std::span<const float> delta, std::span<
                                         std::span<const float> c_proj,
                                         std::span<const float> d_skip, std::span<float> h,
                                         std::span<float> y, std::size_t length, std::size_t d_inner,
-                                        std::size_t d_state, bool reset_state) noexcept;
+                                        std::size_t d_state, bool reset_state,
+                                        std::size_t row_stride = 0uz) noexcept;
 
 FE_FORCE_ALIGN void matmul(std::span<const float> in, std::span<const float> w,
                            std::span<float> out, std::size_t rows, std::size_t in_dim,
