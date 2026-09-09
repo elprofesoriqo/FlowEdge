@@ -298,6 +298,28 @@ def main():
              "--arch", "diffusion"],
             check=True,
         )
+        if build_dir is not None:
+            inspector_candidates = [
+                build_dir / "flowedge-inspect",
+                build_dir / "flowedge-inspect.exe",
+                build_dir / "Release" / "flowedge-inspect.exe",
+            ]
+            inspector = next((path for path in inspector_candidates if path.is_file()), None)
+            if inspector is not None:
+                inspection = subprocess.run(
+                    [str(inspector), str(converted), "--json"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                report = json.loads(inspection.stdout)
+                inspection_model = report["model"]
+                assert inspection_model["family"] == "diffusion-policy"
+                assert inspection_model["action_dim"] == 2
+                assert inspection_model["action_horizon"] == 4
+                assert inspection_model["diffusion_stages"] == 2
+                assert report["compatibility"]["supported"] is True
+                print("diffusion checkpoint preflight OK")
         modern_directory = _write_modern_processor_fixture(
             directory, state, config, action_min, action_max
         )
