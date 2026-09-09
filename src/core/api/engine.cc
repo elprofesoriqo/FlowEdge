@@ -230,7 +230,7 @@ int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadat
   last_error() = "";
   if (engine == nullptr || metadata == nullptr) {
     last_error() = "Invalid arguments to fe_engine_model_metadata";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   const fe::ModelIdentity& identity = engine->runtime.identity();
   fe_model_metadata result{};
@@ -299,7 +299,7 @@ int fe_engine_run(fe_engine* engine, const std::int32_t* tokens, std::size_t seq
   last_error() = "";
   if (engine == nullptr || tokens == nullptr || out == nullptr || seq_len == 0uz) {
     last_error() = "Invalid arguments to fe_engine_run";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   return engine->runtime.run(tokens, seq_len, out, last_error());
 }
@@ -312,7 +312,7 @@ int fe_engine_step(fe_engine* engine, std::int32_t token, float* out)
   last_error() = "";
   if (engine == nullptr || out == nullptr) {
     last_error() = "Invalid null arguments to fe_engine_step";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   return engine->runtime.step(token, out, last_error());
 }
@@ -343,12 +343,12 @@ int fe_engine_sample(fe_engine* engine, const std::int32_t* tokens, std::size_t 
   if (engine == nullptr || tokens == nullptr || noise == nullptr || action == nullptr ||
       seq_len == 0uz || steps == 0uz) {
     last_error() = "Invalid arguments to fe_engine_sample";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   fe::FlowHead::Method solver{};
   if (!solver_method(method, solver)) {
     last_error() = "Invalid solver method";
-    return 5;
+    return FE_STATUS_INVALID_SOLVER;
   }
   return engine->runtime.sample(tokens, seq_len, noise, steps, solver, action, last_error());
 }
@@ -363,12 +363,12 @@ int fe_engine_sample_condition(fe_engine* engine, const float* condition, const 
   if (engine == nullptr || condition == nullptr || noise == nullptr || action == nullptr ||
       steps == 0uz) {
     last_error() = "Invalid arguments to fe_engine_sample_condition";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   fe::FlowHead::Method solver{};
   if (!solver_method(method, solver)) {
     last_error() = "Invalid solver method";
-    return 5;
+    return FE_STATUS_INVALID_SOLVER;
   }
   return engine->runtime.sample_condition(condition, noise, steps, solver, action, last_error());
 }
@@ -382,12 +382,12 @@ int fe_engine_flow_begin(fe_engine* engine, const float* condition, const float*
   last_error() = "";
   if (engine == nullptr || condition == nullptr || noise == nullptr || steps == 0uz) {
     last_error() = "Invalid arguments to fe_engine_flow_begin";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   fe::FlowHead::Method solver{};
   if (!solver_method(method, solver)) {
     last_error() = "Invalid solver method";
-    return 5;
+    return FE_STATUS_INVALID_SOLVER;
   }
   return engine->runtime.flow_begin(condition, noise, steps, solver, last_error());
 }
@@ -401,12 +401,12 @@ int fe_engine_make_condition_metadata(const fe_engine* engine, std::uint64_t tim
   if (engine == nullptr || metadata == nullptr || steps == 0uz ||
       (deadline_ns != 0u && deadline_ns < timestamp_ns)) {
     last_error() = "Invalid arguments to fe_engine_make_condition_metadata";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   fe::FlowHead::Method solver{};
   if (!solver_method(method, solver)) {
     last_error() = "Invalid solver method";
-    return 5;
+    return FE_STATUS_INVALID_SOLVER;
   }
   const fe::ModelIdentity& identity = engine->runtime.identity();
   fe_condition_metadata result{};
@@ -435,12 +435,12 @@ int fe_engine_flow_begin_request(fe_engine* engine, const float* condition, cons
       metadata->solver_steps == 0u ||
       metadata->solver_steps > std::numeric_limits<std::size_t>::max()) {
     last_error() = "Invalid versioned flow request metadata";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   fe::FlowHead::Method solver{};
   if (!solver_method(static_cast<int>(metadata->solver), solver)) {
     last_error() = "Invalid solver method in flow request metadata";
-    return 5;
+    return FE_STATUS_INVALID_SOLVER;
   }
   const fe::ModelIdentity& identity = engine->runtime.identity();
   if (!same_digest(metadata->model_digest, identity.digest) ||
@@ -449,7 +449,7 @@ int fe_engine_flow_begin_request(fe_engine* engine, const float* condition, cons
       metadata->remaining_nfe != nfe_for(metadata->solver_steps, solver) ||
       (metadata->deadline_ns != 0u && metadata->deadline_ns < metadata->timestamp_ns)) {
     last_error() = "Flow request metadata is incompatible with this model";
-    return 9;
+    return FE_STATUS_INCOMPATIBLE_STATE;
   }
   return engine->runtime.flow_begin_request(
       condition, noise,
@@ -477,7 +477,7 @@ int fe_engine_flow_advance(fe_engine* engine, std::size_t step_budget, float* ac
   last_error() = "";
   if (engine == nullptr || action == nullptr || step_budget == 0uz) {
     last_error() = "Invalid arguments to fe_engine_flow_advance";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   std::size_t remaining{0uz};
   const int rc = engine->runtime.flow_advance(step_budget, action, remaining, last_error());
@@ -491,7 +491,7 @@ int fe_engine_flow_action_metadata(const fe_engine* engine, fe_action_metadata* 
   last_error() = "";
   if (engine == nullptr || metadata == nullptr) {
     last_error() = "Invalid arguments to fe_engine_flow_action_metadata";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   const fe::ModelIdentity& identity = engine->runtime.identity();
   const fe::FlowRequestMetadata& request = engine->runtime.flow_request_metadata();
@@ -521,7 +521,12 @@ int fe_engine_export_decode_state(const fe_engine* engine, void* destination, st
   last_error() = "";
   if (engine == nullptr || destination == nullptr) {
     last_error() = "Invalid arguments to fe_engine_export_decode_state";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  const std::size_t required = engine->runtime.decode_state_bytes();
+  if (required != 0uz && bytes < required) {
+    last_error() = "Decode snapshot destination is too small";
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   return engine->runtime.export_decode_state({static_cast<std::byte*>(destination), bytes},
                                              last_error());
@@ -532,7 +537,13 @@ int fe_engine_import_decode_state(fe_engine* engine, const void* source, std::si
   last_error() = "";
   if (engine == nullptr || source == nullptr) {
     last_error() = "Invalid arguments to fe_engine_import_decode_state";
-    return 1;
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  const std::size_t required = engine->runtime.decode_state_bytes();
+  if (required != 0uz && bytes != required) {
+    last_error() = bytes < required ? "Decode snapshot source is truncated"
+                                    : "Decode snapshot source size is incompatible";
+    return FE_STATUS_INVALID_ARGUMENT;
   }
   return engine->runtime.import_decode_state({static_cast<const std::byte*>(source), bytes},
                                              last_error());

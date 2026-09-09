@@ -22,7 +22,8 @@ struct TensorView
   {
     F32,
     BF16,
-    INT8
+    INT8,
+    Unsupported
   };
 
   const void* data{};
@@ -57,6 +58,21 @@ struct WeightView
   TensorView::Dtype dtype{};
 };
 
+struct TensorMetadata
+{
+  TensorView::Dtype dtype{TensorView::Dtype::Unsupported};
+  std::array<std::size_t, 4> shape{};
+  std::array<char, 64> name{};
+  std::size_t bytes{};
+  std::uint8_t ndim{};
+
+  [[nodiscard]] std::string_view name_view() const noexcept { return {name.data()}; }
+  [[nodiscard]] bool supported() const noexcept
+  {
+    return dtype == TensorView::Dtype::F32 || dtype == TensorView::Dtype::BF16;
+  }
+};
+
 // First tensor whose name matches, or nullptr.
 [[nodiscard]] inline const TensorView* find_tensor(std::span<const TensorView> ts,
                                                    std::string_view name) noexcept
@@ -82,6 +98,11 @@ struct WeightView
 // Read one string value from the safetensors __metadata__ map.
 [[nodiscard]] std::expected<std::optional<std::string>, const char*> safetensors_metadata_value(
     std::string_view path, std::string_view key) noexcept;
+
+// Inspect tensor headers without copying weight data or constructing a runtime.
+[[nodiscard]] std::expected<void, const char*> inspect_safetensors(
+    std::string_view path, std::span<TensorMetadata> out, std::size_t& tensors_loaded,
+    std::size_t& total_bytes, std::size_t& unsupported_tensors) noexcept;
 
 // One immutable, reference-counted checkpoint store. Engine instances retain a
 // shared reference while keeping all scratch, sampler, and decode state private.
