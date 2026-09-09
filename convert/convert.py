@@ -266,8 +266,6 @@ def diffusion(sd, config, processor_stats=None):
                 "processor action statistics must have shape "
                 f"({action_dim},), got {tuple(action_min.shape)} and {tuple(action_max.shape)}"
             )
-        if not torch.isfinite(action_min).all() or not torch.isfinite(action_max).all():
-            _config_error("processor action statistics must be finite")
         out["dp.action_min"] = action_min
         out["dp.action_max"] = action_max
     else:
@@ -278,6 +276,12 @@ def diffusion(sd, config, processor_stats=None):
             max_key = "normalize_targets.buffer_action.max"
         put("dp.action_min", min_key, (action_dim,))
         put("dp.action_max", max_key, (action_dim,))
+    action_min = out["dp.action_min"]
+    action_max = out["dp.action_max"]
+    if not torch.isfinite(action_min).all() or not torch.isfinite(action_max).all():
+        _config_error("action normalization statistics must be finite")
+    if torch.any(action_max <= action_min):
+        _config_error("action normalization max must be strictly greater than min")
     out["dp.dims"] = torch.tensor(down_dims, dtype=torch.float32)
     out["dp.meta"] = torch.tensor(
         [
