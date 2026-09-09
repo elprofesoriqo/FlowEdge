@@ -213,8 +213,10 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
     if (name == "__metadata__")
       continue;
     const bool bf16 = obj.find("\"BF16\"") != std::string_view::npos;
-    if (!bf16 && obj.find("\"F32\"") == std::string_view::npos)
-      continue; // only F32 and BF16
+    const bool f32 = obj.find("\"F32\"") != std::string_view::npos;
+    const TensorView::Dtype dtype = bf16  ? TensorView::Dtype::BF16
+                                    : f32 ? TensorView::Dtype::F32
+                                          : TensorView::Dtype::Unsupported;
 
     std::array<std::uint64_t, 4> shape{};
     const auto shape_count = parse_u64s(after_colon(obj, "\"shape\""), std::span{shape});
@@ -322,7 +324,9 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
       foreach_tensor(json,
                      [&](std::string_view name, std::uint64_t byte_off, std::uint64_t byte_len,
                          const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         bool bf16) noexcept -> bool {
+                         TensorView::Dtype dtype) noexcept -> bool {
+                       if (dtype == TensorView::Dtype::Unsupported)
+                         return true;
                        if (tensors_loaded >= out.size()) [[unlikely]]
                          return false;
                        if (!spans.add(byte_off, byte_len)) [[unlikely]]
@@ -339,7 +343,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
                        tv.bytes = static_cast<std::size_t>(byte_len);
-                       tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
+                       tv.dtype = dtype;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
                          tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
@@ -394,7 +398,7 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   std::array<std::size_t, 4> out{};
   static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
                                              const std::array<std::uint64_t, 4>& shape,
-                                             std::uint8_t ndim, bool) noexcept {
+                                             std::uint8_t ndim, TensorView::Dtype) noexcept {
     if (n != name)
       return true; // keep scanning
     for (std::size_t i{0uz}; i < ndim; ++i)
@@ -403,6 +407,47 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   }));
   mf.close();
   return out;
+}
+
+std::expected<void, const char*> inspect_safetensors(std::string_view path,
+                                                     std::span<TensorMetadata> out,
+                                                     std::size_t& tensors_loaded,
+                                                     std::size_t& total_bytes,
+                                                     std::size_t& unsupported_tensors) noexcept
+{
+  tensors_loaded = 0uz;
+  total_bytes = 0uz;
+  unsupported_tensors = 0uz;
+  auto res = header_json(path);
+  if (!res)
+    return std::unexpected(res.error());
+
+  MappedJson mapped = *res;
+  MappedFile mf = mapped.mf;
+  const bool ok =
+      foreach_tensor(mapped.json,
+                     [&](std::string_view name, std::uint64_t, std::uint64_t byte_len,
+                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
+                         TensorView::Dtype dtype) noexcept -> bool {
+                       if (tensors_loaded >= out.size())
+                         return false;
+                       TensorMetadata& metadata = out[tensors_loaded++];
+                       metadata.dtype = dtype;
+                       metadata.bytes = static_cast<std::size_t>(byte_len);
+                       metadata.ndim = ndim;
+                       for (std::size_t i{0uz}; i < 4uz; ++i)
+                         metadata.shape[i] = i < ndim ? static_cast<std::size_t>(shape[i]) : 0uz;
+                       const std::size_t nlen = std::min(name.size(), metadata.name.size() - 1uz);
+                       std::memcpy(metadata.name.data(), name.data(), nlen);
+                       metadata.name[nlen] = '\0';
+                       total_bytes += metadata.bytes;
+                       unsupported_tensors += metadata.supported() ? 0uz : 1uz;
+                       return true;
+                     });
+  mf.close();
+  if (!ok)
+    return std::unexpected("Failed during tensor inspection or output capacity was exceeded");
+  return {};
 }
 
 ModelWeights::ModelWeights(std::size_t weight_bytes)
