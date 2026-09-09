@@ -313,11 +313,11 @@ def main():
                     text=True,
                 )
                 report = json.loads(inspection.stdout)
-                model = report["model"]
-                assert model["family"] == "diffusion-policy"
-                assert model["action_dim"] == 2
-                assert model["action_horizon"] == 4
-                assert model["diffusion_stages"] == 2
+                inspection_model = report["model"]
+                assert inspection_model["family"] == "diffusion-policy"
+                assert inspection_model["action_dim"] == 2
+                assert inspection_model["action_horizon"] == 4
+                assert inspection_model["diffusion_stages"] == 2
                 assert report["compatibility"]["supported"] is True
                 print("diffusion checkpoint preflight OK")
         modern_directory = _write_modern_processor_fixture(
