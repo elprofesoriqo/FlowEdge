@@ -27,6 +27,30 @@ python -m unittest discover -s integrations/lerobot/tests
 The companion package is intentionally independent from LeRobot's release cycle. The next issue
 adds a complete `lerobot-rollout` plugin and hardware demo after parity tests are accepted.
 
+## SO-100/SO-101 rollout shim
+
+`flowedge_lerobot.run_rollout` provides a bounded single-action loop without importing a concrete
+LeRobot robot class. Wrap the robot's `reset`, observation, action, and stop methods, and keep the
+LeRobot camera/state processor in `encode_condition`:
+
+```python
+from flowedge_lerobot import FlowEdgeDiffusionPolicy, run_rollout
+
+policy = FlowEdgeDiffusionPolicy.from_checkpoint("models/diffusion_pusht.flowedge.safetensors")
+result = run_rollout(
+    policy,
+    robot,
+    encode_condition=lambda observation: processor(observation),
+    steps=100,
+    seed=7,
+)
+assert result.stopped
+```
+
+This is the integration seam for SO-100/SO-101 applications; robot drivers, feature processors,
+joint limits, and hardware emergency-stop behavior remain application-owned. The included tests
+use a fake robot so the loop can be checked without hardware.
+
 ## Example
 
 ```python

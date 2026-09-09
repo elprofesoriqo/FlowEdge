@@ -40,9 +40,20 @@ noise = np.zeros((policy.metadata.horizon, policy.metadata.action_dim), dtype=np
 chunk = policy.predict_action_chunk(condition, noise, steps=10)
 ```
 
-The companion adapter is deployment-only; training remains in LeRobot. A complete
-`lerobot-rollout` plugin, processor parity checks, and SO-100/SO-101 demo are tracked in
-[issue #65](https://github.com/elprofesoriqo/FlowEdge/issues/65) and its subissues.
+The companion adapter is deployment-only; training remains in LeRobot. Processor parity checks,
+hardware smoke testing, and partner validation are tracked in [issue #65](https://github.com/elprofesoriqo/FlowEdge/issues/65)
+and its subissues.
+
+## SO-100/SO-101 rollout seam
+
+The companion package includes `run_rollout`, a bounded single-action loop that accepts a small
+robot shim (`reset`, `observe`, `send_action`, and `stop`) plus an observation encoder. It is
+suitable for wiring the adapter into SO-100/SO-101 applications without adding a robot driver or
+preprocessing dependency to FlowEdge. The loop always calls `stop`, including when an encoder or
+inference call raises, and uses a bounded step count for repeatable dry runs.
+
+See `integrations/lerobot/README.md` for the minimal wrapper example. Hardware validation remains
+a follow-up smoke test on a real LeRobot robot; repository tests use a fake robot.
 
 Tenstorrent support is intentionally not part of this integration slice. It remains a separate
 backend effort so this adapter does not couple the universal runtime to one accelerator.
