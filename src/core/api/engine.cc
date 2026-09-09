@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -30,6 +31,19 @@ const char*& last_error()
            : (method == FE_SOLVER_HEUN) ? fe::FlowHead::kHeun
                                         : fe::FlowHead::kEuler;
   return true;
+}
+
+[[nodiscard]] bool diffusion_scheduler(int value, fe::DiffusionHead::Scheduler& scheduler) noexcept
+{
+  if (value == FE_DIFFUSION_DDIM) {
+    scheduler = fe::DiffusionHead::kDDIM;
+    return true;
+  }
+  if (value == FE_DIFFUSION_DDPM) {
+    scheduler = fe::DiffusionHead::kDDPM;
+    return true;
+  }
+  return false;
 }
 
 [[nodiscard]] std::uint64_t nfe_for(std::size_t steps, fe::FlowHead::Method method) noexcept
@@ -288,9 +302,79 @@ std::size_t fe_engine_action_dim(const fe_engine* engine)
   return engine != nullptr ? engine->runtime.action_dim() : 0uz;
 }
 
+std::size_t fe_engine_action_horizon(const fe_engine* engine)
+{
+  return engine != nullptr ? engine->runtime.action_horizon() : 0uz;
+}
+
+int fe_engine_diffusion_metadata(const fe_engine* engine, fe_diffusion_metadata* metadata)
+{
+  last_error() = "";
+  if (engine == nullptr || metadata == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_diffusion_metadata";
+    return 1;
+  }
+  const fe::DiffusionConfig* const config = engine->runtime.diffusion_config();
+  if (config == nullptr) {
+    last_error() = "Model has no Diffusion Policy head";
+    return 4;
+  }
+  fe_diffusion_metadata result{};
+  result.struct_size = sizeof(result);
+  result.protocol_version = FE_PROTOCOL_VERSION;
+  result.clip_sample = config->clip_sample ? 1u : 0u;
+  result.action_dim = config->action_dim;
+  result.condition_dim = config->condition_dim;
+  result.horizon = config->horizon;
+  result.action_steps = config->action_steps;
+  result.observation_steps = config->observation_steps;
+  result.train_timesteps = config->train_timesteps;
+  result.clip_sample_range = config->clip_sample_range;
+  *metadata = result;
+  return 0;
+}
+
 std::size_t fe_engine_condition_dim(const fe_engine* engine)
 {
   return engine != nullptr ? engine->runtime.condition_dim() : 0uz;
+}
+
+#if defined(__MINGW32__) && defined(__AVX2__)
+__attribute__((force_align_arg_pointer))
+#endif
+int fe_engine_sample_diffusion(fe_engine* engine, const float* condition, const float* noise,
+                               std::size_t steps, int scheduler, std::uint64_t seed, float* action)
+{
+  last_error() = "";
+  if (engine == nullptr || condition == nullptr || noise == nullptr || action == nullptr ||
+      steps == 0uz) {
+    last_error() = "Invalid arguments to fe_engine_sample_diffusion";
+    return 1;
+  }
+  fe::DiffusionHead::Scheduler selected{};
+  if (!diffusion_scheduler(scheduler, selected)) {
+    last_error() = "Diffusion scheduler must be FE_DIFFUSION_DDIM or FE_DIFFUSION_DDPM";
+    return 5;
+  }
+  return engine->runtime.sample_diffusion(condition, noise, steps, selected, seed, action,
+                                          last_error());
+}
+
+#if defined(__MINGW32__) && defined(__AVX2__)
+__attribute__((force_align_arg_pointer))
+#endif
+int fe_engine_diffusion_denoise(fe_engine* engine, const float* condition,
+                                const float* normalized_sample, float timestep,
+                                float* predicted_noise)
+{
+  last_error() = "";
+  if (engine == nullptr || condition == nullptr || normalized_sample == nullptr ||
+      predicted_noise == nullptr || !std::isfinite(timestep)) {
+    last_error() = "Invalid arguments to fe_engine_diffusion_denoise";
+    return 1;
+  }
+  return engine->runtime.denoise_diffusion(condition, normalized_sample, timestep, predicted_noise,
+                                           last_error());
 }
 
 #if defined(__MINGW32__) && defined(__AVX2__)

@@ -265,6 +265,16 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                        const std::size_t elem = bf16 ? 2uz : sizeof(float);
                        if (byte_len % elem != 0uz) [[unlikely]] // whole elements
                          return false;
+                       std::size_t elements{1uz};
+                       for (std::size_t axis{0uz}; axis < ndim; ++axis) {
+                         if (shape[axis] > std::numeric_limits<std::size_t>::max() / elements)
+                             [[unlikely]]
+                           return false;
+                         elements *= static_cast<std::size_t>(shape[axis]);
+                       }
+                       if (elements > std::numeric_limits<std::size_t>::max() / elem ||
+                           elements * elem != byte_len) [[unlikely]]
+                         return false;
 
                        // store bytes; matmul widens inline
                        auto* const dst = arena.alloc_array<std::byte, kSimdAlign>(byte_len);

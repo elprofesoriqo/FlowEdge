@@ -19,6 +19,7 @@ enum
   FE_ARCH_MAMBA = 1,
   FE_ARCH_FLOW_HEAD = 2,
   FE_ARCH_MAMBA_FLOW = 3,
+  FE_ARCH_DIFFUSION_HEAD = 4,
 };
 
 enum

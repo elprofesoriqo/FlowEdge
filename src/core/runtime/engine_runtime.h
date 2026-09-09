@@ -2,6 +2,7 @@
 
 #include "arena/arena.h"
 #include "arena/thread_pool.h"
+#include "heads/diffusion/diffusion.h"
 #include "heads/flow/flow.h"
 #include "loader/safetensors.h"
 #include "models/mamba/mamba.h"
@@ -47,7 +48,7 @@ public:
   EngineRuntime& operator=(const EngineRuntime&) = delete;
   EngineRuntime& operator=(EngineRuntime&&) = delete;
 
-  [[nodiscard]] bool valid() const noexcept { return model_.valid() || flow_.valid(); }
+  [[nodiscard]] bool valid() const noexcept { return ready_; }
   [[nodiscard]] bool has_compatible_flow_head() const noexcept;
   [[nodiscard]] const MambaConfig& config() const noexcept { return model_.config(); }
   [[nodiscard]] unsigned thread_count() const noexcept;
@@ -59,7 +60,12 @@ public:
   [[nodiscard]] std::uint32_t flow_action_status() const noexcept;
   [[nodiscard]] std::uint64_t flow_remaining_nfe() const noexcept;
   [[nodiscard]] std::size_t action_dim() const noexcept;
+  [[nodiscard]] std::size_t action_horizon() const noexcept;
   [[nodiscard]] std::size_t condition_dim() const noexcept;
+  [[nodiscard]] const DiffusionConfig* diffusion_config() const noexcept
+  {
+    return diffusion_.valid() ? &diffusion_.config() : nullptr;
+  }
   [[nodiscard]] std::size_t decode_state_bytes() const noexcept;
 
   int run(const std::int32_t* tokens, std::size_t seq_len, float* out, const char*& error) noexcept;
@@ -69,6 +75,11 @@ public:
              FlowHead::Method method, float* action, const char*& error) noexcept;
   int sample_condition(const float* condition, const float* noise, std::size_t steps,
                        FlowHead::Method method, float* action, const char*& error) noexcept;
+  int sample_diffusion(const float* condition, const float* noise, std::size_t steps,
+                       DiffusionHead::Scheduler scheduler, std::uint64_t seed, float* action,
+                       const char*& error) noexcept;
+  int denoise_diffusion(const float* condition, const float* normalized_sample, float timestep,
+                        float* predicted_noise, const char*& error) noexcept;
   int flow_begin(const float* condition, const float* noise, std::size_t steps,
                  FlowHead::Method method, const char*& error) noexcept;
   int flow_begin_request(const float* condition, const float* noise,
@@ -90,14 +101,17 @@ private:
   Arena arena_;
   Mamba model_;
   FlowHead flow_;
+  DiffusionHead diffusion_;
   ModelIdentity identity_{};
   ThreadPool* pool_{};
   std::span<std::jthread> workers_{};
   std::span<float> decode_state_{};
   std::span<float> flow_workspace_{};
+  std::span<float> diffusion_workspace_{};
   FlowHead::SamplerState flow_state_{};
   FlowRequestMetadata flow_request_{};
   std::atomic<std::uint64_t> latest_generation_{0u};
+  bool ready_{};
 };
 
 } // namespace fe

@@ -1,5 +1,6 @@
 #include "arena/arena.h"
 #include "arena/thread_pool.h"
+#include "heads/diffusion/diffusion.h"
 #include "heads/flow/flow.h"
 #include "kernels/kernels.h"
 #include "loader/safetensors.h"
@@ -7,6 +8,7 @@
 #include "protocol/model_identity.h"
 #include "protocol/snapshot.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -17,6 +19,7 @@
 #include <gtest/gtest.h>
 #include <initializer_list>
 #include <span>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -181,6 +184,149 @@ TEST(Conv1dCausal, MatchesNaive)
       }
       EXPECT_NEAR(y[(c * len) + t], acc, kTol);
     }
+}
+
+TEST(Mish, MatchesReference)
+{
+  std::vector<float> values{-30.0F, -3.0F, -0.25F, 0.0F, 0.5F, 4.0F, 30.0F};
+  const std::vector<float> input = values;
+  fe::mish(values);
+  for (std::size_t i{0uz}; i < values.size(); ++i) {
+    const float softplus = input[i] > 20.0F ? input[i] : std::log1p(std::exp(input[i]));
+    EXPECT_NEAR(values[i], input[i] * std::tanh(softplus), 2e-6F);
+  }
+}
+
+TEST(DenseConv1d, SameAndStridedMatchNaive)
+{
+  constexpr std::size_t in_channels{2uz}, out_channels{3uz}, length{5uz}, kernel{3uz};
+  const std::vector<float> input = seq(in_channels * length, 0.31F, -0.2F);
+  const std::vector<float> weight = seq(out_channels * in_channels * kernel, 0.17F, 0.4F);
+  const std::vector<float> bias = seq(out_channels, 0.23F, -0.1F);
+  for (const std::size_t stride : {1uz, 2uz}) {
+    const std::size_t output_length = stride == 1uz ? length : 3uz;
+    std::vector<float> output(out_channels * output_length);
+    fe::conv1d(input, weight, bias, output, in_channels, out_channels, length, output_length,
+               kernel, stride, 1uz);
+    for (std::size_t oc{0uz}; oc < out_channels; ++oc) {
+      for (std::size_t ot{0uz}; ot < output_length; ++ot) {
+        float expected = bias[oc];
+        for (std::size_t ic{0uz}; ic < in_channels; ++ic)
+          for (std::size_t k{0uz}; k < kernel; ++k) {
+            const std::ptrdiff_t index = static_cast<std::ptrdiff_t>(ot * stride + k) - 1;
+            if (index >= 0 && index < static_cast<std::ptrdiff_t>(length))
+              expected += input[(ic * length) + static_cast<std::size_t>(index)] *
+                          weight[((oc * in_channels + ic) * kernel) + k];
+          }
+        EXPECT_NEAR(output[(oc * output_length) + ot], expected, 2e-6F);
+      }
+    }
+  }
+}
+
+TEST(ConvTranspose1d, MatchesNaive)
+{
+  constexpr std::size_t in_channels{2uz}, out_channels{3uz}, input_length{3uz};
+  constexpr std::size_t output_length{6uz}, kernel{4uz};
+  const std::vector<float> input = seq(in_channels * input_length, 0.37F, 0.2F);
+  const std::vector<float> weight = seq(in_channels * out_channels * kernel, 0.19F, -0.3F);
+  const std::vector<float> bias = seq(out_channels, 0.13F, 0.1F);
+  std::vector<float> output(out_channels * output_length);
+  fe::conv_transpose1d(input, weight, bias, output, in_channels, out_channels, input_length,
+                       output_length, kernel, 2uz, 1uz);
+  std::vector<float> expected(out_channels * output_length);
+  for (std::size_t oc{0uz}; oc < out_channels; ++oc)
+    std::fill_n(expected.data() + oc * output_length, output_length, bias[oc]);
+  for (std::size_t ic{0uz}; ic < in_channels; ++ic)
+    for (std::size_t it{0uz}; it < input_length; ++it)
+      for (std::size_t oc{0uz}; oc < out_channels; ++oc)
+        for (std::size_t k{0uz}; k < kernel; ++k) {
+          const std::ptrdiff_t ot = static_cast<std::ptrdiff_t>(it * 2uz + k) - 1;
+          if (ot >= 0 && ot < static_cast<std::ptrdiff_t>(output_length))
+            expected[(oc * output_length) + static_cast<std::size_t>(ot)] +=
+                input[(ic * input_length) + it] * weight[((ic * out_channels + oc) * kernel) + k];
+        }
+  for (std::size_t i{0uz}; i < output.size(); ++i)
+    EXPECT_NEAR(output[i], expected[i], 2e-6F);
+}
+
+TEST(DiffusionConvolution, ThreadedSpecializationsMatchCallerThread)
+{
+  constexpr std::size_t channels{256uz};
+  constexpr std::size_t input_length{16uz};
+  const std::vector<float> input = seq(channels * input_length, 0.013F, -0.2F);
+  const std::vector<float> conv_weight = seq(channels * channels * 5uz, 0.007F, 0.1F);
+  const std::vector<float> transpose_weight = seq(channels * channels * 4uz, 0.009F, -0.1F);
+  const std::vector<float> bias = seq(channels, 0.03F, 0.0F);
+  std::vector<float> expected(channels * input_length), threaded(expected.size());
+  std::vector<fe::Task> ring(8uz);
+  std::vector<std::size_t> sequence(8uz);
+  std::vector<std::jthread> workers(4uz);
+  fe::ThreadPool pool{ring, sequence, workers, 4u};
+
+  fe::conv1d(input, conv_weight, bias, expected, channels, channels, input_length, input_length,
+             5uz, 1uz, 2uz);
+  fe::conv1d(input, conv_weight, bias, threaded, channels, channels, input_length, input_length,
+             5uz, 1uz, 2uz, &pool);
+  EXPECT_EQ(threaded, expected);
+
+  constexpr std::size_t upsampled_length{32uz};
+  expected.resize(channels * upsampled_length);
+  threaded.resize(expected.size());
+  fe::conv_transpose1d(input, transpose_weight, bias, expected, channels, channels, input_length,
+                       upsampled_length, 4uz, 2uz, 1uz);
+  fe::conv_transpose1d(input, transpose_weight, bias, threaded, channels, channels, input_length,
+                       upsampled_length, 4uz, 2uz, 1uz, &pool);
+  EXPECT_EQ(threaded, expected);
+}
+
+TEST(GroupNorm, MatchesReference)
+{
+  constexpr std::size_t channels{4uz}, length{3uz}, groups{2uz};
+  std::vector<float> values = seq(channels * length, 0.29F, -0.4F);
+  const std::vector<float> input = values;
+  const std::vector<float> weight{0.5F, 1.25F, -0.75F, 0.8F};
+  const std::vector<float> bias{-0.2F, 0.1F, 0.3F, -0.4F};
+  fe::group_norm(values, weight, bias, channels, length, groups);
+  for (std::size_t group{0uz}; group < groups; ++group) {
+    double mean{0.0};
+    double square_sum{0.0};
+    for (std::size_t channel{group * 2uz}; channel < (group + 1uz) * 2uz; ++channel)
+      for (std::size_t t{0uz}; t < length; ++t) {
+        const double value = input[(channel * length) + t];
+        mean += value;
+        square_sum += value * value;
+      }
+    mean /= 6.0;
+    const double variance = (square_sum / 6.0) - mean * mean;
+    for (std::size_t channel{group * 2uz}; channel < (group + 1uz) * 2uz; ++channel)
+      for (std::size_t t{0uz}; t < length; ++t) {
+        const float expected = static_cast<float>((input[(channel * length) + t] - mean) /
+                                                  std::sqrt(variance + 1e-5)) *
+                                   weight[channel] +
+                               bias[channel];
+        EXPECT_NEAR(values[(channel * length) + t], expected, 2e-6F);
+      }
+  }
+}
+
+TEST(Film, AppliesPerChannelScaleAndBias)
+{
+  std::vector<float> values{1.0F, 2.0F, 3.0F, -1.0F, -2.0F, -3.0F};
+  fe::film(values, std::array{2.0F, -0.5F}, std::array{0.25F, 1.0F}, 2uz, 3uz);
+  EXPECT_EQ(values, (std::vector<float>{2.25F, 4.25F, 6.25F, 1.5F, 2.0F, 2.5F}));
+}
+
+TEST(DiffusionTimestepEmbedding, MatchesLeRobotDefinition)
+{
+  std::array<float, 8> output{};
+  fe::diffusion_timestep_embedding(7.0F, output);
+  const float factor = std::log(10000.0F) / 3.0F;
+  for (std::size_t i{0uz}; i < 4uz; ++i) {
+    const float phase = 7.0F * std::exp(-factor * static_cast<float>(i));
+    EXPECT_NEAR(output[i], std::sin(phase), 1e-6F);
+    EXPECT_NEAR(output[4uz + i], std::cos(phase), 1e-6F);
+  }
 }
 
 TEST(DiscretizeAndScan, MatchesNaiveRecurrence)
@@ -384,6 +530,108 @@ struct MambaFixture
   }
 };
 
+struct DiffusionFixture
+{
+  static constexpr std::size_t kActionDim{2uz};
+  static constexpr std::size_t kHorizon{4uz};
+  static constexpr std::size_t kConditionDim{3uz};
+  static constexpr std::size_t kTimeDim{4uz};
+  static constexpr std::size_t kKernel{3uz};
+  static constexpr std::array<std::size_t, 2> kDims{8uz, 16uz};
+
+  std::vector<std::vector<float>> storage{};
+  std::vector<fe::TensorView> tensors{};
+  std::vector<std::byte> slab = std::vector<std::byte>(4096uz);
+  fe::Arena arena{std::span<std::byte>{slab}};
+
+  DiffusionFixture()
+  {
+    storage.reserve(128uz);
+    tensors.reserve(128uz);
+    add("dp.meta", {16uz},
+        {1.0F, 2.0F, 4.0F, 2.0F, 2.0F, 3.0F, 2.0F, 3.0F, 2.0F, 4.0F, 10.0F, 0.0F, 0.0F, 1.0F, 1.0F,
+         0.0F});
+    add("dp.dims", {2uz}, {8.0F, 16.0F});
+    add("dp.action_min", {2uz}, {-2.0F, 0.0F});
+    add("dp.action_max", {2uz}, {2.0F, 10.0F});
+    linear("dp.te1", 16uz, kTimeDim, 0.01F);
+    linear("dp.te2", kTimeDim, 16uz, 0.02F);
+
+    residual("dp.d0.r0", kActionDim, kDims[0], 0.03F);
+    residual("dp.d0.r1", kDims[0], kDims[0], 0.04F);
+    conv("dp.d0.ds", kDims[0], kDims[0], 3uz, 0.05F);
+    residual("dp.d1.r0", kDims[0], kDims[1], 0.06F);
+    residual("dp.d1.r1", kDims[1], kDims[1], 0.07F);
+    residual("dp.m0", kDims[1], kDims[1], 0.08F);
+    residual("dp.m1", kDims[1], kDims[1], 0.09F);
+    residual("dp.u0.r0", 2uz * kDims[1], kDims[0], 0.10F);
+    residual("dp.u0.r1", kDims[0], kDims[0], 0.11F);
+    conv("dp.u0.us", kDims[0], kDims[0], 4uz, 0.12F);
+    conv("dp.f.c", kDims[0], kDims[0], kKernel, 0.13F);
+    norm("dp.f.n", kDims[0]);
+    conv("dp.f.o", kActionDim, kDims[0], 1uz, 0.14F);
+  }
+
+private:
+  std::vector<float> weights(std::size_t count, float phase) const
+  {
+    std::vector<float> result = seq(count, 0.173F, phase);
+    for (float& value : result)
+      value *= 0.075F;
+    return result;
+  }
+
+  void add(const std::string& name, std::initializer_list<std::size_t> shape,
+           std::vector<float> values)
+  {
+    storage.push_back(std::move(values));
+    fe::TensorView view{};
+    view.data = storage.back().data();
+    view.dtype = fe::TensorView::Dtype::F32;
+    view.ndim = static_cast<std::uint8_t>(shape.size());
+    view.bytes = storage.back().size() * sizeof(float);
+    std::size_t axis{0uz};
+    for (const std::size_t extent : shape)
+      view.shape[axis++] = extent;
+    ASSERT_LT(name.size(), view.name.size());
+    std::copy(name.begin(), name.end(), view.name.begin());
+    tensors.push_back(view);
+  }
+
+  void conv(const std::string& prefix, std::size_t out_channels, std::size_t in_channels,
+            std::size_t kernel, float phase)
+  {
+    add(prefix + ".w", {out_channels, in_channels, kernel},
+        weights(out_channels * in_channels * kernel, phase));
+    add(prefix + ".b", {out_channels}, std::vector<float>(out_channels, phase * 0.01F));
+  }
+
+  void linear(const std::string& prefix, std::size_t out_features, std::size_t in_features,
+              float phase)
+  {
+    add(prefix + ".w", {out_features, in_features}, weights(out_features * in_features, phase));
+    add(prefix + ".b", {out_features}, std::vector<float>(out_features, phase * 0.01F));
+  }
+
+  void norm(const std::string& prefix, std::size_t channels)
+  {
+    add(prefix + ".w", {channels}, std::vector<float>(channels, 1.0F));
+    add(prefix + ".b", {channels}, std::vector<float>(channels, 0.0F));
+  }
+
+  void residual(const std::string& prefix, std::size_t in_channels, std::size_t out_channels,
+                float phase)
+  {
+    conv(prefix + ".c1", out_channels, in_channels, kKernel, phase);
+    norm(prefix + ".n1", out_channels);
+    linear(prefix + ".film", 2uz * out_channels, kTimeDim + kConditionDim, phase + 0.01F);
+    conv(prefix + ".c2", out_channels, out_channels, kKernel, phase + 0.02F);
+    norm(prefix + ".n2", out_channels);
+    if (in_channels != out_channels)
+      conv(prefix + ".res", out_channels, in_channels, 1uz, phase + 0.03F);
+  }
+};
+
 } // namespace
 
 TEST(Mamba, StreamingStateCanBeSnapshottedAndRestored)
@@ -484,6 +732,92 @@ TEST(Mamba, StreamingMatchesBatchForward)
 
   for (std::size_t i{0uz}; i < batch.size(); ++i)
     EXPECT_NEAR(streamed[i], batch[i], 3.0e-6F);
+}
+
+TEST(DiffusionHead, DenoiserIsDeterministicFiniteAndConditioned)
+{
+  DiffusionFixture fixture;
+  fe::DiffusionHead head{fixture.tensors, fixture.arena};
+  ASSERT_TRUE(head.valid());
+  EXPECT_EQ(head.config().action_dim, DiffusionFixture::kActionDim);
+  EXPECT_EQ(head.config().horizon, DiffusionFixture::kHorizon);
+  EXPECT_EQ(head.config().condition_dim, DiffusionFixture::kConditionDim);
+  const std::vector<float> sample = seq(8uz, 0.23F, -0.1F);
+  const std::vector<float> condition = seq(3uz, 0.41F, 0.2F);
+  std::vector<float> workspace(head.sampler_workspace_size());
+  std::vector<float> first(8uz), second(8uz), changed(8uz);
+  ASSERT_TRUE(head.denoise(condition, sample, 7.0F, workspace, first));
+  ASSERT_TRUE(head.denoise(condition, sample, 7.0F, workspace, second));
+  std::vector<float> other_condition = condition;
+  other_condition[0] += 0.75F;
+  ASSERT_TRUE(head.denoise(other_condition, sample, 7.0F, workspace, changed));
+  float condition_delta{0.0F};
+  for (std::size_t i{0uz}; i < first.size(); ++i) {
+    EXPECT_FLOAT_EQ(first[i], second[i]);
+    EXPECT_TRUE(std::isfinite(first[i]));
+    condition_delta += std::fabs(first[i] - changed[i]);
+  }
+  EXPECT_GT(condition_delta, 0.0F);
+}
+
+TEST(DiffusionHead, DdimAndDdpmAreDeterministicDistinctAndUnnormalized)
+{
+  DiffusionFixture fixture;
+  fe::DiffusionHead head{fixture.tensors, fixture.arena};
+  ASSERT_TRUE(head.valid());
+  const std::vector<float> condition = seq(3uz, 0.31F, -0.2F);
+  const std::vector<float> noise = seq(8uz, 0.29F, 0.1F);
+  std::vector<float> workspace(head.sampler_workspace_size());
+  std::vector<float> ddim_a(8uz), ddim_b(8uz), ddpm_a(8uz), ddpm_b(8uz), ddpm_other(8uz);
+  ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDIM, 1u, workspace, ddim_a));
+  ASSERT_TRUE(
+      head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDIM, 999u, workspace, ddim_b));
+  ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDPM, 42u, workspace, ddpm_a));
+  ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDPM, 42u, workspace, ddpm_b));
+  ASSERT_TRUE(
+      head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDPM, 43u, workspace, ddpm_other));
+  float scheduler_delta{0.0F};
+  float seed_delta{0.0F};
+  for (std::size_t i{0uz}; i < ddim_a.size(); ++i) {
+    EXPECT_FLOAT_EQ(ddim_a[i], ddim_b[i]);
+    EXPECT_FLOAT_EQ(ddpm_a[i], ddpm_b[i]);
+    EXPECT_TRUE(std::isfinite(ddim_a[i]));
+    EXPECT_TRUE(std::isfinite(ddpm_a[i]));
+    const bool first_channel = i % 2uz == 0uz;
+    EXPECT_GE(ddim_a[i], first_channel ? -2.0F : 0.0F);
+    EXPECT_LE(ddim_a[i], first_channel ? 2.0F : 10.0F);
+    scheduler_delta += std::fabs(ddim_a[i] - ddpm_a[i]);
+    seed_delta += std::fabs(ddpm_a[i] - ddpm_other[i]);
+  }
+  EXPECT_GT(scheduler_delta, 0.0F);
+  EXPECT_GT(seed_delta, 0.0F);
+}
+
+TEST(DiffusionHead, RejectsMalformedMetadata)
+{
+  DiffusionFixture fixture;
+  fixture.storage[0][0] = 99.0F;
+  fe::DiffusionHead head{fixture.tensors, fixture.arena};
+  EXPECT_FALSE(head.valid());
+}
+
+TEST(DiffusionHead, RejectsTensorShapesThatExceedBackingStorage)
+{
+  DiffusionFixture metadata_fixture;
+  metadata_fixture.tensors[0].bytes = sizeof(float);
+  EXPECT_EQ(fe::DiffusionHead::required_workspace_floats(metadata_fixture.tensors), 0uz);
+  fe::DiffusionHead metadata_head{metadata_fixture.tensors, metadata_fixture.arena};
+  EXPECT_FALSE(metadata_head.valid());
+
+  DiffusionFixture weight_fixture;
+  const auto weight =
+      std::ranges::find_if(weight_fixture.tensors, [](const fe::TensorView& tensor) {
+        return tensor.name_view() == "dp.d0.r0.c1.w";
+      });
+  ASSERT_NE(weight, weight_fixture.tensors.end());
+  weight->bytes = sizeof(float);
+  fe::DiffusionHead weight_head{weight_fixture.tensors, weight_fixture.arena};
+  EXPECT_FALSE(weight_head.valid());
 }
 
 TEST(FlowHead, DeterministicAndFinite)

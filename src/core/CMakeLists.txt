@@ -19,12 +19,14 @@ endif()
 
 add_library(flowedge_core STATIC
   ${FLOWEDGE_CORE_KERNEL_SOURCE}
+  kernels/diffusion_ops.cc
   arena/thread_pool.cc
   loader/safetensors.cc
   protocol/model_identity.cc
   protocol/snapshot.cc
   runtime/engine_runtime.cc
   models/mamba/mamba.cc
+  heads/diffusion/diffusion.cc
   heads/flow/flow.cc
   api/engine.cc
 )

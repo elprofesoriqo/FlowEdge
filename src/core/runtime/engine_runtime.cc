@@ -40,7 +40,10 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
   const std::size_t flow_time_dim = time_proj[1];
   const bool has_backbone = d_model != 0uz && d_inner != 0uz && d_state != 0uz && d_conv != 0uz;
   const bool has_flow = flow_hidden != 0uz && action_dim != 0uz && flow_time_dim != 0uz;
-  if (!has_backbone && !has_flow)
+  const std::size_t diffusion_workspace = DiffusionHead::required_workspace_floats(tensors);
+  const std::size_t diffusion_persistent = DiffusionHead::required_persistent_floats(tensors);
+  const bool has_diffusion = diffusion_workspace != 0uz && diffusion_persistent != 0uz;
+  if (!has_backbone && !has_flow && !has_diffusion)
     return 0uz;
 
   const std::size_t per_token =
@@ -49,10 +52,11 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
       has_backbone ? 64uz * d_inner * (d_conv + (2uz * d_state)) * sizeof(float) : 0uz;
   const std::size_t flow_floats =
       has_flow ? (3uz * flow_hidden) + (6uz * action_dim) + ((3uz * flow_time_dim) / 2uz) : 0uz;
-  const std::size_t runtime = (kThreadRingSlots * sizeof(Task)) +
-                              (kThreadRingSlots * sizeof(std::size_t)) +
-                              (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
-                              (flow_floats * sizeof(float)) + persistent_state + 4096uz;
+  const std::size_t runtime =
+      (kThreadRingSlots * sizeof(Task)) + (kThreadRingSlots * sizeof(std::size_t)) +
+      (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
+      ((flow_floats + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
+      persistent_state + 4096uz;
   return (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
@@ -72,7 +76,8 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     : weights_{std::move(weights)}, slab_{slab_bytes},
       arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
       model_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
-      flow_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_}
+      flow_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
+      diffusion_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_}
 {
   if (!weights_) {
     error = "Immutable model weights are unavailable";
@@ -81,10 +86,11 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   const std::span<const TensorView> tensors = weights_->tensors();
   identity_.digest = fingerprint_tensors(tensors);
   identity_.precision = checkpoint_precision(tensors);
-  identity_.architecture = model_.valid() && flow_.valid() ? FE_ARCH_MAMBA_FLOW
-                           : model_.valid()                ? FE_ARCH_MAMBA
-                           : flow_.valid()                 ? FE_ARCH_FLOW_HEAD
-                                                           : FE_ARCH_UNKNOWN;
+  identity_.architecture = diffusion_.valid()                ? FE_ARCH_DIFFUSION_HEAD
+                           : model_.valid() && flow_.valid() ? FE_ARCH_MAMBA_FLOW
+                           : model_.valid()                  ? FE_ARCH_MAMBA
+                           : flow_.valid()                   ? FE_ARCH_FLOW_HEAD
+                                                             : FE_ARCH_UNKNOWN;
   if (model_.valid()) {
     const MambaConfig& config = model_.config();
     identity_.d_model = config.d_model;
@@ -96,6 +102,10 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   if (flow_.valid()) {
     identity_.action_dim = flow_.config().action_dim;
     identity_.condition_dim = flow_.config().cond_dim;
+  }
+  if (diffusion_.valid()) {
+    identity_.action_dim = diffusion_.config().action_dim;
+    identity_.condition_dim = diffusion_.config().condition_dim;
   }
 
   if (worker_threads > 0u) {
@@ -113,10 +123,15 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
                                 std::span<std::size_t>{sequence, kThreadRingSlots}, workers_,
                                 worker_threads);
     }
+    if (pool_ == nullptr) {
+      error = "Runtime slab cannot hold the requested worker pool";
+      return;
+    }
   }
 
   model_.set_pool(pool_);
   flow_.set_pool(pool_);
+  diffusion_.set_pool(pool_);
   if (model_.valid())
     if (auto* const state = arena_.alloc_array<float, kSimdAlign>(model_.state_size()))
       decode_state_ = {state, model_.state_size()};
@@ -124,6 +139,23 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     if (auto* const workspace =
             arena_.alloc_array<float, kSimdAlign>(flow_.sampler_workspace_size()))
       flow_workspace_ = {workspace, flow_.sampler_workspace_size()};
+  if (diffusion_.valid())
+    if (auto* const workspace =
+            arena_.alloc_array<float, kSimdAlign>(diffusion_.sampler_workspace_size()))
+      diffusion_workspace_ = {workspace, diffusion_.sampler_workspace_size()};
+  if (model_.valid() && decode_state_.empty()) {
+    error = "Runtime slab cannot hold the streaming model state";
+    return;
+  }
+  if (flow_.valid() && flow_workspace_.empty()) {
+    error = "Runtime slab cannot hold the flow sampler workspace";
+    return;
+  }
+  if (diffusion_.valid() && diffusion_workspace_.empty()) {
+    error = "Runtime slab cannot hold the diffusion sampler workspace";
+    return;
+  }
+  ready_ = model_.valid() || flow_.valid() || diffusion_.valid();
 }
 
 EngineRuntime::~EngineRuntime()
@@ -171,12 +203,21 @@ std::uint64_t EngineRuntime::flow_remaining_nfe() const noexcept
 
 std::size_t EngineRuntime::action_dim() const noexcept
 {
-  return flow_.valid() ? flow_.config().action_dim : 0uz;
+  return diffusion_.valid() ? diffusion_.config().action_dim
+         : flow_.valid()    ? flow_.config().action_dim
+                            : 0uz;
+}
+
+std::size_t EngineRuntime::action_horizon() const noexcept
+{
+  return diffusion_.valid() ? diffusion_.config().horizon : (flow_.valid() ? 1uz : 0uz);
 }
 
 std::size_t EngineRuntime::condition_dim() const noexcept
 {
-  return flow_.valid() ? flow_.config().cond_dim : 0uz;
+  return diffusion_.valid() ? diffusion_.config().condition_dim
+         : flow_.valid()    ? flow_.config().cond_dim
+                            : 0uz;
 }
 
 int EngineRuntime::run(const std::int32_t* tokens, std::size_t seq_len, float* out,
@@ -275,6 +316,54 @@ int EngineRuntime::sample_condition(const float* condition, const float* noise, 
     return rc;
   std::size_t remaining{steps};
   return flow_advance(steps, action, remaining, error);
+}
+
+int EngineRuntime::sample_diffusion(const float* condition, const float* noise, std::size_t steps,
+                                    DiffusionHead::Scheduler scheduler, std::uint64_t seed,
+                                    float* action, const char*& error) noexcept
+{
+  if (!diffusion_.valid()) {
+    error = "Model has no Diffusion Policy head to sample from";
+    return 4;
+  }
+  if (diffusion_workspace_.empty()) [[unlikely]] {
+    error = "Diffusion sampler workspace is unavailable";
+    return 2;
+  }
+  const DiffusionConfig& config = diffusion_.config();
+  if (steps == 0uz || steps > config.train_timesteps) {
+    error = "Diffusion inference steps must be between 1 and the training timestep count";
+    return 1;
+  }
+  if (!diffusion_.sample({condition, config.condition_dim},
+                         {noise, config.horizon * config.action_dim}, steps, scheduler, seed,
+                         diffusion_workspace_, {action, config.horizon * config.action_dim})) {
+    error = "Diffusion sampling failed";
+    return 2;
+  }
+  return 0;
+}
+
+int EngineRuntime::denoise_diffusion(const float* condition, const float* normalized_sample,
+                                     float timestep, float* predicted_noise,
+                                     const char*& error) noexcept
+{
+  if (!diffusion_.valid()) {
+    error = "Model has no Diffusion Policy head";
+    return 4;
+  }
+  if (diffusion_workspace_.empty()) [[unlikely]] {
+    error = "Diffusion workspace is unavailable";
+    return 2;
+  }
+  const DiffusionConfig& config = diffusion_.config();
+  const std::size_t values = config.horizon * config.action_dim;
+  if (!diffusion_.denoise({condition, config.condition_dim}, {normalized_sample, values}, timestep,
+                          diffusion_workspace_, {predicted_noise, values})) {
+    error = "Diffusion denoiser execution failed";
+    return 2;
+  }
+  return 0;
 }
 
 int EngineRuntime::flow_begin(const float* condition, const float* noise, std::size_t steps,
