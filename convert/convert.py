@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import torch
+from safetensors import SafetensorError
 from safetensors.torch import load_file, save_file
 
 # used to validate output.
@@ -69,7 +70,60 @@ def _config_error(message):
     raise ValueError(f"unsupported Diffusion Policy config: {message}")
 
 
-def diffusion(sd, config):
+def _processor_action_stats(path):
+    """Load MIN_MAX action statistics from a LeRobot postprocessor sidecar."""
+    try:
+        processor = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read processor config {path}: {exc}") from exc
+
+    if not isinstance(processor, dict):
+        _config_error("processor config must be an object")
+    steps = processor.get("steps")
+    if not isinstance(steps, list):
+        _config_error("processor config steps must be a list")
+    step = next(
+        (
+            candidate
+            for candidate in steps
+            if isinstance(candidate, dict)
+            and candidate.get("registry_name") == "unnormalizer_processor"
+        ),
+        None,
+    )
+    if step is None:
+        _config_error("processor config has no unnormalizer_processor step")
+    step_config = step.get("config")
+    if not isinstance(step_config, dict):
+        _config_error("unnormalizer_processor config must be an object")
+    norm_map = step_config.get("norm_map")
+    if not isinstance(norm_map, dict):
+        _config_error("unnormalizer_processor norm_map must be an object")
+    normalization = norm_map.get("ACTION")
+    if normalization != "MIN_MAX":
+        _config_error(
+            f"processor ACTION normalization must be 'MIN_MAX', got {normalization!r}"
+        )
+    state_file = step.get("state_file")
+    if not isinstance(state_file, str) or not state_file:
+        _config_error("unnormalizer_processor state_file is required")
+    state_path = Path(state_file)
+    if state_path.is_absolute() or ".." in state_path.parts:
+        _config_error("processor state_file must stay beside the processor config")
+    try:
+        stats = _load(path.parent / state_path)
+    except (OSError, SafetensorError, ValueError) as exc:
+        raise ValueError(
+            f"cannot read processor state {path.parent / state_path}: {exc}"
+        ) from exc
+    action_min = stats.get("action.min")
+    action_max = stats.get("action.max")
+    if action_min is None or action_max is None:
+        _config_error("processor state must contain action.min and action.max")
+    return normalization, action_min, action_max
+
+
+def diffusion(sd, config, processor_stats=None):
     """LeRobot ConditionalUnet1D -> short FlowEdge `dp.*` tensor names.
 
     The RGB encoder is intentionally excluded: FlowEdge consumes the flattened
@@ -86,7 +140,18 @@ def diffusion(sd, config):
     for name, (actual, expected) in checks.items():
         if actual != expected:
             _config_error(f"{name} must be {expected!r}, got {actual!r}")
-    normalization = config.get("normalization_mapping", {}).get("ACTION")
+    config_normalization = config.get("normalization_mapping", {}).get("ACTION")
+    processor_normalization = processor_stats[0] if processor_stats else None
+    if (
+        config_normalization
+        and processor_normalization
+        and config_normalization != processor_normalization
+    ):
+        _config_error(
+            "config and processor ACTION normalization disagree "
+            f"({config_normalization!r} vs {processor_normalization!r})"
+        )
+    normalization = processor_normalization or config_normalization
     if normalization != "MIN_MAX":
         _config_error(f"ACTION normalization must be 'MIN_MAX', got {normalization!r}")
 
@@ -194,13 +259,25 @@ def diffusion(sd, config):
     norm("dp.f.n", f"{root}.final_conv.0.block.1", down_dims[0])
     conv("dp.f.o", f"{root}.final_conv.1", action_dim, down_dims[0], 1)
 
-    min_key = "unnormalize_outputs.buffer_action.min"
-    max_key = "unnormalize_outputs.buffer_action.max"
-    if min_key not in sd or max_key not in sd:
-        min_key = "normalize_targets.buffer_action.min"
-        max_key = "normalize_targets.buffer_action.max"
-    put("dp.action_min", min_key, (action_dim,))
-    put("dp.action_max", max_key, (action_dim,))
+    if processor_stats:
+        action_min, action_max = processor_stats[1:]
+        if tuple(action_min.shape) != (action_dim,) or tuple(action_max.shape) != (action_dim,):
+            raise ValueError(
+                "processor action statistics must have shape "
+                f"({action_dim},), got {tuple(action_min.shape)} and {tuple(action_max.shape)}"
+            )
+        if not torch.isfinite(action_min).all() or not torch.isfinite(action_max).all():
+            _config_error("processor action statistics must be finite")
+        out["dp.action_min"] = action_min
+        out["dp.action_max"] = action_max
+    else:
+        min_key = "unnormalize_outputs.buffer_action.min"
+        max_key = "unnormalize_outputs.buffer_action.max"
+        if min_key not in sd or max_key not in sd:
+            min_key = "normalize_targets.buffer_action.min"
+            max_key = "normalize_targets.buffer_action.max"
+        put("dp.action_min", min_key, (action_dim,))
+        put("dp.action_max", max_key, (action_dim,))
     out["dp.dims"] = torch.tensor(down_dims, dtype=torch.float32)
     out["dp.meta"] = torch.tensor(
         [
@@ -254,6 +331,10 @@ def main():
     ap.add_argument("--component", choices=("all", "backbone", "head"), default="all")
     ap.add_argument("--dtype", choices=("f32", "bf16"), default="f32")
     ap.add_argument("--config", help="Diffusion Policy config.json (auto-detected beside source)")
+    ap.add_argument(
+        "--processor",
+        help="LeRobot policy_postprocessor.json (auto-detected for a source directory)",
+    )
     args = ap.parse_args()
 
     source = Path(args.source)
@@ -265,6 +346,7 @@ def main():
         default_config = source.with_name("config.json")
     config_path = Path(args.config) if args.config else default_config
     config = None
+    processor_stats = None
     if args.arch == "diffusion":
         if args.component == "backbone":
             sys.exit("error: diffusion conversion exports an action head, not a backbone")
@@ -272,9 +354,23 @@ def main():
             config = json.loads(config_path.read_text(encoding="utf-8"))
         except OSError as exc:
             sys.exit(f"error: cannot read diffusion config {config_path}: {exc}")
+        processor_path = Path(args.processor) if args.processor else None
+        if processor_path is None and source.is_dir():
+            candidate = source / "policy_postprocessor.json"
+            if candidate.is_file():
+                processor_path = candidate
+        if processor_path is not None:
+            try:
+                processor_stats = _processor_action_stats(processor_path)
+            except (TypeError, ValueError) as exc:
+                sys.exit(f"error: {exc}")
     try:
         loaded = _load(model_source)
-        sd = diffusion(loaded, config) if args.arch == "diffusion" else mamba(loaded)
+        sd = (
+            diffusion(loaded, config, processor_stats)
+            if args.arch == "diffusion"
+            else mamba(loaded)
+        )
     except (KeyError, TypeError, ValueError) as exc:
         sys.exit(f"error: {exc}")
     if args.component == "backbone":
