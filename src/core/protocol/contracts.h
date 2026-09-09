@@ -37,6 +37,25 @@ enum
   FE_ACTION_FAILED = 3,
 };
 
+enum
+{
+  FE_ACTION_UNITS_NORMALIZED = 0,
+  FE_ACTION_UNITS_PHYSICAL = 1,
+};
+
+enum
+{
+  FE_NORMALIZATION_NONE = 0,
+  FE_NORMALIZATION_MINMAX = 1,
+};
+
+enum
+{
+  FE_PROFILE_SOLVER_EULER = 0,
+  FE_PROFILE_SOLVER_HEUN = 1,
+  FE_PROFILE_SOLVER_RK4 = 2,
+};
+
 typedef struct fe_model_digest
 {
   uint8_t bytes[FE_MODEL_DIGEST_BYTES];
@@ -58,6 +77,26 @@ typedef struct fe_model_metadata
   uint64_t condition_dim;
   uint64_t decode_snapshot_bytes;
 } fe_model_metadata;
+
+/** Borrowed deployment metadata retained by the engine until fe_engine_free(). */
+typedef struct fe_deployment_profile
+{
+  uint32_t struct_size;
+  uint32_t profile_version;
+  uint32_t model_compatibility_version;
+  uint32_t action_units;
+  uint32_t normalization_type;
+  uint32_t solver_default;
+  uint32_t reserved;
+  const char* observation_schema_hash;
+  const float* normalization_min;
+  const float* normalization_max;
+  uint64_t action_dim;
+  uint64_t action_horizon;
+  uint64_t normalization_count;
+  uint64_t solver_min_steps;
+  uint64_t solver_max_steps;
+} fe_deployment_profile;
 
 typedef struct fe_condition_metadata
 {

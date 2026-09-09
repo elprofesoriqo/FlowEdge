@@ -52,6 +52,10 @@ public:
   [[nodiscard]] const MambaConfig& config() const noexcept { return model_.config(); }
   [[nodiscard]] unsigned thread_count() const noexcept;
   [[nodiscard]] const ModelIdentity& identity() const noexcept { return identity_; }
+  [[nodiscard]] const DeploymentProfile* deployment_profile() const noexcept
+  {
+    return weights_ ? weights_->deployment_profile() : nullptr;
+  }
   [[nodiscard]] const FlowRequestMetadata& flow_request_metadata() const noexcept
   {
     return flow_request_;

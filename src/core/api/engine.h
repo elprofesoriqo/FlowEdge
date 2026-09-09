@@ -122,6 +122,14 @@ unsigned fe_engine_thread_count(const fe_engine* engine);
 int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadata);
 
 /**
+ * @brief Borrow the validated deployment profile retained by the engine.
+ *
+ * The returned pointers remain valid until fe_engine_free(). Return value 2 means that the
+ * checkpoint uses the legacy path and has no deployment profile.
+ */
+int fe_engine_deployment_profile(const fe_engine* engine, fe_deployment_profile* profile);
+
+/**
  * @brief Get the action dimension of the flow-matching head.
  * @param engine The engine instance.
  * @return The action dimension, or 0 if the checkpoint lacks a flow head.

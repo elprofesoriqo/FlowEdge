@@ -9,6 +9,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <string>
 #include <utility>
 
 #ifdef _WIN32
@@ -239,6 +240,125 @@ struct MappedJson
   std::string_view json;
 };
 
+[[nodiscard]] std::size_t quoted_key_pos(std::string_view json, std::string_view key) noexcept
+{
+  std::size_t position = json.find(key);
+  while (position != std::string_view::npos) {
+    if (position > 0uz && position + key.size() < json.size() && json[position - 1uz] == '"' &&
+        json[position + key.size()] == '"')
+      return position - 1uz;
+    position = json.find(key, position + 1uz);
+  }
+  return std::string_view::npos;
+}
+
+[[nodiscard]] std::string_view object_value(std::string_view json, std::string_view key) noexcept
+{
+  const std::size_t key_pos = quoted_key_pos(json, key);
+  if (key_pos == std::string_view::npos)
+    return {};
+  const std::size_t colon = json.find(':', key_pos + key.size() + 2uz);
+  if (colon == std::string_view::npos)
+    return {};
+  const std::size_t start = json.find('{', colon + 1uz);
+  if (start == std::string_view::npos)
+    return {};
+
+  int depth{0};
+  bool in_string{false};
+  for (std::size_t index{start}; index < json.size(); ++index) {
+    const char ch = json[index];
+    if (ch == '"' && (index == 0uz || json[index - 1uz] != '\\'))
+      in_string = !in_string;
+    if (in_string)
+      continue;
+    if (ch == '{')
+      ++depth;
+    else if (ch == '}' && --depth == 0)
+      return json.substr(start, index - start + 1uz);
+  }
+  return {};
+}
+
+struct MetadataString
+{
+  std::string_view value{};
+  bool present{false};
+  bool valid{false};
+};
+
+[[nodiscard]] MetadataString metadata_string_value(std::string_view object,
+                                                   std::string_view key) noexcept
+{
+  const std::size_t key_pos = quoted_key_pos(object, key);
+  if (key_pos == std::string_view::npos)
+    return {};
+  const std::size_t colon = object.find(':', key_pos + key.size() + 2uz);
+  if (colon == std::string_view::npos)
+    return {.present = true};
+  std::size_t start = colon + 1uz;
+  while (start < object.size() && (object[start] == ' ' || object[start] == '\n' ||
+                                   object[start] == '\r' || object[start] == '\t'))
+    ++start;
+  if (start >= object.size() || object[start] != '"')
+    return {.present = true};
+  for (std::size_t end{start + 1uz}; end < object.size(); ++end) {
+    if (object[end] == '"' && object[end - 1uz] != '\\')
+      return {.value = object.substr(start + 1uz, end - start - 1uz),
+              .present = true,
+              .valid = true};
+  }
+  return {.present = true};
+}
+
+[[nodiscard]] std::expected<std::string, const char*> unescape_json_string(
+    std::string_view escaped) noexcept
+{
+  try {
+    std::string value;
+    value.reserve(escaped.size());
+    for (std::size_t index{}; index < escaped.size(); ++index) {
+      if (escaped[index] != '\\') {
+        value.push_back(escaped[index]);
+        continue;
+      }
+      if (++index >= escaped.size())
+        return std::unexpected("Invalid escaped metadata string");
+      switch (escaped[index]) {
+      case '"':
+        value.push_back('"');
+        break;
+      case '\\':
+        value.push_back('\\');
+        break;
+      case '/':
+        value.push_back('/');
+        break;
+      case 'b':
+        value.push_back('\b');
+        break;
+      case 'f':
+        value.push_back('\f');
+        break;
+      case 'n':
+        value.push_back('\n');
+        break;
+      case 'r':
+        value.push_back('\r');
+        break;
+      case 't':
+        value.push_back('\t');
+        break;
+      default:
+        return std::unexpected("Unsupported escaped metadata string");
+      }
+    }
+    return value;
+  } catch (...) {
+    return std::unexpected("Out of memory reading safetensors metadata");
+  }
+}
+
 struct TensorSpanTracker
 {
   static constexpr std::size_t kMaxSpans = 1024uz;
@@ -324,9 +444,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
       foreach_tensor(json,
                      [&](std::string_view name, std::uint64_t byte_off, std::uint64_t byte_len,
                          const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         TensorView::Dtype dtype) noexcept -> bool {
-                       if (dtype == TensorView::Dtype::Unsupported)
-                         return true;
+                         bool bf16) noexcept -> bool {
                        if (tensors_loaded >= out.size()) [[unlikely]]
                          return false;
                        if (!spans.add(byte_off, byte_len)) [[unlikely]]
@@ -343,7 +461,7 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                        TensorView& tv = out[tensors_loaded++];
                        tv.data = dst;
                        tv.bytes = static_cast<std::size_t>(byte_len);
-                       tv.dtype = dtype;
+                       tv.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        tv.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
                          tv.shape[i] = (i < ndim) ? static_cast<std::size_t>(shape[i]) : 0uz;
@@ -398,7 +516,7 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   std::array<std::size_t, 4> out{};
   static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
                                              const std::array<std::uint64_t, 4>& shape,
-                                             std::uint8_t ndim, TensorView::Dtype) noexcept {
+                                             std::uint8_t ndim, bool) noexcept {
     if (n != name)
       return true; // keep scanning
     for (std::size_t i{0uz}; i < ndim; ++i)
@@ -407,6 +525,35 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   }));
   mf.close();
   return out;
+}
+
+std::expected<std::optional<std::string>, const char*> safetensors_metadata_value(
+    std::string_view path, std::string_view key) noexcept
+{
+  auto res = header_json(path);
+  if (!res)
+    return std::unexpected(res.error());
+
+  MappedJson mapped = *res;
+  const std::string_view metadata = object_value(mapped.json, "__metadata__");
+  if (metadata.empty()) {
+    mapped.mf.close();
+    return std::optional<std::string>{};
+  }
+  const MetadataString encoded = metadata_string_value(metadata, key);
+  if (!encoded.present) {
+    mapped.mf.close();
+    return std::optional<std::string>{};
+  }
+  if (!encoded.valid) {
+    mapped.mf.close();
+    return std::unexpected("Invalid safetensors metadata value");
+  }
+  const auto decoded = unescape_json_string(encoded.value);
+  mapped.mf.close();
+  if (!decoded)
+    return std::unexpected(decoded.error());
+  return std::optional<std::string>{std::move(*decoded)};
 }
 
 std::expected<void, const char*> inspect_safetensors(std::string_view path,
@@ -428,11 +575,11 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
       foreach_tensor(mapped.json,
                      [&](std::string_view name, std::uint64_t, std::uint64_t byte_len,
                          const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         TensorView::Dtype dtype) noexcept -> bool {
+                         bool bf16) noexcept -> bool {
                        if (tensors_loaded >= out.size())
                          return false;
                        TensorMetadata& metadata = out[tensors_loaded++];
-                       metadata.dtype = dtype;
+                       metadata.dtype = bf16 ? TensorView::Dtype::BF16 : TensorView::Dtype::F32;
                        metadata.bytes = static_cast<std::size_t>(byte_len);
                        metadata.ndim = ndim;
                        for (std::size_t i{0uz}; i < 4uz; ++i)
@@ -450,15 +597,31 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
   return {};
 }
 
-ModelWeights::ModelWeights(std::size_t weight_bytes)
+ModelWeights::ModelWeights(std::size_t weight_bytes,
+                           std::optional<DeploymentProfile> deployment_profile)
     : storage_(weight_bytes + (kMaxTensors * (kSimdAlign - 1uz))),
       arena_{std::span<std::byte>{storage_.data(), storage_.size()}}, weight_bytes_{weight_bytes}
 {
+  deployment_profile_ = std::move(deployment_profile);
 }
 
 std::expected<std::shared_ptr<const ModelWeights>, const char*> ModelWeights::open(
     std::string_view path) noexcept
 {
+  std::optional<DeploymentProfile> deployment_profile;
+  try {
+    const auto encoded_profile = safetensors_metadata_value(path, kDeploymentProfileMetadataKey);
+    if (!encoded_profile)
+      return std::unexpected(encoded_profile.error());
+    if (*encoded_profile) {
+      const auto parsed_profile = parse_deployment_profile(**encoded_profile);
+      if (!parsed_profile)
+        return std::unexpected(deployment_profile_error_message(parsed_profile.error()).data());
+      deployment_profile = std::move(*parsed_profile);
+    }
+  } catch (...) {
+    return std::unexpected("Out of memory parsing deployment profile");
+  }
   const std::size_t bytes = safetensors_weight_bytes(path);
   if (bytes == 0uz)
     return std::unexpected("Failed to load safetensors file or find supported tensors");
@@ -466,7 +629,7 @@ std::expected<std::shared_ptr<const ModelWeights>, const char*> ModelWeights::op
   if (bytes > std::numeric_limits<std::size_t>::max() - alignment_padding)
     return std::unexpected("Checkpoint weight storage size overflows this platform");
   try {
-    std::shared_ptr<ModelWeights> weights{new ModelWeights{bytes}};
+    std::shared_ptr<ModelWeights> weights{new ModelWeights{bytes, std::move(deployment_profile)}};
     const auto loaded =
         load_safetensors(path, weights->arena_, weights->views_, weights->tensor_count_);
     if (!loaded)
