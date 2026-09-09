@@ -1,8 +1,9 @@
 #include "protocol/snapshot.h"
 
+#include "protocol/byte_codec.h"
+
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cstdint>
 #include <cstring>
 #include <ranges>
@@ -14,28 +15,8 @@ constexpr std::array<std::byte, 8> kMagic{std::byte{'F'}, std::byte{'E'}, std::b
                                           std::byte{'N'}, std::byte{'A'}, std::byte{'P'},
                                           std::byte{'0'}, std::byte{'1'}};
 constexpr std::uint16_t kVersion = 1u;
-
-template<typename Integer>
-void write_le(std::span<std::byte> destination, std::size_t offset, Integer value) noexcept
-{
-  using Unsigned = std::make_unsigned_t<Integer>;
-  const auto bits = static_cast<Unsigned>(value);
-  for (std::size_t i{0uz}; i < sizeof(Integer); ++i)
-    destination[offset + i] = static_cast<std::byte>(
-        (bits >> (8uz * i)) & Unsigned{0xffu}); // NOLINT(bugprone-signed-bitwise)
-}
-
-template<typename Integer>
-[[nodiscard]] Integer read_le(std::span<const std::byte> source, std::size_t offset) noexcept
-{
-  using Unsigned = std::make_unsigned_t<Integer>;
-  Unsigned value{};
-  for (std::size_t i{0uz}; i < sizeof(Integer); ++i) {
-    // NOLINTNEXTLINE(bugprone-signed-bitwise): Integer is converted to its unsigned type.
-    value |= static_cast<Unsigned>(std::to_integer<std::uint8_t>(source[offset + i])) << (8uz * i);
-  }
-  return static_cast<Integer>(value);
-}
+using protocol::read_le;
+using protocol::write_le;
 
 [[nodiscard]] std::uint64_t payload_checksum(std::span<const std::byte> payload) noexcept
 {

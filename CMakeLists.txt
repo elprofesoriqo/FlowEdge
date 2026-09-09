@@ -130,7 +130,7 @@ if(FLOWEDGE_TESTS)
   FetchContent_MakeAvailable(googletest)
 
   find_package(Threads REQUIRED)
-  add_executable(flowedge_tests test/tests.cc)
+  add_executable(flowedge_tests test/tests.cc test/byte_codec_tests.cc)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
 
   if(FLOWEDGE_RELAY)
