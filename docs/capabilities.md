@@ -44,7 +44,7 @@ flowchart LR
 
 | Area | Capabilities |
 |---|---|
-| Models | Mamba streaming; flow head with Euler, Heun, RK4 |
+| Models | Mamba streaming; flow head with Euler, Heun, RK4; fixed LeRobot Diffusion Policy head |
 | Weights | FP32/BF16 `.safetensors`; shared immutable worker weights |
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
@@ -73,7 +73,7 @@ flowchart LR
 |---|---|
 | External runtime plugins | ONNX Runtime, TensorRT, PyTorch, llama.cpp/vLLM adapters are planned |
 | Transformer and KV cache | Planned in issue #10 |
-| Diffusion Policy, DiT, π0 | Planned in issues #9 and #11 |
+| Diffusion Policy | LeRobot `diffusion_pusht` head is available; DiT and π0 remain planned |
 | CUDA, Metal, Vulkan, TTNN | Planned backends |
 | ROS 2 and Zenoh | Optional Relay adapters after the production model service |
 | Distributed scheduling | Deferred until local traces justify it |

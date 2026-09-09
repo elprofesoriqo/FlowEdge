@@ -215,9 +215,8 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
       continue;
     const bool bf16 = obj.find("\"BF16\"") != std::string_view::npos;
     const bool f32 = obj.find("\"F32\"") != std::string_view::npos;
-    const TensorView::Dtype dtype = bf16  ? TensorView::Dtype::BF16
-                                    : f32 ? TensorView::Dtype::F32
-                                          : TensorView::Dtype::Unsupported;
+    if (!bf16 && !f32)
+      continue;
 
     std::array<std::uint64_t, 4> shape{};
     const auto shape_count = parse_u64s(after_colon(obj, "\"shape\""), std::span{shape});
@@ -451,7 +450,6 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
                          return false;
                        if (!valid_tensor_shape(shape, ndim, byte_len, bf16))
                          return false;
-
                        // store bytes; matmul widens inline
                        auto* const dst = arena.alloc_array<std::byte, kSimdAlign>(byte_len);
                        if (!dst) [[unlikely]]

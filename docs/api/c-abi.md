@@ -14,6 +14,7 @@ void       fe_engine_free(fe_engine* e);
 
 void   fe_engine_dims(const fe_engine*, size_t* d_model, size_t* n_layers);
 size_t fe_engine_action_dim(const fe_engine*);
+size_t fe_engine_action_horizon(const fe_engine*);
 size_t fe_engine_condition_dim(const fe_engine*);
 unsigned fe_engine_thread_count(const fe_engine*);
 int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
@@ -25,6 +26,12 @@ int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
 int fe_engine_sample_condition(fe_engine*, const float* condition,
                                const float* noise, size_t steps,
                                int method, float* action);
+int fe_engine_sample_diffusion(fe_engine*, const float* condition,
+                               const float* noise, size_t steps,
+                               int scheduler, uint64_t seed, float* action);
+int fe_engine_diffusion_denoise(fe_engine*, const float* condition,
+                                const float* normalized_sample, float timestep,
+                                float* predicted_noise);
 
 int fe_engine_flow_begin(fe_engine*, const float* condition,
                          const float* noise, size_t steps, int method);

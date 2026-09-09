@@ -93,6 +93,15 @@ int method_id(std::string_view method)
   throw std::runtime_error("method must be one of: euler, heun, rk4");
 }
 
+int diffusion_scheduler_id(std::string_view scheduler)
+{
+  if (scheduler == "ddim")
+    return FE_DIFFUSION_DDIM;
+  if (scheduler == "ddpm")
+    return FE_DIFFUSION_DDPM;
+  throw std::runtime_error("scheduler must be one of: ddim, ddpm");
+}
+
 // Mamba + flow-matching action head
 class Engine
 {
@@ -109,8 +118,26 @@ public:
   ~Engine() { fe_engine_free(engine_); }
 
   [[nodiscard]] std::size_t action_dim() const { return fe_engine_action_dim(engine_); }
+  [[nodiscard]] std::size_t action_horizon() const { return fe_engine_action_horizon(engine_); }
   [[nodiscard]] std::size_t condition_dim() const { return fe_engine_condition_dim(engine_); }
   [[nodiscard]] unsigned thread_count() const { return fe_engine_thread_count(engine_); }
+  [[nodiscard]] py::dict diffusion_metadata() const
+  {
+    fe_diffusion_metadata metadata{};
+    if (fe_engine_diffusion_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    py::dict result;
+    result["protocol_version"] = metadata.protocol_version;
+    result["action_dim"] = metadata.action_dim;
+    result["condition_dim"] = metadata.condition_dim;
+    result["horizon"] = metadata.horizon;
+    result["action_steps"] = metadata.action_steps;
+    result["observation_steps"] = metadata.observation_steps;
+    result["train_timesteps"] = metadata.train_timesteps;
+    result["clip_sample"] = metadata.clip_sample != 0u;
+    result["clip_sample_range"] = metadata.clip_sample_range;
+    return result;
+  }
   [[nodiscard]] py::dict model_metadata() const
   {
     fe_model_metadata metadata{};
@@ -124,6 +151,7 @@ public:
     result["d_model"] = metadata.d_model;
     result["n_layers"] = metadata.n_layers;
     result["action_dim"] = metadata.action_dim;
+    result["action_horizon"] = action_horizon();
     result["condition_dim"] = metadata.condition_dim;
     result["decode_snapshot_bytes"] = metadata.decode_snapshot_bytes;
     return result;
@@ -239,6 +267,52 @@ public:
     }
     if (rc != 0)
       throw std::runtime_error(fe_engine_last_error());
+  }
+
+  py::object sample_diffusion(py::handle condition_object, py::handle noise_object,
+                              std::size_t steps, std::string_view scheduler, std::uint64_t seed)
+  {
+    py::object condition_array = contiguous_array(condition_object, "float32");
+    py::object noise_array = contiguous_array(noise_object, "float32");
+    const FloatBuffer condition{condition_array};
+    const FloatBuffer noise{noise_array};
+    py::object result = float_matrix(action_horizon(), action_dim());
+    FloatBuffer action{result, true};
+    sample_diffusion_native(condition, noise, action, steps, scheduler, seed);
+    return result;
+  }
+
+  py::object diffusion_denoise(py::handle condition_object, py::handle sample_object,
+                               float timestep)
+  {
+    py::object condition_array = contiguous_array(condition_object, "float32");
+    py::object sample_array = contiguous_array(sample_object, "float32");
+    const FloatBuffer condition{condition_array};
+    const FloatBuffer sample{sample_array};
+    py::object result = float_matrix(action_horizon(), action_dim());
+    FloatBuffer predicted_noise{result, true};
+    const std::size_t values = action_horizon() * action_dim();
+    if (condition.size() != condition_dim() || sample.size() != values)
+      throw std::runtime_error("invalid Diffusion Policy condition or sample shape");
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_diffusion_denoise(engine_, condition.data(), sample.data(), timestep,
+                                       predicted_noise.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return result;
+  }
+
+  void sample_diffusion_into(py::handle condition_object, py::handle noise_object,
+                             py::handle output_object, std::size_t steps,
+                             std::string_view scheduler, std::uint64_t seed)
+  {
+    const FloatBuffer condition{condition_object};
+    const FloatBuffer noise{noise_object};
+    FloatBuffer action{output_object, true};
+    sample_diffusion_native(condition, noise, action, steps, scheduler, seed);
   }
 
   void flow_begin(py::handle condition_object, py::handle noise_object, std::size_t steps,
@@ -367,6 +441,30 @@ private:
       throw std::runtime_error("output length must equal action_dim");
   }
 
+  void sample_diffusion_native(const FloatBuffer& condition, const FloatBuffer& noise,
+                               FloatBuffer& action, std::size_t steps, std::string_view scheduler,
+                               std::uint64_t seed)
+  {
+    if (action_horizon() <= 1uz)
+      throw std::runtime_error("checkpoint has no Diffusion Policy head");
+    if (condition.size() != condition_dim())
+      throw std::runtime_error("condition length must equal condition_dim");
+    const std::size_t values = action_horizon() * action_dim();
+    if (noise.size() != values)
+      throw std::runtime_error("noise size must equal action_horizon * action_dim");
+    if (action.size() != values)
+      throw std::runtime_error("output size must equal action_horizon * action_dim");
+    const int scheduler_id = diffusion_scheduler_id(scheduler);
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_sample_diffusion(engine_, condition.data(), noise.data(), steps, scheduler_id,
+                                      seed, action.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+  }
+
   fe_engine* engine_;
 };
 
@@ -380,10 +478,12 @@ PYBIND11_MODULE(flowedge, m)
       .def(py::init<const std::string&, std::optional<unsigned>>(), py::arg("path"),
            py::arg("threads") = py::none())
       .def_property_readonly("action_dim", &Engine::action_dim)
+      .def_property_readonly("action_horizon", &Engine::action_horizon)
       .def_property_readonly("condition_dim", &Engine::condition_dim)
       .def_property_readonly("d_model", &Engine::d_model)
       .def_property_readonly("thread_count", &Engine::thread_count)
       .def_property_readonly("model_metadata", &Engine::model_metadata)
+      .def_property_readonly("diffusion_metadata", &Engine::diffusion_metadata)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("run_into", &Engine::run_into, py::arg("tokens"), py::arg("output"))
       .def("step", &Engine::step, py::arg("token"))
@@ -400,6 +500,17 @@ PYBIND11_MODULE(flowedge, m)
       .def("sample_condition", &Engine::sample_condition,
            "sample from an external condition vector", py::arg("condition"), py::arg("noise"),
            py::arg("output"), py::arg("steps") = 10uz, py::arg("method") = "euler")
+      .def("sample_diffusion", &Engine::sample_diffusion,
+           "sample an un-normalized Diffusion Policy action horizon", py::arg("condition"),
+           py::arg("noise"), py::arg("steps") = 10uz, py::arg("scheduler") = "ddim",
+           py::arg("seed") = 0u)
+      .def("diffusion_denoise", &Engine::diffusion_denoise,
+           "run one normalized ConditionalUnet1D epsilon prediction", py::arg("condition"),
+           py::arg("sample"), py::arg("timestep"))
+      .def("sample_diffusion_into", &Engine::sample_diffusion_into,
+           "sample Diffusion Policy into caller-owned storage", py::arg("condition"),
+           py::arg("noise"), py::arg("output"), py::arg("steps") = 10uz,
+           py::arg("scheduler") = "ddim", py::arg("seed") = 0u)
       .def("flow_begin", &Engine::flow_begin, "begin a resumable flow solve", py::arg("condition"),
            py::arg("noise"), py::arg("steps") = 10uz, py::arg("method") = "euler",
            py::arg("generation") = py::none(), py::arg("timestamp_ns") = 0u,

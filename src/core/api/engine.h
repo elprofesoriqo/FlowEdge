@@ -20,6 +20,28 @@ enum
   FE_SOLVER_RK4 = 2,
 };
 
+enum
+{
+  FE_DIFFUSION_DDIM = 0,
+  FE_DIFFUSION_DDPM = 1,
+};
+
+typedef struct fe_diffusion_metadata
+{
+  uint32_t struct_size;
+  uint32_t protocol_version;
+  uint32_t clip_sample;
+  uint32_t reserved;
+  uint64_t action_dim;
+  uint64_t condition_dim;
+  uint64_t horizon;
+  uint64_t action_steps;
+  uint64_t observation_steps;
+  uint64_t train_timesteps;
+  float clip_sample_range;
+  float reserved_float;
+} fe_diffusion_metadata;
+
 /** Stable return values shared by all C ABI operations that return int. */
 enum
 {
@@ -35,7 +57,6 @@ enum
   FE_STATUS_INCOMPATIBLE_STATE = 9,
   FE_STATUS_CORRUPT_STATE = 10,
 };
-
 /**
  * @brief Returns the last error message encountered by the engine on the current thread.
  *
@@ -137,11 +158,42 @@ int fe_engine_deployment_profile(const fe_engine* engine, fe_deployment_profile*
 size_t fe_engine_action_dim(const fe_engine* engine);
 
 /**
+ * @brief Get the fixed number of action timesteps returned by the action head.
+ * @return Diffusion Policy horizon, 1 for a flow head, or 0 without an action head.
+ */
+size_t fe_engine_action_horizon(const fe_engine* engine);
+
+/** Fill the Diffusion Policy shape, action-slice, and scheduler metadata. */
+int fe_engine_diffusion_metadata(const fe_engine* engine, fe_diffusion_metadata* metadata);
+
+/**
  * @brief Get the condition-vector dimension accepted by the flow head.
  * @param engine The engine instance.
  * @return The condition dimension, or 0 if the checkpoint lacks a flow head.
  */
 size_t fe_engine_condition_dim(const fe_engine* engine);
+
+/**
+ * @brief Sample a fixed Diffusion Policy action horizon from an external condition.
+ *
+ * The checkpoint's MIN_MAX action normalization is inverted before returning.
+ * DDIM is deterministic from condition and initial noise. DDPM additionally
+ * uses `seed` for deterministic per-step Gaussian noise.
+ *
+ * @param condition Input array of size [condition_dim].
+ * @param noise Initial normalized Gaussian noise [action_horizon * action_dim].
+ * @param steps Scheduler inference steps, from 1 through the checkpoint's train timesteps.
+ * @param scheduler FE_DIFFUSION_DDIM or FE_DIFFUSION_DDPM.
+ * @param seed DDPM random seed; ignored by deterministic DDIM.
+ * @param action Output [action_horizon * action_dim], in the original action units.
+ */
+int fe_engine_sample_diffusion(fe_engine* engine, const float* condition, const float* noise,
+                               size_t steps, int scheduler, uint64_t seed, float* action);
+
+/** Run one ConditionalUnet1D epsilon-prediction pass in normalized action space. */
+int fe_engine_diffusion_denoise(fe_engine* engine, const float* condition,
+                                const float* normalized_sample, float timestep,
+                                float* predicted_noise);
 
 /**
  * @brief Sample an action trajectory from the flow-matching head.

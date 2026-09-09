@@ -19,6 +19,7 @@ endif()
 
 add_library(flowedge_core STATIC
   ${FLOWEDGE_CORE_KERNEL_SOURCE}
+  kernels/diffusion_ops.cc
   arena/thread_pool.cc
   loader/safetensors.cc
   protocol/deployment_profile.cc
@@ -26,6 +27,7 @@ add_library(flowedge_core STATIC
   protocol/snapshot.cc
   runtime/engine_runtime.cc
   models/mamba/mamba.cc
+  heads/diffusion/diffusion.cc
   heads/flow/flow.cc
   api/engine.cc
 )
