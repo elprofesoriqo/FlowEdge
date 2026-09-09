@@ -47,6 +47,13 @@ static_assert(fe::relay::RoutedBackend<fe::relay::MambaStreamAdapter>);
 int main()
 {
   fe_engine_free(nullptr);
+  fe_diffusion_metadata diffusion{};
+  if (fe_engine_action_horizon(nullptr) != 0uz ||
+      fe_engine_diffusion_metadata(nullptr, &diffusion) != 1 ||
+      fe_engine_sample_diffusion(nullptr, nullptr, nullptr, 0uz, FE_DIFFUSION_DDIM, 0u, nullptr) !=
+          1 ||
+      fe_engine_diffusion_denoise(nullptr, nullptr, nullptr, 0.0F, nullptr) != 1)
+    return 1;
   fe_model_metadata delivery_model{};
   delivery_model.struct_size = sizeof(delivery_model);
   delivery_model.protocol_version = FE_PROTOCOL_VERSION;

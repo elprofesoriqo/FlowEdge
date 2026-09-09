@@ -3,6 +3,7 @@
 #include <benchmark/benchmark.h>
 #include <cstddef>
 #include <cstdint>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -25,6 +26,19 @@ std::vector<float> filled(std::size_t n, float base = 0.03F)
 }
 
 using benchmark::Counter;
+
+struct BenchmarkPool
+{
+  explicit BenchmarkPool(unsigned threads)
+      : ring(8uz), sequence(8uz), workers(threads), pool(ring, sequence, workers, threads)
+  {
+  }
+
+  std::vector<fe::Task> ring;
+  std::vector<std::size_t> sequence;
+  std::vector<std::jthread> workers;
+  fe::ThreadPool pool;
+};
 
 // out[r,o] = Σ_i in[r,i]·w[o,i]
 // FLOP/s and streamed-weight bytes/s.
@@ -123,6 +137,83 @@ void BM_conv1d_causal(benchmark::State& state)
   state.SetItemsProcessed(static_cast<std::int64_t>(state.iterations() * y.size()));
 }
 
+void run_dense_conv1d(benchmark::State& state, std::size_t channels, std::size_t input_length,
+                      std::size_t output_length, std::size_t kernel, std::size_t stride,
+                      std::size_t padding, fe::ThreadPool* pool = nullptr)
+{
+  const std::vector<float> x = filled(channels * input_length);
+  const std::vector<float> w = filled(channels * channels * kernel, 0.001F);
+  const std::vector<float> b = filled(channels);
+  std::vector<float> y(channels * output_length);
+  for (auto _ : state) {
+    fe::conv1d(x, w, b, y, channels, channels, input_length, output_length, kernel, stride, padding,
+               pool);
+    benchmark::DoNotOptimize(y.data());
+    benchmark::ClobberMemory();
+  }
+  const double macs = static_cast<double>(channels) * static_cast<double>(channels) *
+                      static_cast<double>(kernel) * static_cast<double>(output_length);
+  state.counters["MAC/s"] = Counter(macs, Counter::kIsIterationInvariantRate);
+}
+
+void BM_diffusion_conv_512_l16(benchmark::State& state)
+{
+  run_dense_conv1d(state, 512uz, 16uz, 16uz, 5uz, 1uz, 2uz);
+}
+
+void BM_diffusion_conv_1024_l8(benchmark::State& state)
+{
+  run_dense_conv1d(state, 1024uz, 8uz, 8uz, 5uz, 1uz, 2uz);
+}
+
+void BM_diffusion_conv_2048_l4(benchmark::State& state)
+{
+  run_dense_conv1d(state, 2048uz, 4uz, 4uz, 5uz, 1uz, 2uz);
+}
+
+void BM_diffusion_conv_512_l16_threads4(benchmark::State& state)
+{
+  BenchmarkPool pool{4u};
+  run_dense_conv1d(state, 512uz, 16uz, 16uz, 5uz, 1uz, 2uz, &pool.pool);
+}
+
+void BM_diffusion_conv_1024_l8_threads4(benchmark::State& state)
+{
+  BenchmarkPool pool{4u};
+  run_dense_conv1d(state, 1024uz, 8uz, 8uz, 5uz, 1uz, 2uz, &pool.pool);
+}
+
+void BM_diffusion_conv_2048_l4_threads4(benchmark::State& state)
+{
+  BenchmarkPool pool{4u};
+  run_dense_conv1d(state, 2048uz, 4uz, 4uz, 5uz, 1uz, 2uz, &pool.pool);
+}
+
+void BM_diffusion_downsample_512_l16(benchmark::State& state)
+{
+  run_dense_conv1d(state, 512uz, 16uz, 8uz, 3uz, 2uz, 1uz);
+}
+
+void BM_diffusion_upsample_512_l8(benchmark::State& state)
+{
+  constexpr std::size_t channels = 512uz;
+  constexpr std::size_t input_length = 8uz;
+  constexpr std::size_t output_length = 16uz;
+  constexpr std::size_t kernel = 4uz;
+  const std::vector<float> x = filled(channels * input_length);
+  const std::vector<float> w = filled(channels * channels * kernel, 0.001F);
+  const std::vector<float> b = filled(channels);
+  std::vector<float> y(channels * output_length);
+  for (auto _ : state) {
+    fe::conv_transpose1d(x, w, b, y, channels, channels, input_length, output_length, kernel, 2uz,
+                         1uz);
+    benchmark::DoNotOptimize(y.data());
+    benchmark::ClobberMemory();
+  }
+  constexpr double macs = static_cast<double>(channels * channels * kernel * input_length);
+  state.counters["MAC/s"] = Counter(macs, Counter::kIsIterationInvariantRate);
+}
+
 void BM_discretize_and_scan(benchmark::State& state)
 {
   const std::vector<float> dt = filled(kSeq * kDInner, 0.01F);
@@ -152,6 +243,14 @@ BENCHMARK(BM_softplus)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_gate_silu)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_rmsnorm)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_conv1d_causal)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_diffusion_conv_512_l16)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_conv_1024_l8)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_conv_2048_l4)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_conv_512_l16_threads4)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_conv_1024_l8_threads4)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_conv_2048_l4_threads4)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_downsample_512_l16)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_diffusion_upsample_512_l8)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_discretize_and_scan)->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();

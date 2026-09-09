@@ -50,6 +50,20 @@ matrix operations or allocating a task graph. See [Cooperative execution](cooper
 
 Source: `src/core/heads/flow/`. See [ADR 0004](../decisions/0004-decouple-head).
 
-## Diffusion, ACT, others
+## Diffusion Policy
 
-Planned, behind the same contract. Diffusion denoises instead of integrating a velocity field. See the [head guide](../guides/add-a-head) and the [roadmap](../roadmap).
+The fixed-shape `ConditionalUnet1D` head consumes a complete normalized action
+horizon and an external observation condition. It implements the LeRobot
+Conv1D U-Net, GroupNorm, Mish, timestep embedding, and FiLM scale/bias blocks.
+DDIM is the low-NFE deterministic path; seeded DDPM is available for reference.
+Both reuse one arena-sized workspace and apply checkpoint MIN_MAX statistics
+after the final scheduler step.
+
+The observation encoder remains outside the runtime. This keeps the action head
+usable behind LeRobot, a VLA, TensorRT, or another vision service without adding
+a graph runtime. See the [Diffusion Policy guide](../guides/diffusion-policy).
+
+## ACT and others
+
+Planned, behind the same contract. See the [head guide](../guides/add-a-head) and
+the [roadmap](../roadmap).

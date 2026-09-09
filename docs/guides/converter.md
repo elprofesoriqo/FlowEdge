@@ -1,6 +1,8 @@
 # Converter
 
-FlowEdge loads a fixed tensor layout. `backbone.*` for the backbone. `flow.*` for the head. The converter maps a torch or HuggingFace checkpoint into that layout.
+FlowEdge loads fixed tensor layouts: `backbone.*` for the backbone, `flow.*` for
+the flow head, and `dp.*` for the Diffusion Policy head. The converter maps a
+PyTorch or Hugging Face checkpoint into those layouts.
 
 ```{mermaid}
 %%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
@@ -54,5 +56,22 @@ biases, convolution weights, `A_log`, and `D` remain F32 because the current ker
 constructors require them in that format.
 
 If the source normalizes actions with dataset stats, carry those stats through and un-normalize the sampled action. Otherwise the output stays in normalized space.
+
+## LeRobot Diffusion Policy
+
+Download `lerobot/diffusion_pusht`, then pass its directory so the converter can
+read both `model.safetensors` and `config.json`:
+
+```bash
+hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
+  --local-dir models/diffusion_pusht
+python convert/convert.py models/diffusion_pusht \
+  models/diffusion_pusht.flowedge.safetensors --arch diffusion
+```
+
+This maps `ConditionalUnet1D`, shortens tensor names for the fixed loader,
+stores horizon/dimension/scheduler metadata, and preserves action min/max. It
+drops the RGB encoder by design. Unsupported schedules, prediction modes,
+normalization, or U-Net variants fail with a specific conversion error.
 
 Source: `convert/convert.py`. See [ADR 0006](../decisions/0006-obs-encoder-out-of-scope).
