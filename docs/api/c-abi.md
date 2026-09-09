@@ -17,6 +17,7 @@ size_t fe_engine_action_dim(const fe_engine*);
 size_t fe_engine_condition_dim(const fe_engine*);
 unsigned fe_engine_thread_count(const fe_engine*);
 int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
+int fe_engine_deployment_profile(const fe_engine*, fe_deployment_profile*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
@@ -65,6 +66,10 @@ Rules:
   `engine.h` instead of literal method values. Unknown values fail with a non-zero return code.
 - `fe_engine_sample_condition` accepts the output of an encoder owned by another runtime. A
   checkpoint may therefore contain only `flow.*` tensors and no built-in backbone.
+- `fe_engine_deployment_profile` returns the validated checkpoint profile through borrowed pointers.
+  Those pointers remain valid until `fe_engine_free`; return code `2` explicitly identifies a
+  legacy checkpoint without a profile. The profile is descriptive metadata: FlowEdge does not
+  execute observation preprocessing from it.
 - `fe_engine_flow_begin` projects the condition once. Each `fe_engine_flow_advance` executes at
   most `step_budget` complete solver steps and reports how many remain. Starting a new solve
   replaces the previous one.

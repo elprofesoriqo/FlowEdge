@@ -1,13 +1,16 @@
 #pragma once
 
 #include "../arena/arena.h"
+#include "../protocol/deployment_profile.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -76,6 +79,10 @@ struct WeightView
 [[nodiscard]] std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
                                                                   std::string_view name) noexcept;
 
+// Read one string value from the safetensors __metadata__ map.
+[[nodiscard]] std::expected<std::optional<std::string>, const char*> safetensors_metadata_value(
+    std::string_view path, std::string_view key) noexcept;
+
 // One immutable, reference-counted checkpoint store. Engine instances retain a
 // shared reference while keeping all scratch, sampler, and decode state private.
 class ModelWeights
@@ -96,16 +103,22 @@ public:
   }
   [[nodiscard]] std::size_t weight_bytes() const noexcept { return weight_bytes_; }
 
+  [[nodiscard]] const DeploymentProfile* deployment_profile() const noexcept
+  {
+    return deployment_profile_ ? &*deployment_profile_ : nullptr;
+  }
+
 private:
   static constexpr std::size_t kMaxTensors = 1024uz;
 
-  explicit ModelWeights(std::size_t weight_bytes);
+  ModelWeights(std::size_t weight_bytes, std::optional<DeploymentProfile> deployment_profile);
 
   std::vector<std::byte> storage_{};
   Arena arena_;
   std::array<TensorView, kMaxTensors> views_{};
   std::size_t tensor_count_{};
   std::size_t weight_bytes_{};
+  std::optional<DeploymentProfile> deployment_profile_{};
 };
 
 } // namespace fe
