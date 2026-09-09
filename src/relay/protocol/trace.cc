@@ -1,11 +1,11 @@
 #include "relay/protocol/trace.h"
 
+#include "protocol/byte_codec.h"
 #include "protocol/model_identity.h"
 
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <concepts>
 #include <cstdint>
 #include <cstring>
 #include <limits>
@@ -39,23 +39,8 @@ static_assert(offsetof(JobRequestMessage, payload) == kJobRequestPayloadOffset);
 static_assert(offsetof(JobResultMessage, payload) == kJobResultPayloadOffset);
 static_assert(sizeof(JobEventMetadata) == kJobEventMetadataBytes);
 
-template<std::unsigned_integral Integer>
-void write_le(std::span<std::byte> destination, std::size_t offset, Integer value) noexcept
-{
-  for (std::size_t i{0uz}; i < sizeof(Integer); ++i) {
-    destination[offset + i] = static_cast<std::byte>(value & static_cast<Integer>(0xffu));
-    value >>= 8u;
-  }
-}
-
-template<std::unsigned_integral Integer>
-[[nodiscard]] Integer read_le(std::span<const std::byte> source, std::size_t offset) noexcept
-{
-  Integer value{};
-  for (std::size_t i{0uz}; i < sizeof(Integer); ++i)
-    value |= static_cast<Integer>(std::to_integer<unsigned char>(source[offset + i])) << (8uz * i);
-  return value;
-}
+using fe::protocol::read_le;
+using fe::protocol::write_le;
 
 void write_float(std::span<std::byte> destination, std::size_t offset, float value) noexcept
 {
