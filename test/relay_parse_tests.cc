@@ -38,4 +38,16 @@ TEST(RelayParse, RejectsOverflowWithoutChangingTheDestination)
   EXPECT_EQ(value, original);
 }
 
+TEST(RelayParse, RejectsNonFiniteFloatingPointValues)
+{
+  float value = 3.5F;
+
+  EXPECT_FALSE(parse_number("nan", value));
+  EXPECT_EQ(value, 3.5F);
+  EXPECT_FALSE(parse_number("inf", value));
+  EXPECT_EQ(value, 3.5F);
+  EXPECT_FALSE(parse_number("-inf", value));
+  EXPECT_EQ(value, 3.5F);
+}
+
 } // namespace
