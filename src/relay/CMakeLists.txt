@@ -17,6 +17,7 @@ add_library(flowedge_relay STATIC
   worker/job_control_service.cc
   worker/job_service.cc
   worker/job_worker_pool.cc
+  worker/job_worker_pool_runtime.cc
   worker/worker_topology.cc
 )
 add_library(FlowEdge::Relay ALIAS flowedge_relay)

@@ -1,8 +1,7 @@
-#include "relay/worker/job_worker_pool.h"
+#include "relay/worker/job_worker_pool_internal.h"
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstring>
 #include <limits>
 #include <ranges>
@@ -10,14 +9,9 @@
 #include <utility>
 
 namespace fe::relay {
+using job_worker_pool_detail::make_failed_result;
+using job_worker_pool_detail::monotonic_ns;
 namespace {
-
-[[nodiscard]] std::uint64_t monotonic_ns() noexcept
-{
-  return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                        std::chrono::steady_clock::now().time_since_epoch())
-                                        .count());
-}
 
 [[nodiscard]] constexpr std::uint64_t deadline_key(const JobRequestMessage& message) noexcept
 {
@@ -77,185 +71,7 @@ void update_max(std::atomic<std::uint64_t>& value, std::uint64_t candidate) noex
          request.metadata.payload_bytes <= registration->max_request_bytes;
 }
 
-void make_failed_result(JobResultMessage& result, const JobRequestMessage& request,
-                        std::uint64_t timestamp_ns, JobResultCode code) noexcept
-{
-  const ProtocolResult written =
-      make_job_result(result, request.envelope.sequence, request.metadata.descriptor,
-                      JobProgress{.state = JobState::kFailed,
-                                  .completed_work_units = 0u,
-                                  .remaining_work_units =
-                                      request.metadata.descriptor.total_work_units},
-                      timestamp_ns, code, {}, request.metadata.service_class);
-  if (written != ProtocolResult::kSuccess)
-    result = {};
-}
-
 } // namespace
-
-enum class JobWorkerPool::LaneState : std::uint8_t
-{
-  kIdle,
-  kRequested,
-  kRunning,
-  kMigrationReady,
-  kReady,
-  kDrained,
-};
-
-struct alignas(64) JobWorkerPool::Slot
-{
-  Slot(JobAdapterRegistry& source_registry, std::size_t source_index,
-       std::size_t source_work_quantum, WorkerPlacement source_placement) noexcept
-      : registry{&source_registry}, index{source_index}, work_quantum{source_work_quantum},
-        placement{source_placement}
-  {
-  }
-
-  JobAdapterRegistry* registry{};
-  std::size_t index{};
-  std::size_t work_quantum{1uz};
-  WorkerPlacement placement{WorkerPlacement::kNone};
-  JobRequestMessage request{};
-  JobResultMessage result{};
-  std::vector<std::byte> migration_storage{};
-  std::atomic<LaneState> state{LaneState::kIdle};
-  std::atomic_bool stop_requested{false};
-  std::atomic_bool drain_requested{false};
-  std::atomic_bool migrate_requested{false};
-  std::atomic<std::uint64_t> session_id{};
-  std::atomic<std::uint64_t> generation{};
-  std::atomic<std::uint64_t> remaining_work_units{};
-  std::atomic<std::uint64_t> cancel_generation{};
-  std::atomic<std::uint64_t> preempted_ns{};
-  std::atomic<std::uint64_t> dispatched_ns{};
-  std::atomic<std::uint64_t> started_ns{};
-  std::atomic<std::uint64_t> finished_ns{};
-  std::atomic<std::uint32_t> numa_node{};
-  std::atomic<std::uint32_t> logical_cpu{};
-  std::atomic_bool bound{false};
-  std::size_t migration_bytes{};
-  std::size_t resume_bytes{};
-  std::uint64_t resume_completed_work_units{};
-  std::uint64_t migration_started_ns{};
-  std::uint64_t migration_completed_ns{};
-  std::uint32_t migration_source{kNoWorker};
-  bool execution_failed{};
-  bool events_published{};
-  std::size_t consecutive_failures{};
-  bool quarantined{};
-  std::thread thread{};
-};
-
-void JobWorkerPool::run_slot(Slot& slot) noexcept
-{
-  const WorkerBinding binding = bind_current_worker(slot.index, slot.placement);
-  slot.numa_node.store(binding.numa_node, std::memory_order_relaxed);
-  slot.logical_cpu.store(binding.logical_cpu, std::memory_order_relaxed);
-  slot.bound.store(binding.bound, std::memory_order_release);
-
-  while (!slot.stop_requested.load(std::memory_order_acquire)) {
-    LaneState state = slot.state.load(std::memory_order_acquire);
-    if (state != LaneState::kRequested) {
-      slot.state.wait(state, std::memory_order_relaxed);
-      continue;
-    }
-
-    const bool resuming = slot.resume_bytes != 0uz;
-    slot.result.envelope = {};
-    slot.result.metadata = {};
-    slot.execution_failed = false;
-    if (!resuming)
-      slot.started_ns.store(monotonic_ns(), std::memory_order_relaxed);
-    auto routed = slot.registry->bind(slot.request);
-    if (!routed) {
-      const JobResultCode code = routed.error().code == JobRouteErrorCode::kAdapterNotFound
-                                     ? JobResultCode::kAdapterNotFound
-                                     : JobResultCode::kFailed;
-      make_failed_result(slot.result, slot.request, monotonic_ns(), code);
-      slot.execution_failed = true;
-    } else {
-      slot.state.store(LaneState::kRunning, std::memory_order_release);
-      bool handed_off{};
-      auto progress =
-          resuming
-              ? routed->restore_capsule(std::span{slot.migration_storage}.first(slot.resume_bytes))
-              : routed->start();
-      slot.resume_bytes = 0uz;
-      if (!progress) {
-        slot.execution_failed = true;
-      } else {
-        if (resuming)
-          slot.migration_completed_ns = monotonic_ns();
-        const std::uint64_t cancel_generation =
-            slot.cancel_generation.load(std::memory_order_acquire);
-        if (cancel_generation > routed->descriptor().generation)
-          progress = routed->cancel_before(cancel_generation);
-      }
-
-      const auto running = [&]() noexcept {
-        return progress && progress->state == JobState::kRunning &&
-               !slot.stop_requested.load(std::memory_order_acquire);
-      };
-      const auto advance_one = [&]() noexcept {
-        progress = routed->advance(slot.work_quantum,
-                                   slot.cancel_generation.load(std::memory_order_acquire));
-        if (progress) {
-          slot.remaining_work_units.store(progress->remaining_work_units,
-                                          std::memory_order_release);
-        } else {
-          slot.execution_failed = true;
-        }
-      };
-      if (slot.migration_storage.empty()) {
-        while (running())
-          advance_one();
-      } else {
-        while (running()) {
-          if (!slot.migrate_requested.load(std::memory_order_acquire)) {
-            advance_one();
-            continue;
-          }
-          slot.migration_started_ns = monotonic_ns();
-          const auto exported = routed->export_capsule(slot.migration_storage);
-          if (exported) {
-            slot.migration_bytes = *exported;
-            slot.resume_completed_work_units = progress->completed_work_units;
-            slot.remaining_work_units.store(progress->remaining_work_units,
-                                            std::memory_order_relaxed);
-            slot.state.store(LaneState::kMigrationReady, std::memory_order_release);
-            slot.state.notify_one();
-            handed_off = true;
-            break;
-          }
-          slot.migrate_requested.store(false, std::memory_order_release);
-          advance_one();
-        }
-      }
-
-      if (slot.stop_requested.load(std::memory_order_acquire)) {
-        static_cast<void>(routed->cancel_before(std::numeric_limits<std::uint64_t>::max()));
-        break;
-      }
-      if (handed_off)
-        continue;
-      if (slot.execution_failed) {
-        make_failed_result(slot.result, slot.request, monotonic_ns(), JobResultCode::kFailed);
-      } else if (routed->write_result(slot.result, monotonic_ns()) != ProtocolResult::kSuccess) {
-        make_failed_result(slot.result, slot.request, monotonic_ns(), JobResultCode::kFailed);
-        slot.execution_failed = true;
-      }
-      slot.result.metadata.service_class = slot.request.metadata.service_class;
-    }
-
-    if (slot.stop_requested.load(std::memory_order_acquire))
-      break;
-    slot.remaining_work_units.store(0u, std::memory_order_release);
-    slot.finished_ns.store(monotonic_ns(), std::memory_order_relaxed);
-    slot.state.store(LaneState::kReady, std::memory_order_release);
-    slot.state.notify_one();
-  }
-}
 
 std::expected<JobWorkerPool, std::string> JobWorkerPool::create(
     std::span<JobAdapterRegistry> lane_registries, std::size_t queue_capacity,
