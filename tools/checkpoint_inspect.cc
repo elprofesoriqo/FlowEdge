@@ -33,6 +33,16 @@ struct Report
   std::size_t d_conv{};
   std::size_t action_dim{};
   std::size_t condition_dim{};
+  std::size_t action_horizon{};
+  std::size_t action_steps{};
+  std::size_t observation_steps{};
+  std::size_t diffusion_stages{};
+  std::size_t diffusion_kernel{};
+  std::size_t diffusion_groups{};
+  std::size_t timestep_dim{};
+  std::size_t train_timesteps{};
+  bool clip_sample{};
+  float clip_sample_range{};
   std::array<std::uint8_t, FE_MODEL_DIGEST_BYTES> digest{};
   std::size_t tensor_count{};
   std::vector<std::string> unsupported{};
@@ -173,6 +183,44 @@ void inspect_flow(std::span<const fe::TensorMetadata> tensors, Report& report)
   }
 }
 
+void inspect_diffusion(std::span<const fe::TensorMetadata> tensors, Report& report)
+{
+  for (const std::string_view name :
+       {"dp.meta", "dp.dims", "dp.action_min", "dp.action_max", "dp.te1.w", "dp.te1.b", "dp.te2.w",
+        "dp.te2.b", "dp.f.c.w", "dp.f.c.b", "dp.f.n.w", "dp.f.n.b", "dp.f.o.w", "dp.f.o.b"})
+    missing_if_absent(tensors, name, report);
+
+  const auto* meta = find_tensor(tensors, "dp.meta");
+  const auto* dims = find_tensor(tensors, "dp.dims");
+  const auto* action_min = find_tensor(tensors, "dp.action_min");
+  const auto* action_max = find_tensor(tensors, "dp.action_max");
+  if (meta != nullptr && !shape_is(meta, {16uz}))
+    report.errors.emplace_back("dp.meta must contain exactly 16 values");
+  if (dims != nullptr && (dims->ndim != 1uz || dims->shape[0] == 0uz))
+    report.errors.emplace_back("dp.dims must be a non-empty vector");
+  if (action_min != nullptr && action_max != nullptr &&
+      (action_min->ndim != 1uz || action_max->ndim != 1uz ||
+       action_min->shape[0] != action_max->shape[0] || action_min->shape[0] == 0uz))
+    report.errors.emplace_back(
+        "Diffusion action normalization vectors must have equal positive length");
+}
+
+void record_diffusion_config(const fe::DiffusionConfig& config, Report& report) noexcept
+{
+  report.action_dim = config.action_dim;
+  report.condition_dim = config.condition_dim;
+  report.action_horizon = config.horizon;
+  report.action_steps = config.action_steps;
+  report.observation_steps = config.observation_steps;
+  report.diffusion_stages = config.stages;
+  report.diffusion_kernel = config.kernel;
+  report.diffusion_groups = config.groups;
+  report.timestep_dim = config.timestep_dim;
+  report.train_timesteps = config.train_timesteps;
+  report.clip_sample = config.clip_sample;
+  report.clip_sample_range = config.clip_sample_range;
+}
+
 const char* precision_name(std::uint32_t precision) noexcept
 {
   switch (precision) {
@@ -222,8 +270,21 @@ void print_human(const Report& report)
             << "  d_conv            " << report.d_conv << '\n'
             << "\nAction head\n"
             << "  action_dim        " << report.action_dim << '\n'
-            << "  condition_dim     " << report.condition_dim << '\n'
-            << "\nMemory\n"
+            << "  condition_dim     " << report.condition_dim << '\n';
+  if (report.family == "diffusion-policy") {
+    std::cout << "\nDiffusion Policy\n"
+              << "  action_horizon    " << report.action_horizon << '\n'
+              << "  action_steps      " << report.action_steps << '\n'
+              << "  observation_steps " << report.observation_steps << '\n'
+              << "  stages            " << report.diffusion_stages << '\n'
+              << "  kernel            " << report.diffusion_kernel << '\n'
+              << "  groups            " << report.diffusion_groups << '\n'
+              << "  timestep_dim      " << report.timestep_dim << '\n'
+              << "  train_timesteps  " << report.train_timesteps << '\n'
+              << "  clip_sample       " << (report.clip_sample ? "true" : "false") << '\n'
+              << "  clip_range        " << report.clip_sample_range << '\n';
+  }
+  std::cout << "\nMemory\n"
             << "  weights           " << report.weights_bytes << " bytes\n"
             << "  arena             " << report.arena_bytes << " bytes\n"
             << "  persistent_state  " << report.persistent_state_bytes << " bytes\n"
@@ -257,7 +318,17 @@ void print_json(const Report& report)
   std::cout << ",\"d_model\":" << report.d_model << ",\"layers\":" << report.n_layers
             << ",\"d_inner\":" << report.d_inner << ",\"d_state\":" << report.d_state
             << ",\"d_conv\":" << report.d_conv << ",\"action_dim\":" << report.action_dim
-            << ",\"condition_dim\":" << report.condition_dim << "},\"memory\":{"
+            << ",\"condition_dim\":" << report.condition_dim
+            << ",\"action_horizon\":" << report.action_horizon
+            << ",\"action_steps\":" << report.action_steps
+            << ",\"observation_steps\":" << report.observation_steps
+            << ",\"diffusion_stages\":" << report.diffusion_stages
+            << ",\"diffusion_kernel\":" << report.diffusion_kernel
+            << ",\"diffusion_groups\":" << report.diffusion_groups
+            << ",\"timestep_dim\":" << report.timestep_dim
+            << ",\"train_timesteps\":" << report.train_timesteps
+            << ",\"clip_sample\":" << (report.clip_sample ? "true" : "false")
+            << ",\"clip_sample_range\":" << report.clip_sample_range << "},\"memory\":{"
             << "\"weights_bytes\":" << report.weights_bytes
             << ",\"arena_bytes\":" << report.arena_bytes
             << ",\"persistent_state_bytes\":" << report.persistent_state_bytes
@@ -309,13 +380,23 @@ int main(int argc, char** argv)
       report.unsupported.emplace_back(tensor.name_view());
   const bool mamba = has_prefix(tensors, "backbone.");
   const bool flow = has_prefix(tensors, "flow.");
-  report.family = mamba && flow ? "mamba-flow" : mamba ? "mamba" : flow ? "flow-head" : "unknown";
+  const bool diffusion = has_prefix(tensors, "dp.");
+  report.family = diffusion       ? "diffusion-policy"
+                  : mamba && flow ? "mamba-flow"
+                  : mamba         ? "mamba"
+                  : flow          ? "flow-head"
+                                  : "unknown";
   if (mamba)
     inspect_mamba(tensors, report);
   if (flow)
     inspect_flow(tensors, report);
-  if (!mamba && !flow)
+  if (diffusion)
+    inspect_diffusion(tensors, report);
+  if (!mamba && !flow && !diffusion)
     report.errors.emplace_back("unknown model family");
+  if (diffusion && (mamba || flow))
+    report.errors.emplace_back(
+        "Diffusion Policy tensors cannot be mixed with backbone or flow tensors");
   if (!report.unsupported.empty())
     report.errors.emplace_back("checkpoint contains unsupported tensor dtypes");
   if (mamba && flow && report.condition_dim != report.d_model)
@@ -327,6 +408,22 @@ int main(int argc, char** argv)
     report.arena_bytes = fe::EngineRuntime::required_slab_bytes(**weights);
     const auto digest = fe::fingerprint_tensors((*weights)->tensors());
     report.digest = digest;
+    if (diffusion) {
+      if (report.arena_bytes == 0uz) {
+        report.errors.emplace_back("Diffusion Policy metadata or tensor shapes are invalid");
+      } else {
+        const char* runtime_error = nullptr;
+        fe::EngineRuntime runtime{*weights, report.arena_bytes, 0u, runtime_error};
+        if (!runtime.valid())
+          report.errors.emplace_back(runtime_error != nullptr
+                                         ? runtime_error
+                                         : "Diffusion Policy runtime initialization failed");
+        else if (const auto* config = runtime.diffusion_config())
+          record_diffusion_config(*config, report);
+        else
+          report.errors.emplace_back("Diffusion Policy runtime configuration is unavailable");
+      }
+    }
   } else {
     report.errors.emplace_back(weights.error());
   }
