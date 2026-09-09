@@ -16,8 +16,10 @@ action steps 8, observation steps 2, U-Net widths 512/1024/2048, timestep width
 
 The documented conversion command is pinned to the legacy public checkpoint
 revision `84a7c23178445c6bbf7e1a884ff497017910f653`. Newer LeRobot migrations
-may move action normalization statistics into processor configuration; those
-layouts are not accepted by this first fixed schema.
+may move action normalization statistics into processor configuration. The
+converter accepts `policy_postprocessor.json` and its referenced state file,
+reading `action.min` and `action.max` from the `unnormalizer_processor` step.
+Only the existing MIN_MAX action contract is supported.
 
 ## Observation boundary
 
@@ -40,6 +42,11 @@ python convert/convert.py models/diffusion_pusht \
   models/diffusion_pusht.flowedge.safetensors --arch diffusion
 ./build/diffusion_sample models/diffusion_pusht.flowedge.safetensors 10
 ```
+
+For a non-standard processor filename, pass it explicitly with
+`--processor path/to/policy_postprocessor.json`. Observation preprocessing
+remains outside FlowEdge; only action un-normalization statistics are imported
+from the processor state.
 
 The output contains the whole 16-step denoised horizon in original PushT action
 units. LeRobot normally executes only `n_action_steps`, beginning at index
