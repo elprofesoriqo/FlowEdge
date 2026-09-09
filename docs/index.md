@@ -78,6 +78,7 @@ graph TD
 - [Getting Started](getting-started). Build, load a model, sample an action.
 - [Capabilities](capabilities). Choose a workflow and understand current limitations.
 - [Performance](performance). PyTorch comparisons and exact commands.
+- [Diffusion Policy](guides/diffusion-policy). Run the fixed-shape robotics policy path.
 - [Relay Quickstart](guides/relay-quickstart). Run the service and understand outcomes.
 - [C-ABI](api/c-abi). The public surface.
 
@@ -119,6 +120,7 @@ guides/add-a-head
 guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
+guides/diffusion-policy
 guides/verification
 guides/observability
 guides/cooperative-jobs
