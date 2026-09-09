@@ -31,7 +31,7 @@ See [Performance](#performance) for methodology and complete results.
 ## What is FlowEdge?
 
 FlowEdge is a C++23 inference runtime for low-latency robotics policies, currently focused on Mamba backbones and flow-matching action heads:
-- static memory with zero heap allocations on supported hot paths
+- static runtime memory with zero heap allocations after engine initialization
 - native `.safetensors` loading and checkpoint conversion
 - C++, C API, and Python interfaces
 - deterministic state snapshot and restore
@@ -125,7 +125,10 @@ flowchart LR
     Relay[Relay / Job Queue] -.->|Optional IPC| Core
 ```
 
-The allocation-free engine lives in `src/core/` and is exported to CMake consumers as `FlowEdge::Core`. Core does not depend on transport, telemetry, ROS, or daemon libraries.
+The allocation-free execution path lives in `src/core/` and is exported to CMake consumers as
+`FlowEdge::Core`. Model loading may allocate once for weights and runtime setup; repeated
+inference is allocation-free. Core does not depend on transport, telemetry, ROS, or daemon
+libraries.
 
 Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
 
@@ -212,6 +215,15 @@ On Linux:
 ```
 
 Relay-specific verification and benchmark commands are documented in the [performance](docs/performance.md) and Relay guides.
+
+### Allocation contract
+
+FlowEdge separates one-time initialization from the control loop. Loading a model may allocate
+weights, loader metadata, and fixed runtime state. After the engine and worker pool are initialized,
+the supported inference and Relay hot paths must perform zero heap allocations. The verification
+report checks this contract across repeated `load -> run -> free` cycles and fails on any hot-path
+allocation. A stricter caller-owned, zero-allocation load API is tracked in
+[issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63).
 
 ## Contributing
 

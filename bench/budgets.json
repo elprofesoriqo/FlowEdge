@@ -4,5 +4,5 @@
     "core": 350000,
     "relay": 450000
   },
-  "max_model_setup_allocations": 32
+  "max_model_initialization_allocations": 32
 }

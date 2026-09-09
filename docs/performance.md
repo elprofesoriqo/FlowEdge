@@ -254,7 +254,7 @@ Windows PowerShell:
 
 These results are references, not deployment guarantees.
 
-## Size and setup budgets
+## Size and initialization budgets
 
 The complete verification script also reports the checked-in budgets in
 `bench/budgets.json`:
@@ -264,7 +264,15 @@ FLOWEDGE_BUILD_DIR=build-all ./scripts/verify_all.sh models/mamba_flow.safetenso
 cat build-all/budget-report.md
 ```
 
-The report measures Core and Relay static-library bytes and model setup
-allocations. It fails when a checked-in limit is exceeded and separately rejects
-any allocation in the measured model hot path. The limits are review thresholds
-for the Release build, not claims about every compiler or linker configuration.
+The report measures Core and Relay static-library bytes and model initialization
+allocations. Initialization is checked across three `load -> run -> free` cycles
+so a setup regression or lifecycle mismatch is visible. It fails when a checked-in
+limit is exceeded and separately rejects any allocation in the measured model hot
+path. The limits are review thresholds for the Release build, not claims about
+every compiler or linker configuration.
+
+FlowEdge's hard allocation guarantee applies after engine/worker initialization:
+repeated inference and Relay hot paths must allocate zero heap memory. Model loading
+may still allocate today; strict zero-allocation initialization is tracked separately
+because it requires caller-owned storage or a load-time arena API; see
+[issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63).
