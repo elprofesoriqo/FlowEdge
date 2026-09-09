@@ -56,7 +56,7 @@ Checked items are available on the current `main` branch.
 
 **Heads (Action Policies):**
 - ☑ Flow-Matching CNF
-- ☐ Diffusion Policy
+- ☑ Diffusion Policy (fixed LeRobot head)
 - ☐ π0
 - ☐ DiT
 
@@ -182,6 +182,30 @@ Mamba backbone forward with one CPU thread and matched checkpoint/input. Lower i
 
 See [performance](docs/performance.md#backbone-forward) for methodology and exact commands.
 
+### Diffusion Policy
+
+The fixed LeRobot `diffusion_pusht` head is available through the current CPU backend. On the pinned
+public checkpoint, a single denoiser measured **365.4 ms p50** and a 10-step DDIM sample measured
+**3.765 s p50** with four workers. Dense-kernel optimization currently ranges from **1.09x to
+3.18x** against the pre-optimization implementation; these are reference measurements, not
+real-time guarantees.
+
+### Relay and cooperative jobs
+
+Measured on the documented Windows and Linux hosts; lower latency and higher throughput are better.
+
+| Benchmark | Windows | Linux |
+| --- | ---: | ---: |
+| Relay synchronous p99 | 47.60 us | 40.10 us |
+| Relay pool, 2 workers | 73,187 req/s | 109,507 req/s |
+| Migrate and finish | 478.56 ns/job | 292.08 ns/job |
+| Shared-memory job service + pool + metrics | 4.60 us/job | 1.78 us/job |
+
+The complete [performance report](docs/performance.md) also covers deadline dispatch, Mamba stream
+migration, worker draining, action delivery, QoS overload admission, binary-size budgets, and the
+initialization/hot-path allocation checks. Current verification records stable initialization
+allocations and **zero allocations during repeated inference**.
+
 ## External encoder / head-only usage
 
 ```mermaid
@@ -215,6 +239,37 @@ On Linux:
 ```
 
 Relay-specific verification and benchmark commands are documented in the [performance](docs/performance.md) and Relay guides.
+
+## Integrations and capabilities
+
+The current runtime covers both in-process control loops and a local multi-process deployment:
+
+| Use case | Entry point | Result |
+| --- | --- | --- |
+| Mamba + flow policy | `flow_sample` | Tokens to a deterministic action chunk |
+| Existing VLA/vision encoder | `external_flow_sample` or head-only API | Condition vector to FlowEdge action head |
+| Incremental decoding | `mamba_forward` | Persistent Mamba recurrence state |
+| State transfer | `streaming_snapshot` | Exact continuation in another engine |
+| Live stream migration | `mamba_relay_stream` | Resume tokens on another Relay lane |
+| Cross-process action service | `scripts/relay_demo.sh` | Client, daemon, deadlines, replay, and metrics |
+| Fresh action delivery | `action_delivery_sample` | Freshness, overlap, bounds, and rate limits |
+| Custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative jobs |
+| Cross-process custom work | `routed_job_sample` | Typed results, lifecycle metrics, and traces |
+| Managed Mamba streams | `scripts/job_demo.sh` | QoS, lane recovery, traces, and metrics |
+
+Available interfaces and runtime features include:
+
+- C, CMake (`FlowEdge::Core` and `FlowEdge::Relay`), and Python APIs.
+- Mamba streaming and flow heads with Euler, Heun, and RK4 solvers.
+- A fixed LeRobot Diffusion Policy head, FP32/BF16 safetensors, and immutable shared weights.
+- CPU scalar/AVX2/NEON backends with adaptive worker placement.
+- Versioned snapshots, canonical job capsules, exact restore, and model identity checks.
+- Relay shared-memory transport, EDF scheduling, cancellation, freshness, safe action delivery,
+  cooperative jobs, QoS reservations, drain/quarantine/recovery, portable traces, and fixed-memory
+  Prometheus/JSON/OTLP metrics.
+
+ROS 2, Zenoh, CUDA, Metal, Vulkan, TTNN, Transformer, and external runtime adapters remain planned;
+see the [capability matrix](docs/capabilities.md) for the current boundary.
 
 ### Allocation contract
 
