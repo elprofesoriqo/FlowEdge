@@ -43,12 +43,65 @@ struct Report
   std::size_t train_timesteps{};
   bool clip_sample{};
   float clip_sample_range{};
+  bool has_profile{};
+  std::uint32_t profile_version{};
+  std::uint32_t compatibility_version{};
+  std::string observation_schema_hash{};
+  std::size_t profile_action_dim{};
+  std::size_t profile_action_horizon{};
+  std::string action_units{};
+  std::string normalization_type{};
+  std::vector<float> normalization_min{};
+  std::vector<float> normalization_max{};
+  std::string solver_default{};
+  std::size_t solver_min_steps{};
+  std::size_t solver_max_steps{};
   std::array<std::uint8_t, FE_MODEL_DIGEST_BYTES> digest{};
   std::size_t tensor_count{};
   std::vector<std::string> unsupported{};
   std::vector<std::string> missing{};
   std::vector<std::string> errors{};
 };
+
+const char* action_units_name(fe::DeploymentActionUnits units) noexcept
+{
+  return units == fe::DeploymentActionUnits::kPhysical ? "physical" : "normalized";
+}
+
+const char* normalization_name(fe::DeploymentNormalization normalization) noexcept
+{
+  return normalization == fe::DeploymentNormalization::kMinMax ? "minmax" : "none";
+}
+
+const char* solver_name(fe::DeploymentSolver solver) noexcept
+{
+  switch (solver) {
+  case fe::DeploymentSolver::kEuler:
+    return "euler";
+  case fe::DeploymentSolver::kHeun:
+    return "heun";
+  case fe::DeploymentSolver::kRK4:
+    return "rk4";
+  }
+  return "unknown";
+}
+
+void record_profile(const fe::DeploymentProfile& profile, Report& report)
+{
+  report.has_profile = true;
+  report.profile_version = profile.profile_version;
+  report.compatibility_version = profile.model_compatibility_version;
+  report.observation_schema_hash = profile.observation_schema_hash_view();
+  report.profile_action_dim = profile.action_dim;
+  report.profile_action_horizon = profile.action_horizon;
+  report.action_units = action_units_name(profile.action_units);
+  report.normalization_type = normalization_name(profile.normalization_type);
+  report.normalization_min = profile.normalization_min;
+  report.normalization_max = profile.normalization_max;
+  report.solver_default = solver_name(profile.solver_default);
+  report.solver_min_steps = profile.solver_min_steps;
+  report.solver_max_steps = profile.solver_max_steps;
+}
 
 const fe::TensorMetadata* find_tensor(std::span<const fe::TensorMetadata> tensors,
                                       std::string_view name) noexcept
@@ -257,6 +310,17 @@ void json_strings(const std::vector<std::string>& values)
   std::cout << ']';
 }
 
+void json_floats(const std::vector<float>& values)
+{
+  std::cout << '[';
+  for (std::size_t i{0uz}; i < values.size(); ++i) {
+    if (i != 0uz)
+      std::cout << ',';
+    std::cout << values[i];
+  }
+  std::cout << ']';
+}
+
 void print_human(const Report& report)
 {
   std::cout << "Model family        " << report.family << '\n'
@@ -283,6 +347,28 @@ void print_human(const Report& report)
               << "  train_timesteps  " << report.train_timesteps << '\n'
               << "  clip_sample       " << (report.clip_sample ? "true" : "false") << '\n'
               << "  clip_range        " << report.clip_sample_range << '\n';
+  }
+  if (report.has_profile) {
+    std::cout << "\nDeployment profile\n"
+              << "  version           " << report.profile_version << '\n'
+              << "  compatibility     " << report.compatibility_version << '\n'
+              << "  schema            " << report.observation_schema_hash << '\n'
+              << "  action            " << report.profile_action_dim << " x "
+              << report.profile_action_horizon << " (" << report.action_units << ")\n"
+              << "  normalization     " << report.normalization_type << '\n'
+              << "  solver            " << report.solver_default << " [" << report.solver_min_steps
+              << "," << report.solver_max_steps << "]\n";
+    if (!report.normalization_min.empty()) {
+      std::cout << "  min               ";
+      for (const float value : report.normalization_min)
+        std::cout << value << ' ';
+      std::cout << "\n  max               ";
+      for (const float value : report.normalization_max)
+        std::cout << value << ' ';
+      std::cout << '\n';
+    }
+  } else {
+    std::cout << "\nDeployment profile  none (legacy checkpoint)\n";
   }
   std::cout << "\nMemory\n"
             << "  weights           " << report.weights_bytes << " bytes\n"
@@ -332,7 +418,28 @@ void print_json(const Report& report)
             << "\"weights_bytes\":" << report.weights_bytes
             << ",\"arena_bytes\":" << report.arena_bytes
             << ",\"persistent_state_bytes\":" << report.persistent_state_bytes
-            << "},\"compatibility\":{";
+            << "},\"deployment_profile\":";
+  if (!report.has_profile)
+    std::cout << "null,\"compatibility\":{";
+  else {
+    std::cout << "{\"profile_version\":" << report.profile_version
+              << ",\"model_compatibility_version\":" << report.compatibility_version
+              << ",\"observation_schema_hash\":";
+    json_string(report.observation_schema_hash);
+    std::cout << ",\"action_dim\":" << report.profile_action_dim
+              << ",\"action_horizon\":" << report.profile_action_horizon << ",\"action_units\":";
+    json_string(report.action_units);
+    std::cout << ",\"normalization_type\":";
+    json_string(report.normalization_type);
+    std::cout << ",\"normalization_min\":";
+    json_floats(report.normalization_min);
+    std::cout << ",\"normalization_max\":";
+    json_floats(report.normalization_max);
+    std::cout << ",\"solver_default\":";
+    json_string(report.solver_default);
+    std::cout << ",\"solver_min_steps\":" << report.solver_min_steps
+              << ",\"solver_max_steps\":" << report.solver_max_steps << "},\"compatibility\":{";
+  }
   std::cout << "\"supported\":" << (report.errors.empty() ? "true" : "false") << ",\"errors\":";
   json_strings(report.errors);
   std::cout << ",\"missing_required_tensors\":";
@@ -404,6 +511,9 @@ int main(int argc, char** argv)
 
   const auto weights = fe::ModelWeights::open(path);
   if (weights) {
+    if (const auto* profile = (*weights)->deployment_profile()) {
+      record_profile(*profile, report);
+    }
     report.precision = fe::checkpoint_precision((*weights)->tensors());
     report.arena_bytes = fe::EngineRuntime::required_slab_bytes(**weights);
     const auto digest = fe::fingerprint_tensors((*weights)->tensors());
@@ -426,6 +536,12 @@ int main(int argc, char** argv)
     }
   } else {
     report.errors.emplace_back(weights.error());
+  }
+  if (report.has_profile) {
+    if (report.action_dim != 0uz && report.profile_action_dim != report.action_dim)
+      report.errors.emplace_back("deployment profile action_dim does not match model");
+    if (report.action_horizon != 0uz && report.profile_action_horizon != report.action_horizon)
+      report.errors.emplace_back("deployment profile action_horizon does not match model");
   }
   if (json)
     print_json(report);

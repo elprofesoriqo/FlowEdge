@@ -82,7 +82,7 @@ snapshots directly into `bytes`. Diffusion and LeRobot callers can use
 `sample_diffusion_into`, `predict_action_chunk_into`, and `select_action_into`
 with caller-owned buffers to avoid per-step output allocations. These APIs are
 documented in [the Python API guide](api/python.md) and the
-[LeRobot adapter guide](../integrations/lerobot/README.md).
+[LeRobot adapter guide](guides/lerobot).
 
 ## Relay
 
