@@ -55,5 +55,18 @@ inference call raises, and uses a bounded step count for repeatable dry runs.
 See `integrations/lerobot/README.md` for the minimal wrapper example. Hardware validation remains
 a follow-up smoke test on a real LeRobot robot; repository tests use a fake robot.
 
+## Simulator smoke test
+
+The companion package exposes a bounded simulator command for checking a converted checkpoint
+before wiring a robot driver:
+
+```bash
+python -m pip install -e integrations/lerobot
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
+```
+
+It prints JSON completion telemetry and keeps observation encoding, limits, and emergency-stop
+behavior in the caller-owned robot adapter.
+
 Tenstorrent support is intentionally not part of this integration slice. It remains a separate
 backend effort so this adapter does not couple the universal runtime to one accelerator.
