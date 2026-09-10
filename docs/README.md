@@ -1,9 +1,8 @@
 # Building the docs
 
 ```bash
-python -m pip install -r docs/requirements.txt
-sphinx-build -b html -W --keep-going docs docs/_build/html
+pip install -r requirements.txt
+sphinx-build -b html . _build/html
 ```
 
-Open `docs/_build/html/index.html`. CI treats warnings as errors and publishes the same build from
-`main`.
+Open `_build/html/index.html`. CI builds on every pull request and deploys to GitHub Pages on push to `main`. Warnings are errors.

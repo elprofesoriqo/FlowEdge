@@ -1,41 +1,44 @@
 # Roadmap
 
-## Current release surface
+## Current stack
 
-| Layer | Status |
+| Layer | Complete |
 |---|---|
-| Core | Mamba, flow head, Diffusion Policy head, CPU kernels, C/C++/Python APIs |
-| State | Resumable solves, Mamba snapshots, model-bound job capsules |
-| Relay | EDF, cancellation, worker drain, QoS, recovery, action delivery |
-| Observability | Portable traces and fixed-memory metrics |
-| Integrations | LeRobot deployment seam; external encoder boundary |
+| Core | Mamba, flow head, CPU kernels, BF16 weights, C/C++/Python APIs |
+| State | Resumable flow solving, Mamba snapshots, generic job capsules |
+| Relay service | Action and generic-job daemons, EDF, cancellation, administration |
+| Action delivery | Multi-rate chunks, timed replacement, freshness and safety gate |
+| Generic jobs | Contracts, IPC, bounded routing/admission, production Mamba streaming |
+| Observability | Portable action/job traces; fixed-memory action/job metrics |
 
-## Next in order
+## Next sequence
 
 ```{mermaid}
 flowchart LR
-  A[Release hardening] --> B[Fuzz + soak + protocol compatibility]
-  B --> C[Checkpoint preflight + replay capsule]
-  C --> D[Partner pilot: LeRobot]
-  D --> E[Optional ROS 2 / Zenoh adapters]
+  M[Production Mamba adapter ✓] --> G[Worker drain + live migration ✓]
+  G --> A[Action overlap + safety gate ✓]
+  A --> D[Generic job daemon ✓]
+  D --> S[Worker supervision + QoS complete]
+  S --> R[Release hardening]
+  R --> I[ROS 2 / Zenoh adapters]
 ```
 
-| Priority | Deliverable | Exit condition |
+| Order | Milestone | Why now |
 |---:|---|---|
-| 1 | Release hardening | Fuzzing, soak tests, compatibility and security checks |
-| 2 | Checkpoint preflight | CI report for schema, precision, dimensions, arena, unsupported tensors |
-| 3 | Replay capsule | Model/build/timing/input/output artifact replays in CI and on robots |
-| 4 | LeRobot pilot | One reproducible rollout on supported hardware with safety ownership explicit |
-| 5 | External adapters | Add only after a stable local contract and trace evidence |
+| 1 | Streaming Mamba job adapter | Done: exact resume and routed execution |
+| 2 | Worker draining and live migration | Done: bounded rolling handoff |
+| 3 | Action overlap, freshness, final safety gate | Done: allocation-free controller boundary |
+| 4 | Standalone generic-job daemon | Done: separate data/admin planes and managed Mamba lanes |
+| 5 | Worker supervision and QoS | Done: queue reservations, quarantine, explicit recovery |
+| 6 | Release hardening | Next: fuzzing, soak tests, protocol compatibility, security boundary |
+| 7 | ROS 2, Zenoh, inference-server adapters | Optional integrations over stable contracts |
 
-## Parallel tracks
+## Parallel model/backend work
 
-| Track | Candidate | Rule |
-|---|---|---|
-| Backbone | Transformer + KV cache | Keep fixed-shape and allocation contract |
-| Weights | INT8, NUMA replication | Accept only with target-hardware measurements |
-| Backend | CUDA, Tenstorrent | Backend-specific work stays behind kernel contracts |
-| Perception | External encoder integrations | Keep encoders outside Core |
-
-Do not expand FlowEdge into training, datasets, perception, arbitrary graph execution, or cluster
-scheduling.
+| Track | Planned |
+|---|---|
+| Heads | ACT, VQ-BeT, π0; Diffusion Policy `diffusion_pusht` is done |
+| Backbone | Transformer and KV cache |
+| Weight traffic | NUMA replication experiments, INT8 |
+| Backends | CUDA, Tenstorrent |
+| Perception | External observation-encoder integration |

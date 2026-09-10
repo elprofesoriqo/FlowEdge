@@ -1,25 +1,24 @@
-# C ABI
+# C-ABI
 
-The C ABI is the stable public boundary: opaque handles, C linkage, return-code errors, and
-caller-owned buffers.
-
-## Link
-
-```cmake
-find_package(FlowEdge REQUIRED)
-target_link_libraries(my_node PRIVATE FlowEdge::Core)
-```
-
-## Core surface
+The only public surface. C linkage, opaque handle.
 
 ```c
 fe_engine* fe_engine_load(const char* path);
 fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads);
 fe_weights* fe_weights_load(const char* path);
-fe_engine* fe_engine_create_from_weights(const fe_weights*, unsigned worker_threads);
-fe_engine* fe_engine_create_from_weights_auto(const fe_weights*);
-void fe_weights_free(fe_weights*);
-void fe_engine_free(fe_engine*);
+size_t      fe_weights_size_bytes(const fe_weights*);
+void        fe_weights_free(fe_weights*);
+fe_engine*  fe_engine_create_from_weights(const fe_weights*, unsigned worker_threads);
+fe_engine*  fe_engine_create_from_weights_auto(const fe_weights*);
+void       fe_engine_free(fe_engine* e);
+
+void   fe_engine_dims(const fe_engine*, size_t* d_model, size_t* n_layers);
+size_t fe_engine_action_dim(const fe_engine*);
+size_t fe_engine_action_horizon(const fe_engine*);
+size_t fe_engine_condition_dim(const fe_engine*);
+unsigned fe_engine_thread_count(const fe_engine*);
+int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
+int fe_engine_deployment_profile(const fe_engine*, fe_deployment_profile*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
@@ -31,42 +30,79 @@ int fe_engine_sample_diffusion(fe_engine*, const float* condition,
                                const float* noise, size_t steps,
                                int scheduler, uint64_t seed, float* action);
 int fe_engine_diffusion_denoise(fe_engine*, const float* condition,
-                                const float* sample, float timestep,
+                                const float* normalized_sample, float timestep,
                                 float* predicted_noise);
 
-int fe_engine_step(fe_engine*, int32_t token, float* out);
+int fe_engine_flow_begin(fe_engine*, const float* condition,
+                         const float* noise, size_t steps, int method);
+int fe_engine_flow_advance(fe_engine*, size_t step_budget, float* action,
+                           size_t* steps_remaining);
+int fe_engine_make_condition_metadata(const fe_engine*, uint64_t timestamp_ns,
+                                      uint64_t deadline_ns, uint64_t generation,
+                                      size_t steps, int method,
+                                      fe_condition_metadata*);
+int fe_engine_flow_begin_request(fe_engine*, const float* condition,
+                                 const float* noise,
+                                 const fe_condition_metadata*);
+void fe_engine_cancel_before(fe_engine*, uint64_t generation);
+int fe_engine_flow_action_metadata(const fe_engine*, fe_action_metadata*);
+
+int  fe_engine_step(fe_engine*, int32_t token, float* out);
 void fe_engine_reset(fe_engine*);
+
 size_t fe_engine_decode_state_bytes(const fe_engine*);
-int fe_engine_export_decode_state(const fe_engine*, void* dst, size_t bytes);
-int fe_engine_import_decode_state(fe_engine*, const void* src, size_t bytes);
+int fe_engine_export_decode_state(const fe_engine*, void* destination, size_t bytes);
+int fe_engine_import_decode_state(fe_engine*, const void* source, size_t bytes);
+
 const char* fe_engine_last_error(void);
 ```
 
-## Resumable flow solving
+Rules:
 
-```c
-int fe_engine_flow_begin(fe_engine*, const float* condition,
-                         const float* noise, size_t steps, int method);
-int fe_engine_flow_advance(fe_engine*, size_t step_budget,
-                           float* action, size_t* steps_remaining);
-void fe_engine_cancel_before(fe_engine*, uint64_t generation);
+- Everything runtime-relevant is a parameter. Nothing is baked in.
+- The handle owns the whole runtime. Free it with `fe_engine_free`.
+- `fe_weights` owns immutable checkpoint tensors. Engines created from it retain a shared reference,
+  so the weight handle may be released immediately after construction. Mutable engine state is never
+  shared.
+- `fe_engine_load` reads `FLOWEDGE_THREADS=0..8` when present and otherwise uses a
+  bandwidth-aware automatic default. `fe_engine_load_with_threads` bypasses the environment;
+  zero selects caller-thread-only execution.
+- No exception crosses the boundary. Errors return `nullptr` or a non-zero code.
+- `method` is 0 for Euler, 1 for Heun, 2 for RK4.
+- Prefer the named constants `FE_SOLVER_EULER`, `FE_SOLVER_HEUN`, and `FE_SOLVER_RK4` from
+  `engine.h` instead of literal method values. Unknown values fail with a non-zero return code.
+- `fe_engine_sample_condition` accepts the output of an encoder owned by another runtime. A
+  checkpoint may therefore contain only `flow.*` tensors and no built-in backbone.
+- `fe_engine_deployment_profile` returns the validated checkpoint profile through borrowed pointers.
+  Those pointers remain valid until `fe_engine_free`; return code `2` explicitly identifies a
+  legacy checkpoint without a profile. The profile is descriptive metadata: FlowEdge does not
+  execute observation preprocessing from it.
+- `fe_engine_flow_begin` projects the condition once. Each `fe_engine_flow_advance` executes at
+  most `step_budget` complete solver steps and reports how many remain. Starting a new solve
+  replaces the previous one.
+- `fe_engine_make_condition_metadata` fills protocol version, model digest, dimensions, solver,
+  generation, timestamps, and initial NFE. `fe_engine_flow_begin_request` validates every field.
+  `fe_engine_cancel_before` atomically makes older generations stale; an advance notices this
+  between complete solver steps and returns code 8.
+- `fe_engine_flow_action_metadata` preserves the source timestamp/deadline/generation and reports
+  running, complete, cancelled, or failed status plus remaining NFE.
+- Decode snapshots remain caller-owned and allocation-free, but are no longer raw floats. The
+  fixed little-endian envelope contains a version, architecture, precision, dimensions, model
+  digest, payload size, and checksum. Imports reject incompatible, truncated, and corrupt data
+  before modifying engine state.
+- One handle has mutable scratch and sampler state and is not safe for concurrent calls. Use one
+  engine per concurrently executing session. `fe_engine_cancel_before` is the sole operation
+  designed for a concurrent scheduler thread.
+- Prefill and token-conditioned sampling accept 1 to 512 tokens per call; streaming `step` has no
+  growing sequence buffer.
+
+## Link with CMake
+
+```cmake
+find_package(FlowEdge REQUIRED)
+target_link_libraries(my_node PRIVATE FlowEdge::Core)
 ```
 
-Use the request/metadata variants when a scheduler needs model identity, timestamps, deadlines,
-generation, or status reporting. See `src/core/api/engine.h` for the complete declarations.
-
-## Rules
-
-| Rule | Meaning |
-|---|---|
-| Errors | No exception crosses the ABI; `nullptr` or non-zero means failure; call `fe_engine_last_error()` |
-| Solvers | `FE_SOLVER_EULER`, `FE_SOLVER_HEUN`, `FE_SOLVER_RK4` |
-| Threads | `0` means caller-thread-only; otherwise use the requested worker count |
-| Ownership | `fe_engine` owns mutable state; `fe_weights` owns immutable tensors and may be released after engine creation |
-| Concurrency | One engine is one mutable lane; only cancellation is scheduler-thread safe |
-| Buffers | Input/output memory is caller-owned and must be large enough for the reported dimensions |
-| Snapshots | Versioned, checksummed, little-endian; incompatible or corrupt state is rejected before mutation |
-| Profiles | Deployment profile pointers are borrowed until `fe_engine_free`; legacy checkpoints may return code `2` |
-
-Prefill and token-conditioned sampling accept 1–512 tokens. Streaming `step` does not grow a
-sequence buffer. Source: `src/core/api/engine.h` and `src/core/protocol/contracts.h`.
+Source: `src/core/api/engine.h` and `src/core/protocol/contracts.h`. See
+[ADR 0003](../decisions/0003-api-boundary) and
+[ADR 0011](../decisions/0011-versioned-state-contracts).

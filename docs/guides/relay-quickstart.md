@@ -1,33 +1,62 @@
 # Relay quickstart
 
-Relay is the optional local service around Core: bounded IPC, deadline admission, worker pools,
-state migration, action gating, replay, and metrics. Shared memory is local to one host.
+This guide runs one complete local Relay lifecycle: start the inference daemon, submit an action-head
+request from another process, receive a typed result, and stop cleanly.
 
-## Build and run the complete demo
+## Before you start
+
+You need a C++23 compiler, CMake 3.21+, and a compatible flow-head checkpoint. Relay supports native
+Windows and Linux. Shared memory is local to one host.
+
+Build Core, Relay, tools, examples, and benchmarks:
 
 ```bash
 cmake -S . -B build-relay -DCMAKE_BUILD_TYPE=Release \
   -DFLOWEDGE_RELAY=ON -DFLOWEDGE_BENCH=ON
-cmake --build build-relay --parallel
-FLOWEDGE_BUILD_DIR=build-relay ./scripts/relay_demo.sh models/mamba_flow.safetensors
+cmake --build build-relay --config Release -j
 ```
 
-```{mermaid}
-flowchart LR
-  C[Client] -->|request ring| D[flowedge-relayd]
-  D --> A[EDF + freshness]
-  A --> W[Preallocated workers]
-  W --> Core[FlowEdge Core]
-  Core --> R[result ring]
-  W --> O[Trace + metrics]
+On Windows PowerShell, executables end in `.exe`. Depending on the generator, Relay tools may be in
+`build-relay/src/relay/`.
+
+## Migrate a live Mamba stream
+
+```bash
+./build-relay/mamba_relay_stream models/mamba_flow.safetensors
 ```
 
-The demo proves one inference, one typed `rejected_deadline`, graceful shutdown, trace replay, and
-Prometheus/JSON/OTLP exports. `rejected_deadline` is a normal result, not a broken connection.
+The example runs two tokens, exports a checksummed state capsule, restores it into an engine sharing
+the same immutable weights, and finishes without replaying the prefix.
 
-## Manual processes
+## Easiest complete demo
 
-Terminal 1:
+```bash
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" \
+  ./scripts/relay_demo.sh models/mamba_flow.safetensors
+```
+
+The script performs all of these operations:
+
+1. Starts two preallocated workers with shared immutable weights.
+2. Sends one valid request through `RelayClient` and receives an action.
+3. Sends one deliberately impossible deadline and receives `rejected_deadline`.
+4. Requests graceful shutdown.
+5. Inspects and replays the portable trace.
+6. Validates Prometheus, compact JSON, and OTLP JSON metrics files.
+
+A successful run includes output similar to:
+
+```text
+sequence=1 generation=1 status=1 outcome=inference action0=...
+sequence=2 generation=2 status=3 outcome=rejected_deadline ...
+replay compared=1 mismatched=0 ...
+```
+
+`rejected_deadline` is a normal typed action result, not a broken connection.
+
+## Run the processes manually
+
+Terminal 1 owns the shared-memory rings:
 
 ```bash
 ./build-relay/src/relay/flowedge-relayd \
@@ -35,7 +64,7 @@ Terminal 1:
   --create --workers 2 --threads 0 --placement compact
 ```
 
-Terminal 2:
+Terminal 2 submits a diagnostic request, then stops the daemon:
 
 ```bash
 ./build-relay/src/relay/flowedge-relayctl request \
@@ -43,40 +72,47 @@ Terminal 2:
 ./build-relay/src/relay/flowedge-relayctl shutdown
 ```
 
-## Starting settings
+For a long-lived application, use `RelayClient` as shown in `examples/relay_client_sample.cc` rather
+than loading model metadata for every diagnostic request.
 
-| Setting | Start | Meaning |
+## Choose production settings
+
+| Setting | Start with | Meaning |
 |---|---:|---|
-| `--workers` | `2` | Mutable model lanes / outer workers |
-| `--threads` | `0` | Caller-thread-only Core execution |
-| `--placement` | `compact` | Favor local shared-weight reads; compare `spread` |
-| `--nfe-ns` | `0` | Admission disabled until calibrated |
-| `--admission-reserve-ns` | measured | Transport/controller safety margin |
-| `--metrics-interval-ms` | `0` | Export at shutdown; periodic I/O is opt-in |
+| `--workers` | `2` | Independent mutable model sessions/outer threads |
+| `--threads` | `0` | Core background threads per outer worker; `0` keeps each engine caller-only |
+| `--placement` | `compact` | Favor local shared-weight reads; compare with `spread` on multi-node hosts |
+| `--nfe-ns` | `0` | Deadline admission disabled until calibrated on the deployment host |
+| `--admission-reserve-ns` | deployment-specific | Extra transport/controller safety margin |
+| `--metrics-interval-ms` | `0` | Export only at shutdown; periodic file I/O is opt-in |
 
-Calibrate on the deployment host under sustained load:
+Measure before enabling deadline admission:
 
 ```bash
 ./build-relay/flowedge_relay_bench models/mamba_flow.safetensors 5000 0
 ./build-relay/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 2 0
 ```
 
-Use the measured p99 NFE cost as an input, then add a safety reserve. It is not portable across CPUs,
-power states, or thermal conditions.
+Use the reported `p99_ns_per_nfe` as a starting observation, add a safety reserve, then repeat under
+sustained load, fixed affinity, and the real power/thermal policy. It is not a portable constant.
 
-## Outcomes
+## Common outcomes
 
-| Outcome | Action |
+| Outcome | What it means | Typical response |
+|---|---|---|
+| `inference` + complete | Valid current action | Publish after the application safety gate |
+| `rejected_stale` | A newer generation already exists | Drop it; do not retry the old observation |
+| `rejected_deadline` | Calibrated work cannot finish in time | Reduce work, add capacity, or use a later deadline |
+| `rejected_capacity` | Bounded queue retained earlier-deadline work | Backpressure or retry only if still fresh |
+| `expired` | Deadline passed before dispatch | Drop it and inspect load/clock behavior |
+| cancelled | A fresher generation stopped active work | Normal freshness behavior |
+| failed | Model or worker execution failed | Inspect daemon error, trace, and metrics |
+
+## Choose the service
+
+| Service | Use it for |
 |---|---|
-| `inference` | Pass through the application safety gate |
-| `rejected_stale` / `cancelled` | Drop older work |
-| `rejected_deadline` / `expired` | Reduce work, add capacity, or defer |
-| `rejected_capacity` | Apply backpressure; retry only if fresh |
-| `failed` | Inspect daemon error, trace, and metrics |
+| `flowedge-relayd` | Condition vectors to flow-matching action chunks |
+| `flowedge-jobd` | Managed cooperative jobs; currently built-in Mamba streaming |
 
-| Service | Use |
-|---|---|
-| `flowedge-relayd` | Condition vectors → flow action chunks |
-| `flowedge-jobd` | Managed iterative, streaming, and speculative jobs |
-
-See [cooperative jobs](cooperative-jobs) for the generic backend contract.
+See [Generic job daemon](generic-job-daemon) or embed the contracts in [Cooperative jobs](cooperative-jobs).

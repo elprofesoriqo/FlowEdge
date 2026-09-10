@@ -14,5 +14,8 @@ dependencies = [
   "numpy>=1.20",
 ]
 
+[project.scripts]
+flowedge-lerobot-rollout = "flowedge_lerobot.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
