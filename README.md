@@ -1,123 +1,252 @@
+<div align="center">
+
+<img src="assets/surfingtux.png" width="600" alt="FlowEdge">
+
 # FlowEdge
 
-**Predictable inference for real-time robotics policies.**
+**Low-latency inference for real-time robotics policies**
 
-FlowEdge is a C++23 runtime for fixed-shape Mamba and action-head inference. It is designed for
-small, measurable control loops: static runtime memory, deterministic state, and zero heap
-allocations after setup on supported hot paths.
+Flow-matching action policies, static memory, deterministic execution, and deadline-aware local inference.
 
-| Current | Boundary |
-|---|---|
-| Mamba + flow matching | CPU scalar / AVX2 / NEON |
-| Fixed LeRobot Diffusion Policy head | FP32 / BF16 `.safetensors` |
-| C ABI, CMake, Python | Optional local Relay service |
-| Snapshots, migration, traces, metrics | No training or perception |
+<br/>
 
-[Documentation](https://elprofesoriqo.github.io/FlowEdge/) ·
-[Getting started](https://elprofesoriqo.github.io/FlowEdge/getting-started.html) ·
-[Performance](https://elprofesoriqo.github.io/FlowEdge/performance.html) ·
-[Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions)
+⚙️ **CPU** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="CUDA" height="22" src="assets/nvidia.svg">&nbsp;**CUDA** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="TT-Metal" height="22" src="assets/tenstorrent.jpg">&nbsp;**TT-Metal**
 
-## Quick start
+[Documentation](https://elprofesoriqo.github.io/FlowEdge/) &nbsp;&nbsp;·&nbsp;&nbsp; [Getting Started](https://elprofesoriqo.github.io/FlowEdge/getting-started.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Performance](https://elprofesoriqo.github.io/FlowEdge/performance.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Contributing](CONTRIBUTING.md) &nbsp;&nbsp;·&nbsp;&nbsp; [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions)
 
+</div>
+
+***
+
+<div align="center">
+  <img src="assets/perf.gif" width="600" alt="Performance Comparison">
+</div>
+
+## Performance Highlights
+
+On the included deterministic smoke checkpoint, FlowEdge reaches up to **18.1x faster Mamba backbone inference** and a **3.93x p99 action-latency speedup** over the matched PyTorch CPU reference.
+
+See [Performance](#performance) for methodology and complete results.
+
+## What is FlowEdge?
+
+FlowEdge is a C++23 inference runtime for low-latency robotics policies, currently focused on Mamba backbones and flow-matching action heads:
+- static runtime memory with zero heap allocations after engine initialization
+- native `.safetensors` loading and checkpoint conversion
+- C++, C API, and Python interfaces
+- deterministic state snapshot and restore
+- optional Relay layer for deadline-aware local inference
+
+## Accelerators
+
+Checked items are available on the current `main` branch.
+
+- ☑ CPU (AVX2 / NEON)
+- ☐ CUDA
+- ☐ Metal
+- ☐ Vulkan
+
+## Architectures & Heads
+
+Checked items are available on the current `main` branch.
+
+**Backbones:**
+- ☑ Mamba selective-SSM
+- ☐ Transformer
+
+**Heads (Action Policies):**
+- ☑ Flow-Matching CNF
+- ☐ Diffusion Policy
+- ☐ π0
+- ☐ DiT
+
+**ODE Solvers:**
+- ☑ Euler
+- ☑ Heun
+- ☑ RK4
+
+**Precision:**
+- ☑ FP32
+- ☑ BF16
+- ☐ INT8
+
+## Quick Start
+
+<details open>
+<summary><b>C++: build and sample</b></summary>
+
+Requires CMake 3.21+ and a C++23 compiler. Clang 23 and CMake 4.4 are validated on Windows; GCC 13 and CMake 3.28 are validated on Linux.
+
+**Build**
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+cmake --build build -j
+```
+
+**Download checkpoint**
+```bash
 mkdir -p models
 wget -qO models/mamba_flow.safetensors \
   https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors
-./build/flow_sample models/mamba_flow.safetensors euler 10
 ```
 
-Python:
+The included smoke checkpoint contains the required `backbone.*` Mamba tensors and `flow.*` action-head tensors.
+
+**Run**
+```bash
+./build/flow_sample models/mamba_flow.safetensors euler 10
+```
+</details>
+
+<details>
+<summary><b>Python: install and sample</b></summary>
 
 ```bash
 python -m pip install .
 python examples/flow_sample.py models/mamba_flow.safetensors
 ```
 
-## Runtime flow
+The Python package uses the same C++ engine. Use `Engine.sample(prefix, noise, steps, method)` with `euler`, `heun`, or `rk4`.
+</details>
+
+For external encoders, streaming inference, Relay, and cooperative jobs, see the [capability guide](docs/capabilities.md).
+
+## Architecture
 
 ```mermaid
 flowchart LR
-  Model[.safetensors] --> Core[FlowEdge Core]
-  Input[Tokens / condition] --> Core
-  Core --> Action[Action chunk]
-  Action --> Gate[Optional Relay gate]
-  Gate --> Robot[Controller]
+    Client[Python / C++ Client] -->|State + Condition| Core[FlowEdge::Core]
+    subgraph Engine [FlowEdge Runtime]
+        Core --> Backbone[Mamba Backbone]
+        Backbone --> Solver[ODE Solver]
+        Solver <-->|Recurrent step| Head[Flow-Matching Head]
+    end
+    Solver -->|Final Action| Output[Robot Controller]
+    Relay[Relay / Job Queue] -.->|Optional IPC| Core
 ```
 
-| Use case | Entry point |
-|---|---|
-| Full Mamba + flow policy | `flow_sample` |
-| Existing VLA/vision encoder | `external_flow_sample` or `sample_condition` |
-| Streaming state | `mamba_forward`, `streaming_snapshot` |
-| Cross-process inference | `scripts/relay_demo.sh` |
-| Safe action delivery | `action_delivery_sample` |
-| Generic stateful work | `cooperative_job_sample`, `routed_job_sample` |
-| LeRobot deployment seam | `integrations/lerobot` |
+The allocation-free execution path lives in `src/core/` and is exported to CMake consumers as
+`FlowEdge::Core`. Model loading may allocate once for weights and runtime setup; repeated
+inference is allocation-free. Core does not depend on transport, telemetry, ROS, or daemon
+libraries.
 
-## Relay
+Installed CMake consumers should link `FlowEdge::Core` or `FlowEdge::Relay`; `FlowEdge::flowedge_engine` remains available as a compatibility target.
+
+## FlowEdge Relay
+
+Relay is the optional local systems layer around `FlowEdge::Core`.
 
 ```mermaid
 flowchart LR
-  Client -->|bounded shared memory| Daemon[Relay daemon]
-  Daemon --> EDF[EDF + QoS]
-  EDF --> Workers[Preallocated workers]
-  Workers --> Core
-  Workers --> Telemetry[Trace + metrics]
+    Job[Job Client] -->|IPC| Daemon[Relay Daemon]
+    Daemon -->|EDF Scheduler| Worker[Worker Pool]
+    Worker -->|Shared Memory Inference| Core[FlowEdge::Core]
 ```
+
+It adds:
+- shared-memory IPC
+- deadline-aware admission
+- cancellation and freshness handling
+- preallocated worker pools
+- state migration
+- iterative and streaming cooperative jobs
+- traces and fixed-memory metrics
+
+Build with:
 
 ```bash
-cmake -S . -B build-relay -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_RELAY=ON
-cmake --build build-relay --parallel
-FLOWEDGE_BUILD_DIR=build-relay ./scripts/relay_demo.sh models/mamba_flow.safetensors
+cmake -S . -B build-relay \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DFLOWEDGE_RELAY=ON
+
+cmake --build build-relay -j
 ```
 
-## Performance reference
+## Performance
 
-Smoke checkpoint, matched PyTorch CPU reference, lower is better:
+Mamba backbone forward with one CPU thread and matched checkpoint/input. Lower is better.
 
-| Path | FlowEdge | Reference | Result |
-|---|---:|---:|---:|
-| Mamba forward, Windows | 0.091 ms | 1.650 ms | 18.1x |
-| Mamba forward, Linux | 0.071 ms | 0.990 ms | 13.9x |
-| Action p99, Windows | 0.579 ms | 2.277 ms | 3.93x |
-| Action p99, Linux | 0.650 ms | 1.695 ms | 2.61x |
+> These results use the included deterministic smoke checkpoint. They are not yet a production-policy benchmark.
 
-These are reference measurements, not deployment guarantees. Reproduce them with the
-[performance guide](docs/performance.md).
+| Backend | FlowEdge | PyTorch | Speedup |
+| :--- | ---: | ---: | ---: |
+| CPU (Windows) | 0.091 ms | 1.650 ms | **18.1x** |
+| CPU (Linux) | 0.071 ms | 0.990 ms | **13.9x** |
+
+### End-to-end action latency
+
+| Platform | FlowEdge p99 | PyTorch p99 | Speedup |
+| :--- | ---: | ---: | ---: |
+| Windows | 0.579 ms | 2.277 ms | **3.93x** |
+| Linux | 0.650 ms | 1.695 ms | **2.61x** |
+
+See [performance](docs/performance.md#backbone-forward) for methodology and exact commands.
+
+## External encoder / head-only usage
+
+```mermaid
+flowchart LR
+    Vision[External Vision Encoder] -->|Condition / Latents| FlowEdge[FlowEdge Action Head]
+    Proprioception[State Vector] --> FlowEdge
+    FlowEdge -->|Action Chunk| Robot[Robot Controller]
+```
+
+FlowEdge can run only the action-policy path while observation encoding is handled by another process, model, or accelerator. Use the head-only routines in `Engine.sample` or the C++ equivalent.
 
 ## Verification
 
+Run the local test and benchmark suite:
+
 ```bash
 cmake -S . -B build \
-  -DFLOWEDGE_TESTS=ON -DFLOWEDGE_BENCH=ON -DFLOWEDGE_RELAY=ON
-cmake --build build --parallel
+  -DFLOWEDGE_TESTS=ON \
+  -DFLOWEDGE_BENCH=ON
+
+cmake --build build -j
 ctest --test-dir build --output-on-failure
-FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh
-FLOWEDGE_BUILD_DIR=build-all ./scripts/verify_all.sh models/mamba_flow.safetensors
 ```
 
-The release gate checks tests, examples, Relay/job demos, benchmarks, installation, size budgets,
-setup allocations, and hot-path allocations.
+On Linux:
 
-## Contracts
+```bash
+./scripts/test.sh
+./scripts/bench.sh
+./scripts/verify_all.sh
+```
 
-| Contract | Meaning |
-|---|---|
-| Allocation | Load/setup may allocate; supported hot paths allocate zero afterward |
-| Ownership | One engine owns one mutable stream or active solve |
-| Identity | Model digest/schema must match before restore or migration |
-| Safety | Relay gates freshness and bounds; the robot owns final safety |
-| Scope | No training, datasets, perception, arbitrary graphs, or distributed scheduling |
+Relay-specific verification and benchmark commands are documented in the [performance](docs/performance.md) and Relay guides.
 
-## Planned
+### Allocation contract
 
-Transformer + KV cache, CUDA/Metal/Vulkan/Tenstorrent backends, external runtime adapters, ROS 2,
-and Zenoh remain planned. See [capabilities](docs/capabilities.md) and [roadmap](docs/roadmap.md).
+FlowEdge separates one-time initialization from the control loop. Loading a model may allocate
+weights, loader metadata, and fixed runtime state. After the engine and worker pool are initialized,
+the supported inference and Relay hot paths must perform zero heap allocations. The verification
+report checks this contract across repeated `load -> run -> free` cycles and fails on any hot-path
+allocation. A stricter caller-owned, zero-allocation load API is tracked in
+[issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), open issues, or start a discussion. Changes should include
-tests, a reproducible benchmark when performance-related, and explicit allocation behavior.
+Contributions are welcome in models, kernels, deployment tooling, backends,
+benchmarks, and integrations.
+
+- [`good first issue`](https://github.com/elprofesoriqo/FlowEdge/labels/good%20first%20issue)
+- [`help wanted`](https://github.com/elprofesoriqo/FlowEdge/labels/help%20wanted)
+- [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions)
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
+
+## Scope
+
+FlowEdge deliberately does not try to provide:
+
+- model training
+- dataset pipelines
+- general-purpose graph execution
+- built-in vision/language encoders
+- distributed cluster scheduling
+- robot safety control
+
+PyTorch, ONNX Runtime, TensorRT, and llama.cpp solve broader or different
+inference problems. FlowEdge focuses on predictable execution of fixed
+robotics policies and the systems contracts around that deployment path.
