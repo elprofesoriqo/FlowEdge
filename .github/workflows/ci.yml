@@ -63,6 +63,13 @@ jobs:
         shell: bash
         run: PYTHONPATH=integrations/lerobot/src python -m unittest discover -s integrations/lerobot/tests -v
 
+      - name: Verify LeRobot rollout command
+        if: matrix.backend == 'cpu'
+        shell: bash
+        run: |
+          pip install --no-deps -e integrations/lerobot
+          flowedge-lerobot-rollout --help
+
       - name: Verify ULP vs PyTorch
         if: matrix.backend == 'cpu'
         shell: bash
