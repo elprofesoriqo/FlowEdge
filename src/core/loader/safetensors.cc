@@ -215,8 +215,11 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
       continue;
     const bool bf16 = obj.find("\"BF16\"") != std::string_view::npos;
     const bool f32 = obj.find("\"F32\"") != std::string_view::npos;
-    if (!bf16 && !f32)
+    if (!bf16 && !f32) {
+      if (!cb(name, 0u, 0u, {}, 0u, false, false))
+        return false;
       continue;
+    }
 
     std::array<std::uint64_t, 4> shape{};
     const auto shape_count = parse_u64s(after_colon(obj, "\"shape\""), std::span{shape});
@@ -227,7 +230,8 @@ template<typename Cb> [[nodiscard]] bool foreach_tensor(std::string_view json, C
     if (!offset_count || *offset_count != offs.size() || offs[1] < offs[0])
       return false;
 
-    if (!cb(name, offs[0], offs[1] - offs[0], shape, static_cast<std::uint8_t>(*shape_count), bf16))
+    if (!cb(name, offs[0], offs[1] - offs[0], shape, static_cast<std::uint8_t>(*shape_count), bf16,
+            true))
       return false;
   }
   return root_closed;
@@ -442,8 +446,10 @@ std::expected<void, const char*> load_safetensors(std::string_view path, Arena& 
   const bool ok =
       foreach_tensor(json,
                      [&](std::string_view name, std::uint64_t byte_off, std::uint64_t byte_len,
-                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         bool bf16) noexcept -> bool {
+                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim, bool bf16,
+                         bool supported_dtype) noexcept -> bool {
+                       if (!supported_dtype)
+                         return true;
                        if (tensors_loaded >= out.size()) [[unlikely]]
                          return false;
                        if (!spans.add(byte_off, byte_len)) [[unlikely]]
@@ -490,7 +496,9 @@ std::size_t safetensors_weight_bytes(std::string_view path) noexcept
   const bool ok =
       foreach_tensor(json, [&](std::string_view, std::uint64_t byte_off, std::uint64_t byte_len,
                                const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                               bool bf16) noexcept {
+                               bool bf16, bool supported_dtype) noexcept {
+        if (!supported_dtype)
+          return true;
         if (!spans.add(byte_off, byte_len) || !valid_tensor_shape(shape, ndim, byte_len, bf16) ||
             byte_len > std::numeric_limits<std::size_t>::max() - total)
           return false;
@@ -512,15 +520,18 @@ std::array<std::size_t, 4> safetensors_tensor_shape(std::string_view path,
   MappedFile mf = mapped.mf;
   const std::string_view json = mapped.json;
   std::array<std::size_t, 4> out{};
-  static_cast<void>(foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
-                                             const std::array<std::uint64_t, 4>& shape,
-                                             std::uint8_t ndim, bool) noexcept {
-    if (n != name)
-      return true; // keep scanning
-    for (std::size_t i{0uz}; i < ndim; ++i)
-      out[i] = static_cast<std::size_t>(shape[i]);
-    return false; // found
-  }));
+  static_cast<void>(
+      foreach_tensor(json, [&](std::string_view n, std::uint64_t, std::uint64_t,
+                               const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim, bool,
+                               bool supported_dtype) noexcept {
+        if (!supported_dtype)
+          return true;
+        if (n != name)
+          return true; // keep scanning
+        for (std::size_t i{0uz}; i < ndim; ++i)
+          out[i] = static_cast<std::size_t>(shape[i]);
+        return false; // found
+      }));
   mf.close();
   return out;
 }
@@ -569,11 +580,21 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
 
   MappedJson mapped = *res;
   MappedFile mf = mapped.mf;
+  const std::uint64_t data_size = mf.size - 8uz - mapped.json.size();
+  TensorSpanTracker spans{.data_size = data_size};
   const bool ok =
       foreach_tensor(mapped.json,
-                     [&](std::string_view name, std::uint64_t, std::uint64_t byte_len,
-                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim,
-                         bool bf16) noexcept -> bool {
+                     [&](std::string_view name, std::uint64_t byte_off, std::uint64_t byte_len,
+                         const std::array<std::uint64_t, 4>& shape, std::uint8_t ndim, bool bf16,
+                         bool supported_dtype) noexcept -> bool {
+                       if (!supported_dtype) {
+                         ++unsupported_tensors;
+                         return true;
+                       }
+                       if (!spans.add(byte_off, byte_len) ||
+                           !valid_tensor_shape(shape, ndim, byte_len, bf16) ||
+                           byte_len > std::numeric_limits<std::size_t>::max() - total_bytes)
+                         return false;
                        if (tensors_loaded >= out.size())
                          return false;
                        TensorMetadata& metadata = out[tensors_loaded++];
@@ -586,7 +607,6 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
                        std::memcpy(metadata.name.data(), name.data(), nlen);
                        metadata.name[nlen] = '\0';
                        total_bytes += metadata.bytes;
-                       unsupported_tensors += metadata.supported() ? 0uz : 1uz;
                        return true;
                      });
   mf.close();

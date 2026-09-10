@@ -99,4 +99,41 @@ TEST(SafetensorsHardening, RejectsUnsupportedRankAndShapeByteMismatch)
   EXPECT_EQ(fe::safetensors_weight_bytes(mismatch.string()), 0uz);
 }
 
+TEST(SafetensorsHardening, InspectionRejectsOutOfBoundsAndOverlappingSpans)
+{
+  const TemporarySafetensors out_of_bounds{
+      R"({"weight":{"dtype":"F32","shape":[2],"data_offsets":[0,16]}})", 8uz};
+  std::array<fe::TensorMetadata, 2> metadata{};
+  std::size_t loaded{}, total{}, unsupported{};
+  EXPECT_FALSE(
+      fe::inspect_safetensors(out_of_bounds.string(), metadata, loaded, total, unsupported));
+
+  const TemporarySafetensors overlapping{
+      R"({"a":{"dtype":"F32","shape":[2],"data_offsets":[0,8]},"b":{"dtype":"F32","shape":[1],"data_offsets":[4,8]}})",
+      8uz};
+  EXPECT_FALSE(fe::inspect_safetensors(overlapping.string(), metadata, loaded, total, unsupported));
+}
+
+TEST(SafetensorsHardening, InspectionRejectsShapeByteMismatch)
+{
+  const TemporarySafetensors mismatch{
+      R"({"weight":{"dtype":"F32","shape":[3],"data_offsets":[0,8]}})", 8uz};
+  std::array<fe::TensorMetadata, 1> metadata{};
+  std::size_t loaded{}, total{}, unsupported{};
+  EXPECT_FALSE(fe::inspect_safetensors(mismatch.string(), metadata, loaded, total, unsupported));
+}
+
+TEST(SafetensorsHardening, InspectionReportsUnsupportedDtypes)
+{
+  const TemporarySafetensors unsupported{
+      R"({"weight":{"dtype":"I64","shape":[1],"data_offsets":[0,8]}})", 8uz};
+  std::array<fe::TensorMetadata, 1> metadata{};
+  std::size_t loaded{}, total{}, unsupported_count{};
+  ASSERT_TRUE(
+      fe::inspect_safetensors(unsupported.string(), metadata, loaded, total, unsupported_count));
+  EXPECT_EQ(loaded, 0uz);
+  EXPECT_EQ(total, 0uz);
+  EXPECT_EQ(unsupported_count, 1uz);
+}
+
 } // namespace
