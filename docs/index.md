@@ -25,6 +25,7 @@
 | Check a checkpoint before deployment | [Preflight](guides/checkpoint-preflight) |
 | Reproduce a latency or allocation result | [Performance](performance) |
 | Publish a LeRobot comparison | [Edge benchmarks](guides/edge-benchmarks) |
+| Gate control-loop deadlines | [Deadline profile](guides/deadline-profile) |
 
 ## Runtime flow
 
@@ -91,6 +92,7 @@ guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
 guides/edge-benchmarks
+guides/deadline-profile
 guides/diffusion-policy
 guides/lerobot
 guides/sanitizers
