@@ -70,3 +70,11 @@ behavior in the caller-owned robot adapter.
 
 Tenstorrent support is intentionally not part of this integration slice. It remains a separate
 backend effort so this adapter does not couple the universal runtime to one accelerator.
+
+## ARM64/NEON validation
+
+Every CI run includes an `ubuntu-24.04-arm` job. It builds the Release Core and Relay targets with
+`FLOWEDGE_BACKEND=cpu`, runs the native tests and adapter contract tests, then publishes a profile
+artifact containing compiler, CPU, latency, and allocation metadata. This is architecture
+validation, not a claim for a specific Jetson, RDK, or robot; hardware pilots still need their
+own processor and safety checks.
