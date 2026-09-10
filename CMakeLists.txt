@@ -90,6 +90,20 @@ if(FLOWEDGE_BENCH)
   add_executable(flowedge_diffusion_latency_bench bench/diffusion_latency_bench.cc)
   target_link_libraries(flowedge_diffusion_latency_bench PRIVATE FlowEdge::Core)
 
+  execute_process(
+    COMMAND git rev-parse --short=12 HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE FLOWEDGE_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(NOT FLOWEDGE_GIT_COMMIT)
+    set(FLOWEDGE_GIT_COMMIT "unknown")
+  endif()
+  add_executable(flowedge-profile bench/deadline_profile.cc)
+  target_link_libraries(flowedge-profile PRIVATE FlowEdge::Core)
+  target_compile_definitions(flowedge-profile PRIVATE
+    FLOWEDGE_GIT_COMMIT="${FLOWEDGE_GIT_COMMIT}")
+
   add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
   target_link_libraries(flowedge_threaded_matmul_bench PRIVATE FlowEdge::Core benchmark::benchmark_main Threads::Threads)
 
@@ -136,8 +150,10 @@ if(FLOWEDGE_TESTS)
 
   find_package(Threads REQUIRED)
   add_executable(flowedge_tests test/tests.cc test/cabi_tests.cc
-                 test/deployment_profile_tests.cc test/deployment_profile_runtime_tests.cc)
+                 test/deployment_profile_tests.cc test/deployment_profile_runtime_tests.cc
+                 test/deadline_profile_tests.cc)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
+  target_include_directories(flowedge_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(flowedge_tests PRIVATE FLOWEDGE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
   if(FLOWEDGE_RELAY)
@@ -158,6 +174,9 @@ if(FLOWEDGE_TESTS)
   include(GoogleTest)
   gtest_discover_tests(flowedge_tests)
   add_test(NAME Tools.InspectHelp COMMAND flowedge-inspect --help)
+  if(FLOWEDGE_BENCH)
+    add_test(NAME Tools.ProfileHelp COMMAND flowedge-profile --help)
+  endif()
   if(FLOWEDGE_RELAY)
     gtest_discover_tests(flowedge_relay_tests)
     add_test(NAME RelayTools.ClientHelp COMMAND flowedge-relayctl --help)
