@@ -67,8 +67,10 @@ python -m pip install -e integrations/lerobot
 flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
 ```
 
-The command prints JSON telemetry (`steps`, `stopped`) and never imports a concrete robot driver.
-Replace `run_simulator` with a `RolloutRobot` adapter when connecting SO-100/SO-101 hardware.
+The command prints JSON telemetry (`steps`, `elapsed_ms`, `p50_ms`, `p99_ms`, `max_ms`, and
+`missed_deadlines`) and never imports a concrete robot driver. Add `--period-ms` to count steps
+over a control-loop deadline. Replace `run_simulator` with a `RolloutRobot` adapter when
+connecting SO-100/SO-101 hardware.
 
 ## Example
 

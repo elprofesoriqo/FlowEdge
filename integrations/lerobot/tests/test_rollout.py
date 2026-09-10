@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from flowedge_lerobot import FlowEdgeDiffusionPolicy, run_rollout
+from flowedge_lerobot import FlowEdgeDiffusionPolicy, MAX_ROLLOUT_STEPS, run_rollout
 
 
 class FakeEngine:
@@ -54,6 +54,9 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(robot.stop_count, 1)
         self.assertEqual(len(robot.actions), 3)
         self.assertEqual(robot.actions[0].shape, (2,))
+        self.assertGreater(result.p99_ms, 0.0)
+        self.assertGreaterEqual(result.p99_ms, result.p50_ms)
+        self.assertEqual(result.missed_deadlines, 0)
 
     def test_stop_runs_when_encoding_fails(self):
         robot = FakeRobot()
@@ -79,12 +82,47 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(robot.stop_count, 1)
 
     def test_steps_must_be_positive(self):
-        with self.assertRaisesRegex(ValueError, "steps must be positive"):
+        with self.assertRaisesRegex(ValueError, "steps must be from 1"):
             run_rollout(
                 FlowEdgeDiffusionPolicy(FakeEngine()),
                 FakeRobot(),
                 lambda value: value,
                 steps=0,
+            )
+
+    def test_period_counts_missed_steps(self):
+        result = run_rollout(
+            FlowEdgeDiffusionPolicy(FakeEngine()),
+            FakeRobot(),
+            lambda value: value,
+            steps=2,
+            period_ms=0.001,
+        )
+        self.assertEqual(result.missed_deadlines, 2)
+
+    def test_period_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "period_ms must be positive"):
+            run_rollout(
+                FlowEdgeDiffusionPolicy(FakeEngine()),
+                FakeRobot(),
+                lambda value: value,
+                steps=1,
+                period_ms=0,
+            )
+
+    def test_rollout_step_bound_and_finite_period(self):
+        policy = FlowEdgeDiffusionPolicy(FakeEngine())
+        with self.assertRaisesRegex(ValueError, "steps must be from 1"):
+            run_rollout(
+                policy, FakeRobot(), lambda value: value, steps=MAX_ROLLOUT_STEPS + 1
+            )
+        with self.assertRaisesRegex(ValueError, "period_ms must be positive"):
+            run_rollout(
+                policy,
+                FakeRobot(),
+                lambda value: value,
+                steps=1,
+                period_ms=float("nan"),
             )
 
 

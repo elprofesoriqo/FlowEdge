@@ -65,8 +65,9 @@ python -m pip install -e integrations/lerobot
 flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
 ```
 
-It prints JSON completion telemetry and keeps observation encoding, limits, and emergency-stop
-behavior in the caller-owned robot adapter.
+It prints JSON completion and timing telemetry. Pass `--period-ms 10` to count missed 10 ms
+control-loop periods. Observation encoding, limits, and emergency-stop behavior stay in the
+caller-owned robot adapter.
 
 Tenstorrent support is intentionally not part of this integration slice. It remains a separate
 backend effort so this adapter does not couple the universal runtime to one accelerator.

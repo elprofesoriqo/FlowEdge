@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import asdict
 from typing import Sequence
 
 import numpy as np
@@ -40,14 +41,24 @@ def _parser() -> argparse.ArgumentParser:
         prog="flowedge-lerobot-rollout",
         description="Run a bounded simulator smoke test for a converted LeRobot policy.",
     )
-    parser.add_argument("checkpoint", help="FlowEdge-converted Diffusion Policy checkpoint")
-    parser.add_argument("--steps", type=int, default=10, help="control-loop steps (default: 10)")
+    parser.add_argument(
+        "checkpoint", help="FlowEdge-converted Diffusion Policy checkpoint"
+    )
+    parser.add_argument(
+        "--steps", type=int, default=10, help="control-loop steps (default: 10)"
+    )
     parser.add_argument(
         "--diffusion-steps", type=int, default=10, help="denoising steps (default: 10)"
     )
     parser.add_argument("--scheduler", choices=("ddim", "ddpm"), default="ddim")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--threads", type=int, default=None)
+    parser.add_argument(
+        "--period-ms",
+        type=float,
+        default=None,
+        help="deadline period for missed-step counts",
+    )
     return parser
 
 
@@ -58,6 +69,7 @@ def run_simulator(
     diffusion_steps: int,
     scheduler: str,
     seed: int,
+    period_ms: float | None = None,
 ) -> RolloutResult:
     """Run the built-in simulator seam; hardware adapters stay outside this package."""
 
@@ -70,20 +82,24 @@ def run_simulator(
         seed=seed,
         diffusion_steps=diffusion_steps,
         scheduler=scheduler,
+        period_ms=period_ms,
     )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    policy = FlowEdgeDiffusionPolicy.from_checkpoint(args.checkpoint, threads=args.threads)
+    policy = FlowEdgeDiffusionPolicy.from_checkpoint(
+        args.checkpoint, threads=args.threads
+    )
     result = run_simulator(
         policy,
         steps=args.steps,
         diffusion_steps=args.diffusion_steps,
         scheduler=args.scheduler,
         seed=args.seed,
+        period_ms=args.period_ms,
     )
-    print(json.dumps({"steps": result.steps, "stopped": result.stopped}, sort_keys=True))
+    print(json.dumps(asdict(result), sort_keys=True))
     return 0
 
 
