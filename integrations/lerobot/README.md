@@ -57,6 +57,18 @@ This is the integration seam for SO-100/SO-101 applications; robot drivers, feat
 joint limits, and hardware emergency-stop behavior remain application-owned. The included tests
 use a fake robot so the loop can be checked without hardware.
 
+## Simulator smoke test
+
+Install the companion package, then run a bounded rollout against a converted checkpoint:
+
+```bash
+python -m pip install -e integrations/lerobot
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
+```
+
+The command prints JSON telemetry (`steps`, `stopped`) and never imports a concrete robot driver.
+Replace `run_simulator` with a `RolloutRobot` adapter when connecting SO-100/SO-101 hardware.
+
 ## Example
 
 ```python
