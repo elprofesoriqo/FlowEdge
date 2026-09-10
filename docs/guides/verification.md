@@ -42,6 +42,7 @@ optional Python checks when dependencies are available.
 | External head | `python scripts/verify_external_head.py build` |
 | Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |
 | Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |
+| Benchmark artifact contract | `python scripts/test_benchmark_artifact.py` |
 | QoS | `./build/flowedge_job_qos_bench 1000000` |
 
 ## Invariants
