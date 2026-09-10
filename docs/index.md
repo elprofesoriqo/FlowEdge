@@ -24,6 +24,7 @@
 | Move state between workers | [Cooperative jobs](guides/cooperative-jobs) |
 | Check a checkpoint before deployment | [Preflight](guides/checkpoint-preflight) |
 | Reproduce a latency or allocation result | [Performance](performance) |
+| Gate a policy against a control period | [Deadline profile](guides/deadline-profile) |
 
 ## Runtime flow
 
@@ -89,6 +90,7 @@ guides/add-a-head
 guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
+guides/deadline-profile
 guides/diffusion-policy
 guides/lerobot
 guides/sanitizers
