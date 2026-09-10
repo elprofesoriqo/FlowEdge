@@ -39,4 +39,6 @@ python convert/convert.py models/diffusion_pusht \
 The initial diffusion path supports `squaredcos_cap_v2`, epsilon prediction,
 FiLM scale modulation, GroupNorm, fixed horizons, and MIN_MAX action
 normalization. Legacy embedded statistics and modern processor sidecars are
-supported; other normalization modes fail conversion with a targeted error.
+supported; converted diffusion checkpoints carry a deployment profile so
+`flowedge-inspect` can validate the action contract before deployment. Other
+normalization modes fail conversion with a targeted error.

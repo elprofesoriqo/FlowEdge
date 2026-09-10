@@ -10,6 +10,7 @@ FlowEdge's tensor convention mirrors HF Mamba (`backbone.*`)
 so converting a Mamba checkpoint is a rename + normalize pass.
 """
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -68,6 +69,46 @@ def mamba(sd):
 
 def _config_error(message):
     raise ValueError(f"unsupported Diffusion Policy config: {message}")
+
+
+def _canonical_json(value):
+    return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+def _observation_schema_hash(config, condition_dim, observation_steps):
+    """Hash the exported condition contract, not model weights or normalization stats."""
+    features = config.get("input_features", {})
+    if not isinstance(features, dict):
+        features = {}
+    schema = {
+        "condition_dim": condition_dim,
+        "input_features": features,
+        "observation_steps": observation_steps,
+    }
+    return "sha256:" + hashlib.sha256(_canonical_json(schema).encode()).hexdigest()
+
+
+def _deployment_profile(config, tensors, condition_dim):
+    action_min = tensors["dp.action_min"].detach().cpu().reshape(-1).tolist()
+    action_max = tensors["dp.action_max"].detach().cpu().reshape(-1).tolist()
+    action_horizon = int(config["horizon"])
+    train_timesteps = int(config["num_train_timesteps"])
+    return {
+        "profile_version": 1,
+        "model_compatibility_version": 1,
+        "observation_schema_hash": _observation_schema_hash(
+            config, condition_dim, int(config["n_obs_steps"])
+        ),
+        "action_dim": int(config["output_features"]["action"]["shape"][0]),
+        "action_horizon": action_horizon,
+        # The runtime returns actions after MIN_MAX un-normalization.
+        "action_units": "physical",
+        "normalization_type": "minmax",
+        "normalization_parameters": {"min": action_min, "max": action_max},
+        "solver_default": "euler",
+        "solver_min_steps": 1,
+        "solver_max_steps": min(train_timesteps, 4096),
+    }
 
 
 def _processor_action_stats(path):
@@ -394,7 +435,15 @@ def main():
         required = REQUIRED_DIFFUSION if args.arch == "diffusion" else REQUIRED_FLOW
         _require(sd, required, f"{args.arch} head")
 
-    save_file(sd, args.out)
+    metadata = {}
+    if args.arch == "diffusion":
+        film_width = int(sd["dp.d0.r0.film.w"].shape[1])
+        timestep_dim = int(config["diffusion_step_embed_dim"])
+        condition_dim = film_width - timestep_dim
+        metadata["flowedge.deployment_profile"] = _canonical_json(
+            _deployment_profile(config, sd, condition_dim)
+        )
+    save_file(sd, args.out, metadata=metadata)
     layer_ids = [int(key.split(".")[2]) for key in sd if key.startswith("backbone.layers.")]
     layers = 1 + max(layer_ids) if layer_ids else 0
     head = "diffusion" if any(k.startswith("dp.") for k in sd) else (

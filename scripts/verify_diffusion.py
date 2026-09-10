@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 from torch import nn
 
@@ -298,6 +299,21 @@ def main():
              "--arch", "diffusion"],
             check=True,
         )
+        with safe_open(converted, framework="pt") as handle:
+            profile = json.loads(handle.metadata()["flowedge.deployment_profile"])
+        assert profile["profile_version"] == 1
+        assert profile["model_compatibility_version"] == 1
+        assert profile["action_dim"] == 2
+        assert profile["action_horizon"] == 4
+        assert profile["action_units"] == "physical"
+        assert profile["normalization_type"] == "minmax"
+        assert profile["normalization_parameters"] == {
+            "min": [-2.0, 0.0],
+            "max": [2.0, 10.0],
+        }
+        assert profile["solver_min_steps"] == 1
+        assert profile["solver_max_steps"] == 10
+        assert profile["observation_schema_hash"].startswith("sha256:")
         if build_dir is not None:
             inspector_candidates = [
                 build_dir / "flowedge-inspect",
@@ -337,6 +353,8 @@ def main():
         )
         legacy_output = load_file(converted)
         modern_output = load_file(modern_converted)
+        with safe_open(modern_converted, framework="pt") as handle:
+            assert json.loads(handle.metadata()["flowedge.deployment_profile"]) == profile
         assert torch.equal(legacy_output["dp.action_min"], modern_output["dp.action_min"])
         assert torch.equal(legacy_output["dp.action_max"], modern_output["dp.action_max"])
         print("modern LeRobot processor normalization conversion OK")

@@ -71,7 +71,11 @@ python convert/convert.py models/diffusion_pusht \
 
 This maps `ConditionalUnet1D`, shortens tensor names for the fixed loader,
 stores horizon/dimension/scheduler metadata, and preserves action min/max. It
-drops the RGB encoder by design. Unsupported schedules, prediction modes,
-normalization, or U-Net variants fail with a specific conversion error.
+drops the RGB encoder by design. Diffusion conversions also embed a versioned
+`flowedge.deployment_profile` with the action contract and a deterministic hash
+of the exported observation features and flattened condition shape. The runtime
+returns physical actions after MIN_MAX un-normalization; observation encoding
+remains in LeRobot. Unsupported schedules, prediction modes, normalization, or
+U-Net variants fail with a specific conversion error.
 
 Source: `convert/convert.py`. See [ADR 0006](../decisions/0006-obs-encoder-out-of-scope).
