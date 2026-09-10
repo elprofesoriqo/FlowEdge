@@ -63,6 +63,7 @@ fi
 
 "$(resolve_executable flow_sample)" "$MODEL" euler 6
 "$(resolve_executable flowedge-inspect)" "$MODEL" --json > "$BUILD_DIR/checkpoint-inspect.json"
+grep -q '"deployment_profile":' "$BUILD_DIR/checkpoint-inspect.json"
 "$(resolve_executable flow_sample)" "$MODEL" heun 6
 "$(resolve_executable flow_sample)" "$MODEL" rk4 6
 "$(resolve_executable mamba_forward)" "$MODEL"
