@@ -26,8 +26,8 @@ TEST(DeadlineProfile, ComputesRegressionAndBudget)
 {
   constexpr std::array<double, 4> samples{10.0, 20.0, 30.0, 40.0};
   const fe::benchmark::Statistics stats = fe::benchmark::summarize(samples);
-  EXPECT_TRUE(fe::benchmark::within_budget(stats, 40.0, stats.max));
-  EXPECT_FALSE(fe::benchmark::within_budget(stats, 39.0, stats.max));
+  EXPECT_TRUE(fe::benchmark::within_budget(40.0, stats.max));
+  EXPECT_FALSE(fe::benchmark::within_budget(39.0, stats.max));
   EXPECT_DOUBLE_EQ(fe::benchmark::regression_percent(100.0, 105.0), 5.0);
   EXPECT_DOUBLE_EQ(fe::benchmark::regression_percent(100.0, 95.0), -5.0);
 }

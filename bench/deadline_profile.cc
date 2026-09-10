@@ -7,6 +7,7 @@
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -546,7 +547,7 @@ int main(int argc, char** argv)
   std::ranges::sort(samples);
   const fe::benchmark::Statistics stats = fe::benchmark::summarize(samples);
   const double selected = budget_value(stats, options.metric);
-  const bool budget_passed = fe::benchmark::within_budget(stats, options.period_us, selected);
+  const bool budget_passed = fe::benchmark::within_budget(options.period_us, selected);
 
   Baseline baseline{};
   bool regression_checked{false};

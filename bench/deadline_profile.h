@@ -43,10 +43,8 @@ struct Statistics
   return result;
 }
 
-[[nodiscard]] inline bool within_budget(const Statistics& stats, double period_us,
-                                        double metric) noexcept
+[[nodiscard]] inline bool within_budget(double period_us, double metric) noexcept
 {
-  static_cast<void>(stats);
   return metric <= period_us;
 }
 
