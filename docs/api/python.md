@@ -1,102 +1,86 @@
-# Python
-
-Built with pybind11. Install with pip.
+# Python API
 
 ```bash
-pip install .
+python -m pip install .
 ```
 
+## Fast path
+
 ```python
-import numpy as np, flowedge
+import numpy as np
+import flowedge
 
-e = flowedge.Engine("models/mamba_flow.safetensors")
-print(e.action_dim, e.condition_dim, e.d_model, e.thread_count)
-print(e.model_metadata)  # architecture, precision, dimensions, digest, snapshot size
-
+engine = flowedge.Engine("models/mamba_flow.safetensors", threads=0)
 tokens = np.array([1, 2, 3, 4], dtype=np.int32)
-hidden = e.run(tokens)
-noise = np.zeros(e.action_dim, dtype=np.float32)
-action = e.sample(prefix=tokens,
-                  noise=noise,
-                  steps=10, method="euler")
+noise = np.zeros(engine.action_dim, dtype=np.float32)
+action = np.empty(engine.action_dim, dtype=np.float32)
+engine.sample_into(tokens, noise, action, steps=10, method="euler")
 ```
 
-The convenience calls accept array-like inputs, normalize their dtype/layout when necessary, and
-allocate returned NumPy arrays. A real-time loop can instead own every output and use the zero-copy
-forms; those inputs and outputs must expose C-contiguous `int32` or `float32` buffers:
+| API family | Convenience form | Caller-owned form |
+|---|---|---|
+| Backbone | `run(tokens)`, `step(token)` | `run_into(tokens, hidden)`, `step_into(token, out)` |
+| Flow head | `sample(prefix, noise, ...)` | `sample_into(prefix, noise, out, ...)` |
+| External encoder | — | `sample_condition(condition, noise, out, ...)` |
+| Diffusion | `sample_diffusion(condition, noise, ...)` | `sample_diffusion_into(condition, noise, out, ...)` |
+| State | `decode_state()` / `restore_decode_state(bytes)` | Caller owns snapshot bytes |
 
-```python
-hidden = np.empty((tokens.size, e.d_model), dtype=np.float32)
-e.run_into(tokens, hidden)
+Convenience calls normalize array dtype/layout and allocate returned arrays. Real-time loops should
+use C-contiguous `int32`/`float32` inputs and caller-owned outputs. C++ execution releases the GIL.
 
-current = np.empty(e.d_model, dtype=np.float32)
-e.step_into(7, current)
+## Engine configuration
 
-action = np.empty(e.action_dim, dtype=np.float32)
-e.sample_into(tokens, noise, action, steps=10, method="euler")
-```
+| Option | Meaning |
+|---|---|
+| `threads=None` | `FLOWEDGE_THREADS`, then automatic default |
+| `threads=0` | Caller-thread-only execution |
+| `threads=1..8` | Fixed worker count |
 
-All inference calls release the GIL while C++ runs.
-
-Pass `threads=0..8` to override the automatic worker pool for a specific engine. If omitted,
-`FLOWEDGE_THREADS` is honored and then the automatic default is used:
-
-```python
-single_threaded = flowedge.Engine("models/mamba_flow.safetensors", threads=0)
-```
-
-## External encoders and cooperative solving
-
-A head-only checkpoint accepts a condition vector produced by PyTorch, TensorRT, ONNX Runtime, a
-shared-memory camera process, or another model server. Output is caller-owned:
+## External encoder and resumable solve
 
 ```python
 condition = encoder(observation).astype(np.float32, copy=False)
-noise = np.zeros(e.action_dim, dtype=np.float32)
-action = np.empty(e.action_dim, dtype=np.float32)
+noise = np.zeros(engine.action_dim, dtype=np.float32)
+action = np.empty(engine.action_dim, dtype=np.float32)
+engine.sample_condition(condition, noise, action, 8, "heun")
 
-e.sample_condition(condition, noise, action, 8, "heun")
+engine.flow_begin(condition, noise, 8, "heun", generation=42,
+                  timestamp_ns=observation_time, deadline_ns=control_deadline)
+while engine.flow_advance(action, 1):
+    pass
 ```
 
-The same solve can be split across scheduler quanta without changing its result:
+| Rule | Contract |
+|---|---|
+| Ownership | One engine owns one mutable stream or active solve |
+| Cancellation | `cancel_before(generation)` invalidates older work at a solver boundary |
+| Publishing | Publish a flow output only when `flow_advance` reports zero remaining steps |
+| Identity | Condition dimensions and model digest must match |
 
-```python
-e.flow_begin(condition, noise, 8, "heun", generation=42,
-             timestamp_ns=observation_time, deadline_ns=control_deadline)
-remaining = e.flow_advance(action, 2)
-while remaining:
-    remaining = e.flow_advance(action, 1)
-```
+## Streaming snapshots
 
-Only publish `action` as final when `remaining == 0`. One engine owns one resumable solve.
-`e.flow_metadata` reports the generation, original timestamp/deadline, status, model digest, and
-remaining NFE. A scheduler can call `e.cancel_before(43)` concurrently; the older solve stops at
-the next complete solver-step boundary and raises `RuntimeError` from `flow_advance`.
-
-## Streaming state
-
-`step(token)` advances the Mamba recurrence, `reset()` starts a fresh stream, and
-`decode_state()` / `restore_decode_state(bytes)` create deterministic branches. Snapshots are
-versioned and checksummed; restore rejects a different model digest, architecture, precision,
-dimensions, truncated payload, or corruption before changing state.
-
-Source: `python/flowedge_ext.cc`.
+`decode_state()` returns a versioned, checksummed, little-endian snapshot. Restore rejects a
+different model digest, architecture, precision, dimensions, truncation, or corruption before
+changing state.
 
 ## Diffusion Policy
 
 ```python
-e = flowedge.Engine("models/diffusion_pusht.flowedge.safetensors")
+engine = flowedge.Engine("models/diffusion_pusht.flowedge.safetensors")
 condition = observation_encoder(history).astype(np.float32, copy=False)
 noise = np.random.default_rng(7).standard_normal(
-    (e.action_horizon, e.action_dim), dtype=np.float32)
-actions = e.sample_diffusion(condition, noise, steps=10, scheduler="ddim")
+    (engine.action_horizon, engine.action_dim), dtype=np.float32
+)
+actions = np.empty_like(noise)
+engine.sample_diffusion_into(condition, noise, actions, steps=10, scheduler="ddim")
 ```
 
-`actions` is `[action_horizon, action_dim]` and is already in dataset action
-units. `sample_diffusion_into` writes into a caller-owned C-contiguous float32
-buffer. Seeded `scheduler="ddpm"` is deterministic; the DDIM result depends only
-on the condition and supplied initial noise. `diffusion_denoise` runs one
-normalized U-Net pass for verification or profiling.
+| Metadata | Meaning |
+|---|---|
+| `action_horizon` | Full predicted horizon |
+| `action_dim` | Values per action |
+| `diffusion_metadata` | Horizon, action slice, train timesteps, clipping policy |
+| LeRobot slice | `actions[observation_steps - 1 : observation_steps - 1 + action_steps]` |
 
 The LeRobot companion adapter exposes the same allocation-conscious pattern through
 `predict_action_chunk_into` and `select_action_into`; reuse those buffers in a control loop.
