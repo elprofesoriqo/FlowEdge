@@ -2,12 +2,13 @@
 
 from .contracts import ActionChunkAdapter
 from .diffusion import DiffusionActionContract, FlowEdgeDiffusionPolicy
-from .rollout import RolloutResult, RolloutRobot, run_rollout
+from .rollout import MAX_ROLLOUT_STEPS, RolloutResult, RolloutRobot, run_rollout
 
 __all__ = [
     "ActionChunkAdapter",
     "DiffusionActionContract",
     "FlowEdgeDiffusionPolicy",
+    "MAX_ROLLOUT_STEPS",
     "RolloutResult",
     "RolloutRobot",
     "run_rollout",
