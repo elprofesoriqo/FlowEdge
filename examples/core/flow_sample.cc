@@ -5,8 +5,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -15,15 +13,16 @@
 
 int main(int argc, char** argv)
 {
-  fe_engine* engine = fe_engine_load((argc > 1) ? argv[1] : "");
-  if (engine == nullptr) {
+  const std::unique_ptr<fe_engine, decltype(&fe_engine_free)> engine{fe_engine_load(
+                                                                         (argc > 1) ? argv[1] : ""),
+                                                                     fe_engine_free};
+  if (!engine) {
     std::cerr << "error: cannot load model\n";
     return 1;
   }
-  const std::size_t a = fe_engine_action_dim(engine);
+  const std::size_t a = fe_engine_action_dim(engine.get());
   if (a == 0uz) {
     std::cerr << "error: checkpoint has no flow head\n";
-    fe_engine_free(engine);
     return 1;
   }
   const std::string_view m_arg = (argc > 2) ? argv[2] : "";
@@ -33,7 +32,6 @@ int main(int argc, char** argv)
                                                          : -1;
   if (method < 0) {
     std::cerr << "error: solver must be euler, heun, or rk4\n";
-    fe_engine_free(engine);
     return 1;
   }
   const std::size_t steps = (argc > 3) ? std::stoull(argv[3]) : 10uz;
@@ -44,8 +42,8 @@ int main(int argc, char** argv)
   for (std::size_t i{0uz}; i < a; ++i)
     noise[i] = std::sin(static_cast<float>(i) * 0.3F);
 
-  const int rc = fe_engine_sample(engine, prefix.data(), prefix.size(), noise.data(), steps, method,
-                                  action.data());
+  const int rc = fe_engine_sample(engine.get(), prefix.data(), prefix.size(), noise.data(), steps,
+                                  method, action.data());
   const char* solver = (method == FE_SOLVER_RK4)    ? "rk4"
                        : (method == FE_SOLVER_HEUN) ? "heun"
                                                     : "euler";
@@ -59,6 +57,5 @@ int main(int argc, char** argv)
   } else {
     std::cerr << "sample failed: " << fe_engine_last_error() << " (rc=" << rc << ")\n";
   }
-  fe_engine_free(engine);
   return rc;
 }
