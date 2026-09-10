@@ -100,6 +100,45 @@ jobs:
         env:
           PYTHONPATH: build
 
+  arm64-neon:
+    name: ARM64/NEON validation
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Record runner
+        run: uname -a && lscpu && free -h
+      - name: Configure
+        run: >-
+          cmake -S . -B build-arm64 -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DFLOWEDGE_RELAY=ON -DFLOWEDGE_TESTS=ON -DFLOWEDGE_BENCH=ON
+          -DFLOWEDGE_BACKEND=cpu
+      - name: Build
+        run: cmake --build build-arm64 -j 2
+      - name: CTest
+        run: ctest --test-dir build-arm64 --output-on-failure
+      - name: LeRobot adapter contract
+        run: |
+          python -m pip install --disable-pip-version-check numpy
+          PYTHONPATH=integrations/lerobot/src python -m unittest discover -s integrations/lerobot/tests -v
+      - name: Profile native policy
+        run: |
+          mkdir -p models
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL \
+            "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
+            -o models/mamba_flow.safetensors
+          ./build-arm64/flowedge-profile models/mamba_flow.safetensors \
+            --solver euler --steps 10 --period-us 100000 --iterations 50 --warmup 5 \
+            --json arm64-profile.json
+      - name: Upload ARM64 profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowedge-arm64-profile
+          path: arm64-profile.json
+
   sanitizers:
     name: ASan/UBSan (Linux)
     runs-on: ubuntu-latest
