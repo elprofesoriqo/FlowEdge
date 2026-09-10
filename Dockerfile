@@ -44,10 +44,10 @@ RUN set -eux; \
         tidy=clang-tidy; \
     fi; \
     rm -rf /var/lib/apt/lists/* /tmp/llvm-snapshot.gpg.key; \
-    update-alternatives --install /usr/bin/clang clang "/usr/bin/$compiler" 100; \
-    update-alternatives --install /usr/bin/clang++ clang++ "/usr/bin/$compiler_plus" 100; \
-    update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/$formatter" 100; \
-    update-alternatives --install /usr/bin/clang-tidy clang-tidy "/usr/bin/$tidy" 100; \
+    if [ "$compiler" != "clang" ]; then update-alternatives --install /usr/bin/clang clang "/usr/bin/$compiler" 100; fi; \
+    if [ "$compiler_plus" != "clang++" ]; then update-alternatives --install /usr/bin/clang++ clang++ "/usr/bin/$compiler_plus" 100; fi; \
+    if [ "$formatter" != "clang-format" ]; then update-alternatives --install /usr/bin/clang-format clang-format "/usr/bin/$formatter" 100; fi; \
+    if [ "$tidy" != "clang-tidy" ]; then update-alternatives --install /usr/bin/clang-tidy clang-tidy "/usr/bin/$tidy" 100; fi; \
     update-alternatives --install /usr/bin/cc cc "/usr/bin/$compiler" 100; \
     update-alternatives --install /usr/bin/c++ c++ "/usr/bin/$compiler_plus" 100
 
