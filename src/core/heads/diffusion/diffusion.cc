@@ -568,8 +568,8 @@ bool DiffusionHead::denoise_with_arena(std::span<const float> condition,
   matmul_weight(hidden_time, timestep_out_.weight, raw_time, 1uz, timestep_hidden,
                 cfg_.timestep_dim, pool_);
   add_bias(raw_time, {timestep_out_.bias, cfg_.timestep_dim}, 1uz, cfg_.timestep_dim);
-  std::copy(raw_time.begin(), raw_time.end(), condition_mish.begin());
-  std::copy(condition.begin(), condition.end(), condition_mish.begin() + cfg_.timestep_dim);
+  std::ranges::copy(raw_time, condition_mish.begin());
+  std::ranges::copy(condition, condition_mish.subspan(cfg_.timestep_dim).begin());
   mish(condition_mish);
   for (std::size_t t{0uz}; t < cfg_.horizon; ++t)
     for (std::size_t channel{0uz}; channel < cfg_.action_dim; ++channel)
@@ -619,8 +619,8 @@ bool DiffusionHead::denoise_with_arena(std::span<const float> condition,
     std::span<float> concatenated = arena.alloc_span<float, kSimdAlign>(x.size() + skip.size());
     if (concatenated.empty())
       return false;
-    std::copy(x.begin(), x.end(), concatenated.begin());
-    std::copy(skip.begin(), skip.end(), concatenated.begin() + x.size());
+    std::ranges::copy(x, concatenated.begin());
+    std::ranges::copy(skip, concatenated.subspan(x.size()).begin());
     x = concatenated;
     channels *= 2uz;
     for (std::size_t block{0uz}; block < 2uz; ++block) {
@@ -677,7 +677,7 @@ bool DiffusionHead::sample(std::span<const float> condition, std::span<const flo
   std::span<float> x = workspace.first(values);
   std::span<float> predicted_noise = workspace.subspan(values, values);
   std::span<float> denoiser_workspace = workspace.subspan(2uz * values);
-  std::copy(initial_noise.begin(), initial_noise.end(), x.begin());
+  std::ranges::copy(initial_noise, x.begin());
   GaussianGenerator gaussian{seed};
   const std::size_t step_ratio = cfg_.train_timesteps / inference_steps;
   for (std::size_t index{0uz}; index < inference_steps; ++index) {
