@@ -44,7 +44,7 @@ registry.freeze();
 ```
 
 The adapter preallocates token/output storage, derives identity from Core metadata, and moves the
-exact recurrent snapshot in a canonical state capsule. See `examples/mamba_relay_stream.cc`.
+exact recurrent snapshot in a canonical state capsule. See `examples/relay/mamba_relay_stream.cc`.
 
 ## Drain a worker lane
 

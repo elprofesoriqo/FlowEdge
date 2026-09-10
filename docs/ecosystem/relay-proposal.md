@@ -175,7 +175,7 @@ For a runnable source-level `RelayClient` integration plus deadline and trace ha
 FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.safetensors
 ```
 
-The client implementation is also demonstrated directly in `examples/relay_client_sample.cc`.
+The client implementation is also demonstrated directly in `examples/relay/relay_client_sample.cc`.
 
 The managed generic-job path is runnable with one command:
 

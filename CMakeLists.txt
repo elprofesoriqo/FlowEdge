@@ -38,13 +38,13 @@ endif()
 
 # EXAMPLES
 foreach(ex flow_sample mamba_forward external_flow_sample streaming_snapshot diffusion_sample)
-  flowedge_executable(${ex} examples/${ex}.cc FlowEdge::Core)
+  flowedge_executable(${ex} examples/core/${ex}.cc FlowEdge::Core)
 endforeach()
 flowedge_executable(flowedge-inspect tools/checkpoint_inspect.cc FlowEdge::Core)
 if(FLOWEDGE_RELAY)
   foreach(ex relay_client_sample cooperative_job_sample routed_job_sample mamba_relay_stream
              action_delivery_sample)
-    flowedge_executable(${ex} examples/${ex}.cc FlowEdge::Relay)
+    flowedge_executable(${ex} examples/relay/${ex}.cc FlowEdge::Relay)
   endforeach()
 endif()
 

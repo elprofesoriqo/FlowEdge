@@ -103,7 +103,7 @@ The included smoke checkpoint contains the required `backbone.*` Mamba tensors a
 
 ```bash
 python -m pip install .
-python examples/flow_sample.py models/mamba_flow.safetensors
+python examples/core/flow_sample.py models/mamba_flow.safetensors
 ```
 
 The Python package uses the same C++ engine. Use `Engine.sample(prefix, noise, steps, method)` with `euler`, `heun`, or `rk4`.
