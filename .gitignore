@@ -1,6 +1,7 @@
 build*/
 venv/
 /docs/_build/
+/CMakeFiles/
 /models/
 .cache/
 .agents/

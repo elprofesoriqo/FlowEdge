@@ -30,7 +30,7 @@ See [Performance](#performance) for methodology and complete results.
 
 ## What is FlowEdge?
 
-FlowEdge is a C++23 inference runtime for low-latency robotics policies, currently focused on Mamba backbones and flow-matching action heads:
+FlowEdge is a C++23 inference runtime for low-latency robotics policies. The current mainline supports Mamba + flow-matching inference and a fixed-shape LeRobot Diffusion Policy deployment path:
 - static runtime memory with zero heap allocations after engine initialization
 - native `.safetensors` loading and checkpoint conversion
 - C++, C API, and Python interfaces
@@ -56,7 +56,7 @@ Checked items are available on the current `main` branch.
 
 **Heads (Action Policies):**
 - ☑ Flow-Matching CNF
-- ☐ Diffusion Policy
+- ☑ Diffusion Policy (fixed LeRobot `diffusion_pusht` path)
 - ☐ π0
 - ☐ DiT
 
@@ -110,6 +110,17 @@ The Python package uses the same C++ engine. Use `Engine.sample(prefix, noise, s
 </details>
 
 For external encoders, streaming inference, Relay, and cooperative jobs, see the [capability guide](docs/capabilities.md).
+
+For a converted LeRobot Diffusion Policy checkpoint, install the companion adapter and run its
+bounded simulator smoke test:
+
+```bash
+python -m pip install -e integrations/lerobot
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
+```
+
+The adapter owns the LeRobot processor and robot driver; FlowEdge owns fixed-shape inference.
+See the [LeRobot guide](docs/guides/lerobot.md) for the boundary and rollout shim.
 
 ## Architecture
 

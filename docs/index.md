@@ -29,6 +29,19 @@ Training frameworks trade latency for flexibility. PyTorch runs an interpreter o
 | Deploy a supported LeRobot policy | [LeRobot adapter](guides/lerobot) |
 | Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
 
+## Repository map
+
+| Area | Contents |
+|---|---|
+| `src/core/` | Allocation-free model and solver runtime |
+| `src/relay/` | Optional local scheduling and transport |
+| `python/` and `integrations/lerobot/` | Python API and LeRobot deployment adapter |
+| `convert/` and `tools/` | Checkpoint conversion and inspection |
+| `examples/` | Small C++ and Python entry-point samples |
+| `scripts/` | Build, test, verification, and maintainer benchmarks |
+| `bench/` | Focused Google Benchmark targets, enabled with `FLOWEDGE_BENCH=ON` |
+| `cmake/` | Installed-package export template; generated `CMakeFiles/` is ignored |
+
 ## Implementation status
 
 <div class="fe-grid">

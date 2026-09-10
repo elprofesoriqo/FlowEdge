@@ -24,8 +24,9 @@ python -m pip install -e integrations/lerobot
 python -m unittest discover -s integrations/lerobot/tests
 ```
 
-The companion package is intentionally independent from LeRobot's release cycle. The next issue
-adds a complete `lerobot-rollout` plugin and hardware demo after parity tests are accepted.
+The companion package is intentionally independent from LeRobot's release cycle. The
+`flowedge-lerobot-rollout` command provides a bounded simulator smoke test; hardware validation
+and processor parity remain tracked in issue #65 and its subissues.
 
 ## SO-100/SO-101 rollout shim
 
