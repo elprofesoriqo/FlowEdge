@@ -56,4 +56,5 @@ exclude_patterns = [
     "overview.md",
     "tasks.md",
     "README.md",
+    "ecosystem/relay-issue-draft.md",
 ]
