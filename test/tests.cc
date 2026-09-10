@@ -390,6 +390,42 @@ TEST(DiscretizeAndScan, PreservesStreamingState)
     EXPECT_NE(second[c], first[c]);
 }
 
+TEST(DiscretizeAndScan, SupportsStridedInputRows)
+{
+  constexpr std::size_t length{2uz};
+  constexpr std::size_t d_inner{3uz};
+  constexpr std::size_t d_state{2uz};
+  constexpr std::size_t row_stride{5uz};
+  const std::vector<float> delta{0.2F, 0.3F, 0.4F, 0.5F, 0.6F, 0.7F};
+  const std::vector<float> a_neg{-1.0F, -2.0F, -3.0F, -0.5F, -1.5F, -2.5F};
+  const std::vector<float> b{0.7F, -0.2F, 9.0F, 9.0F, 9.0F, 0.1F, 0.4F, 8.0F, 8.0F, 8.0F};
+  const std::vector<float> u{0.4F, -0.6F, 0.8F, 0.2F, 0.3F, -0.1F};
+  const std::vector<float> cp{0.9F, 0.25F, 7.0F, 7.0F, 7.0F, 0.5F, -0.3F, 6.0F, 6.0F, 6.0F};
+  const std::vector<float> d{0.1F, 0.2F, 0.3F};
+  std::vector<float> h(d_state * d_inner);
+  std::vector<float> y(length * d_inner);
+
+  fe::discretize_and_scan(delta, a_neg, b, u, cp, d, h, y, length, d_inner, d_state, true,
+                          row_stride);
+
+  std::vector<float> expected_state(d_state * d_inner);
+  std::vector<float> expected(length * d_inner);
+  for (std::size_t t{0uz}; t < length; ++t) {
+    for (std::size_t c{0uz}; c < d_inner; ++c)
+      expected[(t * d_inner) + c] = d[c] * u[(t * d_inner) + c];
+    for (std::size_t n{0uz}; n < d_state; ++n)
+      for (std::size_t c{0uz}; c < d_inner; ++c) {
+        const float decay = std::exp(delta[(t * d_inner) + c] * a_neg[(n * d_inner) + c]);
+        expected_state[(n * d_inner) + c] =
+            decay * expected_state[(n * d_inner) + c] +
+            delta[(t * d_inner) + c] * b[(t * row_stride) + n] * u[(t * d_inner) + c];
+        expected[(t * d_inner) + c] += expected_state[(n * d_inner) + c] * cp[(t * row_stride) + n];
+      }
+  }
+  for (std::size_t i{0uz}; i < y.size(); ++i)
+    EXPECT_NEAR(y[i], expected[i], kTol);
+}
+
 namespace {
 
 // Build a small in-memory flow head (random weights) for invariant tests

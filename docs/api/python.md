@@ -82,5 +82,10 @@ engine.sample_diffusion_into(condition, noise, actions, steps=10, scheduler="ddi
 | `diffusion_metadata` | Horizon, action slice, train timesteps, clipping policy |
 | LeRobot slice | `actions[observation_steps - 1 : observation_steps - 1 + action_steps]` |
 
-The LeRobot companion package mirrors this pattern with
-`predict_action_chunk_into` and `select_action_into`.
+The LeRobot companion adapter exposes the same allocation-conscious pattern through
+`predict_action_chunk_into` and `select_action_into`; reuse those buffers in a control loop.
+
+`e.diffusion_metadata` exposes `horizon`, `action_steps`, `observation_steps`,
+`train_timesteps`, and the clipping policy. LeRobot normally executes
+`actions[observation_steps - 1: observation_steps - 1 + action_steps]` from the
+returned horizon; the controller owns that slicing decision.
