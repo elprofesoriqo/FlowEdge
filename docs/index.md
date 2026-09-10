@@ -2,55 +2,89 @@
 
 <img class="fe-hero-img" src="_static/hero.png" alt="FlowEdge" />
 
-<p class="fe-lede">A compact C++23 runtime for predictable robotics-policy inference on CPU.</p>
+<p class="fe-lede">FlowEdge is a small C++23 engine for running flow-matching and diffusion action policies on the edge. It compiles to a dependency-free static binary and runs the whole control loop without a single heap allocation.</p>
 
-| At a glance | Current boundary |
+## What it is
+
+A policy has two parts. A backbone reads the observation prefix and compresses it into a conditioning vector. A head takes that vector, starts from a noise sample, and integrates it into an action chunk. FlowEdge runs both on the CPU, fast enough for a real-time loop.
+
+It is not a training framework and not a graph runtime. It is a fixed set of hand-written architectures that share one kernel library. Every weight and every scratch buffer comes from a single arena, sized once at load, so the runtime path allocates nothing.
+
+## Purpose
+
+Training frameworks trade latency for flexibility. PyTorch runs an interpreter over each op, and ONNX Runtime carries a graph engine and a stack of dependencies. Neither is built for a loop that has to finish inside a fixed period on an embedded board. FlowEdge is. It stays small, keeps its memory static, and is checked against PyTorch in CI on every commit.
+
+## What you can use today
+
+| Goal | Entry point |
 |---|---|
-| Runtime | Mamba backbone, flow head, fixed LeRobot Diffusion Policy head |
-| Memory | Static arena; supported hot paths allocate zero after setup |
-| Interfaces | C ABI, C++/CMake, Python, optional Relay service |
-| CPU | Scalar, AVX2, NEON; FP32 and BF16 weights |
-| Scope | Inference and deployment contracts, not training or perception |
+| Run a complete Mamba + flow policy | [Getting Started](getting-started) |
+| Keep an existing encoder and use only the action head | [Capabilities](capabilities) |
+| Run deadline-aware inference between processes | [Relay quickstart](guides/relay-quickstart) |
+| Deliver safe multi-rate action chunks | [Action delivery](guides/action-delivery) |
+| Run managed streaming jobs | [Generic job daemon](guides/generic-job-daemon) |
+| Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
+| Compare FlowEdge with PyTorch | [Performance](performance) |
+| Convert or port a supported checkpoint | [Converter](guides/converter) |
+| Deploy a supported LeRobot policy | [LeRobot adapter](guides/lerobot) |
+| Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
 
-## Pick a path
+## Implementation status
 
-| You want to… | Open |
-|---|---|
-| Run the included policy | [Getting started](getting-started) |
-| Feed an external encoder | [Capabilities](capabilities) |
-| Use Python buffers without per-step output allocation | [Python API](api/python) |
-| Connect LeRobot | [LeRobot guide](guides/lerobot) |
-| Serve local clients with deadlines | [Relay quickstart](guides/relay-quickstart) |
-| Move state between workers | [Cooperative jobs](guides/cooperative-jobs) |
-| Check a checkpoint before deployment | [Preflight](guides/checkpoint-preflight) |
-| Reproduce a latency or allocation result | [Performance](performance) |
-| Publish a LeRobot comparison | [Edge benchmarks](guides/edge-benchmarks) |
+<div class="fe-grid">
+  <div class="fe-card">
+    <h4>Backbones</h4>
+    <ul><li class="done">Mamba SSM</li><li>Transformer (planned)</li></ul>
+  </div>
+  <div class="fe-card">
+    <h4>Heads</h4>
+    <ul><li class="done">Flow matching</li><li class="done">Diffusion Policy</li><li>DiT (experimental)</li></ul>
+  </div>
+  <div class="fe-card">
+    <h4>Solvers</h4>
+    <ul><li class="done">Euler</li><li class="done">Heun</li><li class="done">RK4</li><li class="done">DDIM / DDPM</li></ul>
+  </div>
+  <div class="fe-card">
+    <h4>Precision</h4>
+    <ul><li class="done">FP32</li><li class="done">BF16</li><li>INT8 (planned)</li></ul>
+  </div>
+  <div class="fe-card">
+    <h4>Backends</h4>
+    <ul><li class="done">CPU (AVX2 / NEON)</li><li>CUDA (planned)</li><li>Tenstorrent (planned)</li></ul>
+  </div>
+  <div class="fe-card">
+    <h4>Interfaces</h4>
+    <ul><li class="done">C-ABI</li><li class="done">Python</li><li class="done">Converter</li></ul>
+  </div>
+</div>
 
-## Runtime flow
+## How it fits
 
 ```{mermaid}
-flowchart LR
-  W[.safetensors] --> L[Loader]
-  L --> A[Fixed arena]
-  T[Tokens / condition] --> B[Mamba or external head]
+%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
+graph TD
+  W[".safetensors"] --> L[Loader]
+  L --> A[Arena]
+  T[tokens] --> B[Backbone]
   A --> B
-  B --> H[Flow / diffusion solver]
-  H --> O[Action chunk]
-  O --> G[Optional Relay safety gate]
-  G --> R[Robot controller]
+  B --> C[conditioning vector]
+  C --> H[Head]
+  H --> ACT[action chunk]
+  K["Kernels: CPU"] -.-> B
+  K -.-> H
 ```
 
-## Available vs planned
+## Start here
 
-| Area | Available | Planned |
-|---|---|---|
-| Backbone | Mamba SSM | Transformer + KV cache |
-| Head | Flow matching; fixed LeRobot Diffusion Policy | ACT, VQ-BeT, DiT, Pi0 |
-| Solver | Euler, Heun, RK4; DDIM, DDPM | — |
-| Backend | CPU scalar / AVX2 / NEON | CUDA, Metal, Vulkan, Tenstorrent |
-| Deployment | C/C++/Python; local Relay; traces and metrics | ROS 2, Zenoh, external runtime adapters |
-
-> **Not a training framework, graph runtime, perception stack, distributed scheduler, or safety controller.**
+- [Getting Started](getting-started). Build, load a model, sample an action.
+- [Capabilities](capabilities). Choose a workflow and understand current limitations.
+- [Performance](performance). PyTorch comparisons and exact commands.
+- [Diffusion Policy](guides/diffusion-policy). Run the fixed-shape robotics policy path.
+- [LeRobot adapter](guides/lerobot). Connect a converted LeRobot Diffusion Policy checkpoint.
+- [Edge benchmarks](guides/edge-benchmarks). Publish an auditable LeRobot comparison.
+- [Deadline profile](guides/deadline-profile). Gate p99 latency and regression budgets.
+- [Relay Quickstart](guides/relay-quickstart). Run the service and understand outcomes.
+- [C-ABI](api/c-abi). The public surface.
 
 ```{toctree}
 :hidden:
@@ -90,9 +124,10 @@ guides/add-a-head
 guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
-guides/edge-benchmarks
 guides/diffusion-policy
 guides/lerobot
+guides/edge-benchmarks
+guides/deadline-profile
 guides/sanitizers
 guides/verification
 guides/observability

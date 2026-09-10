@@ -1,126 +1,131 @@
-# Getting started
+# Getting Started
 
-## 1. Build
+Choose the shortest path for what you are building:
 
-| Requirement | Version |
+| Goal | Continue at |
 |---|---|
-| CMake | 3.21+ |
-| Compiler | C++23; Clang 23 or GCC 13+ |
-| Optional | Python 3 + NumPy; Relay build for local IPC |
+| Run the included complete policy | [Sample an action](sample-an-action) |
+| Supply conditions from your own encoder | [Use an external encoder](use-an-external-encoder) |
+| Run a local inference service | [Relay end-to-end demo](relay-end-to-end-demo) |
+| Adapt a stateful ML workload | [Generic cooperative jobs](generic-cooperative-jobs) |
+| Use NumPy/Python | [Python](python-quickstart) |
+
+See [Capabilities](capabilities) for the full implemented/planned matrix and current limitations.
+
+## Build
+
+Needs CMake 3.21+ and a C++23 compiler. CI and the container use LLVM/Clang 23;
+GCC 13+ is also supported.
 
 ```bash
 git clone https://github.com/elprofesoriqo/FlowEdge.git
 cd FlowEdge
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release -j
 ```
 
-## 2. Download and run
+## Get a model
+
+Download one to try, or convert your own (see [Converter](guides/converter)).
 
 ```bash
 mkdir -p models
 wget -qO models/mamba_flow.safetensors \
-  https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors
+  "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
+```
+
+(sample-an-action)=
+## Sample an action
+
+```bash
 ./build/flow_sample models/mamba_flow.safetensors euler 10
+# action_dim=8  solver=euler  NFE=10  action[0..2]=0.021476, 0.176867, 0.692564
 ```
 
-| Input | Output |
-|---|---|
-| Token prefix | Deterministic action chunk |
-| Solver | `euler`, `heun`, or `rk4` |
-| Steps | Last argument; higher cost, usually better quality |
+Solver is `euler`, `heun`, or `rk4`. The last argument is the number of steps.
 
-## Choose an integration
+(use-an-external-encoder)=
+## Use an external encoder
 
-```{mermaid}
-flowchart TD
-  S[Start] --> Q{What do you already have?}
-  Q -->|Tokens + full policy| C[flow_sample]
-  Q -->|Condition vector| H[External/head-only API]
-  Q -->|Python arrays| P[Python API]
-  Q -->|Robot policy checkpoint| L[LeRobot adapter]
-  Q -->|Multiple local clients| R[Relay]
-  Q -->|Stateful work| J[Cooperative jobs]
-```
-
-| Need | Next page |
-|---|---|
-| Existing vision/VLA encoder | [External encoder](#external-encoder) |
-| Python control loop | [Python](#python) and [Python API](api/python) |
-| LeRobot SO-100/SO-101 seam | [LeRobot guide](guides/lerobot) |
-| Local process service | [Relay quickstart](guides/relay-quickstart) |
-| Worker migration | [Cooperative jobs](guides/cooperative-jobs) |
-
-(external-encoder)=
-## External encoder
+If perception, a VLA, or another runtime already produces the model's condition vector, load a
+head-only or compatible checkpoint and call the external-head path:
 
 ```bash
 ./build/external_flow_sample models/mamba_flow.safetensors
+# condition_dim=128 action_dim=8 generation=7 resumable_exact=true
 ```
 
-| Caller owns | FlowEdge owns |
-|---|---|
-| Condition, noise, output buffers | Solver scratch and cancellation state |
-| Observation encoding and normalization | Fixed model weights and dimensions |
+Your condition width and model digest must match the checkpoint. The caller owns condition, noise,
+and output buffers; the engine owns solver scratch and cancellation state.
 
-The condition width and model identity must match the checkpoint. Use
-[deployment profiles](architecture/deployment-profile) to make that contract explicit.
-
-## Relay
+State can migrate between compatible streaming engines without exposing raw internal arrays:
 
 ```bash
-FLOWEDGE_BUILD_DIR=build-relay ./scripts/build.sh Release -DFLOWEDGE_RELAY=ON
-FLOWEDGE_BUILD_DIR=build-relay ./scripts/relay_demo.sh models/mamba_flow.safetensors
+./build/streaming_snapshot models/mamba_flow.safetensors
+# snapshot_bytes=... migrated_exact=true output0=...
 ```
 
-```{mermaid}
-flowchart LR
-  C[Client] -->|bounded IPC| D[Relay daemon]
-  D --> E[EDF admission]
-  E --> W[Preallocated workers]
-  W --> I[Core inference]
-  I --> T[Trace + metrics]
+(relay-end-to-end-demo)=
+## Relay end-to-end demo
+
+Build the optional local systems layer, then run its daemon/client/deadline/trace lifecycle:
+
+```bash
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/build.sh Release -DFLOWEDGE_RELAY=ON
+FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.safetensors
 ```
 
-Use `scripts/verify_all.sh` for the complete tests, examples, benchmarks, and install-consumer gate.
+The demo starts two preallocated workers, submits through `RelayClient`, demonstrates a typed
+deadline rejection, shuts the daemon down, inspects the portable trace, and replays completed actions.
+Use `scripts/verify_all.sh` for the complete tests/examples/benchmarks/install-consumer gate.
+See the [Relay quickstart](guides/relay-quickstart) for manual daemon/client commands, expected
+outcomes, production settings, and troubleshooting.
 
-## Cooperative jobs
+(generic-cooperative-jobs)=
+## Generic cooperative jobs
+
+Relay also exposes a runtime-neutral cooperative contract for iterative, streaming, and speculative
+workloads. The sample advances a toy iterative model, migrates its canonical state capsule to a fresh
+instance, demonstrates streaming cancellation, and completes a speculative job:
 
 ```bash
 ./build-relay/cooperative_job_sample
 ./build-relay/routed_job_sample
 ./build-relay/mamba_relay_stream models/mamba_flow.safetensors
+./build-relay/flowedge_cooperative_job_bench 100000
+./build-relay/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
+./build-relay/flowedge_worker_drain_bench 10000
 ```
 
-| Job kind | Contract |
-|---|---|
-| Iterative | Canonical state capsule at a work boundary |
-| Streaming | Exact Mamba continuation and migration |
-| Speculative | Cancellation and completion state |
+`routed_job_sample` drains a live lane and moves its job to a compatible worker.
+`mamba_relay_stream` proves exact Mamba continuation on another engine. The benchmarks fail on a
+hot-path allocation.
+See [Cooperative jobs and state migration](guides/cooperative-jobs).
 
-(python)=
+(python-quickstart)=
 ## Python
 
 ```bash
-python -m pip install .
+pip install .
 ```
 
 ```python
-import numpy as np
-import flowedge
-
-engine = flowedge.Engine("models/mamba_flow.safetensors")
+import numpy as np, flowedge
+e = flowedge.Engine("models/mamba_flow.safetensors")
 prefix = np.array([1, 2, 3, 4], dtype=np.int32)
-noise = np.zeros(engine.action_dim, dtype=np.float32)
-action = np.empty(engine.action_dim, dtype=np.float32)
-engine.sample_into(prefix, noise, action, steps=10, method="euler")
+a = e.sample(prefix=prefix,
+             noise=np.random.randn(e.action_dim).astype("float32"),
+             steps=10, method="euler")
 ```
 
-## Deployment rules
+## What to expect
 
-| Rule | Meaning |
-|---|---|
-| Allocation | Loading may allocate; supported inference/Relay hot paths allocate zero after setup |
-| Ownership | One engine owns one mutable stream or active solve; use one per concurrent lane |
-| Safety | Relay gates freshness, bounds, overlap, and deadlines; the robot still owns final safety |
-| Scope | CPU is implemented; CUDA, Tenstorrent, Transformer, and external adapters remain planned |
+- Model loading may allocate once for weights and runtime setup. The supported hot paths
+  allocate no heap memory after engine/worker initialization.
+- One engine owns one mutable stream or active solve; use separate engines for concurrent sessions.
+- The implemented execution backend is CPU. CUDA, Tenstorrent, transformer, and diffusion work is
+  tracked but not available through the current build.
+- Relay shared-memory rings are local SPSC endpoints, not a distributed queue.
+- Deadline admission is disabled until you provide a measured `--nfe-ns` value.
+- FlowEdge improves predictability inside the runtime but does not replace OS-level real-time setup or
+  the robot's final safety controller.

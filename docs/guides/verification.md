@@ -1,62 +1,89 @@
 # Verification
 
-## Release gate
+## Release gates
+
+| Gate | Proves |
+|---|---|
+| Kernel/unit tests | C++ kernels match independent references |
+| PyTorch parity | Same checkpoint/input stays within ULP and relative-error limits |
+| Relay process test | Real client, shared memory, daemon, deadline result, shutdown |
+| Generic process test | Real child service, typed success/rejection, backpressure, shutdown |
+| Worker-pool tests | Parallel lanes, freshness, QoS, rolling drain, quarantine, recovery |
+| Action-delivery tests | Chunk shape, replacement, timing, freshness, bounds, delta limits |
+| Mamba adapter tests | Exact migrated output and real-model generic routing |
+| Job observability tests | Fixed event capacity, kinds, progress, migration, timings, exporters |
+| Trace round-trip | Canonical bytes for action and generic job records |
+| Install consumer | Installed `FlowEdge::Core` and `FlowEdge::Relay` configure, link, run |
 
 ```{mermaid}
 flowchart LR
-  C[Checkpoint] --> N[Native build]
+  C[Checkpoint] --> F[FlowEdge]
   C --> P[PyTorch reference]
-  N --> T[Unit + process tests]
-  P --> U[ULP / relative error]
-  T --> G[Install consumer + demos]
-  U --> G
-  G --> B[Budgets + hot-path allocations]
+  F --> V[ULP + relative error]
+  P --> V
+  V --> T[Unit + process + package gates]
 ```
-
-| Gate | Checks |
-|---|---|
-| C++ tests | Kernels, state, contracts, Relay, workers, process boundaries |
-| Reference parity | Same checkpoint/input within configured error limits |
-| Package | Installed `FlowEdge::Core` and `FlowEdge::Relay` compile and run |
-| Runtime | Samples, traces, replay, metrics, migration, cancellation |
-| Performance | Benchmarks, size budgets, setup allocations, zero hot-path allocations |
 
 ## Run everything
 
+Linux:
+
 ```bash
-FLOWEDGE_BUILD_DIR=build-all \
-  ./scripts/verify_all.sh models/mamba_flow.safetensors
-cat build-all/budget-report.md
+./scripts/verify_all.sh models/mamba_flow.safetensors
 ```
 
-The script builds Core, Relay, tests, benchmarks, examples, process demos, install consumer, and
-optional Python checks when dependencies are available.
+Windows PowerShell with Git Bash available:
 
-## Focused checks
+```powershell
+bash scripts/verify_all.sh models/mamba_flow.safetensors
+```
+
+The script builds Core, Relay, tests, benchmarks, every C++ example, generic-job JSONL inspection,
+the Relay lifecycle demo, action replay, all metric formats, installation, and a downstream consumer.
+Python checks run when their dependencies are available.
+
+## Focused commands
 
 | Need | Command |
 |---|---|
 | C++ tests | `ctest --test-dir build --output-on-failure` |
-| Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
 | PyTorch parity | `python scripts/verify_ulp.py models/mamba_flow.safetensors` |
-| External head | `python scripts/verify_external_head.py build` |
+| External-head + streaming smoke | `python scripts/verify_external_head.py build` |
 | Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |
+| Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
 | Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |
-| Benchmark artifact contract | `python scripts/test_benchmark_artifact.py` |
-| QoS | `./build/flowedge_job_qos_bench 1000000` |
+| Relay benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_bench.sh` |
+| QoS overload | `./build/flowedge_job_qos_bench 1000000` |
 
-## Invariants
+## Key invariants
 
-| Invariant | Evidence |
+| Invariant | Coverage |
 |---|---|
-| Older generations cannot publish | Scheduler and cancellation tests |
-| Migration is exact and corruption-safe | Capsule + Mamba cross-engine tests |
-| Draining cannot strand accepted work | Worker-drain tests |
-| Failed lanes require explicit recovery | Quarantine tests |
-| Trace bytes are portable | Canonical little-endian assertions |
-| Event/metric storage is bounded | Fixed-capacity tests |
-| Hot paths allocate zero | Relay and cooperative benchmarks |
-| Installed API works | `test/install_consumer` |
+| Older generations cannot publish as current | Scheduler, head-pool, job-pool cancellation tests |
+| Full result rings cannot lose work | `JobTransport.PreservesTypedResultsAcrossOutputBackpressure` |
+| Admission includes active and queued lanes | Multi-lane EDF tests |
+| Migration is exact and corruption-safe | Cooperative capsule and Mamba cross-engine tests |
+| Draining cannot strand accepted work | Worker drain handoff and queued-work tests |
+| Lower service classes cannot consume reserved slots | QoS reservation and equal-deadline tests |
+| A failed lane cannot silently rejoin | Quarantine and explicit-recovery tests |
+| Trace bytes are portable | Representative little-endian byte assertions |
+| Event overflow is bounded | `JobEvents.BuffersValidatedLifecycleRecordsWithoutGrowth` |
+| Job metrics keep fixed kinds | `JobMetrics.RecordsKindsProgressPreemptionMigrationAndLatency` |
+| Hot paths allocate nothing | Relay and cooperative-job benchmarks |
+| Queue depth does not multiply clock reads | Deadline queue benchmark |
+| Live handoff remains bounded | Worker drain benchmark |
+| Controller publication stays bounded | Action delivery benchmark and multi-rate example |
+| Public API works after install | `test/install_consumer` |
 
-Any new kernel, protocol, adapter, event type, or exporter needs a focused test and a runnable
-verification entry when it adds a public surface.
+## Install consumer
+
+```bash
+cmake --install build --prefix build/install-check
+cmake -S test/install_consumer -B build/install-consumer \
+  -DCMAKE_PREFIX_PATH="$PWD/build/install-check"
+cmake --build build/install-consumer -j
+./build/install-consumer/flowedge_install_consumer
+```
+
+New kernels, protocols, adapters, event types, and exporters require a focused test plus inclusion in
+`verify_all.sh` when they add a runnable surface.

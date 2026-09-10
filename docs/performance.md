@@ -1,30 +1,57 @@
 # Performance
 
-Use the numbers below as reproducible references, not deployment guarantees. Always rerun on the
-target CPU, checkpoint, solver, thread count, and thermal profile.
+Intel i7-9750H (6C/12T), Release. Comparisons use one CPU thread and PyTorch 2.13 CPU. Lower latency
+is better.
 
-## Headline results
+## FlowEdge vs PyTorch
 
-Smoke checkpoint, one CPU thread unless noted; lower latency is better.
+Measured 2026-08-31.
 
-| Path | FlowEdge | Reference | Result |
+### Backbone forward
+
+Same smoke checkpoint and token input `[1, 2, 3, 4]`.
+
+| Platform | FlowEdge | PyTorch | Speedup |
 |---|---:|---:|---:|
-| Mamba forward, Windows | 0.091 ms | PyTorch 1.650 ms | 18.1× |
-| Mamba forward, Linux | 0.071 ms | PyTorch 0.990 ms | 13.9× |
-| Action p99, Windows | 0.579 ms | PyTorch 2.277 ms | 3.93× |
-| Action p99, Linux | 0.650 ms | PyTorch 1.695 ms | 2.61× |
-| Relay synchronous p99, Windows/Linux | 47.60 / 40.10 µs | — | reference |
-| Action publish, Windows/Linux | 49.13 / 60.75 ns | — | reference |
+| Windows | 0.091 ms | 1.650 ms | 18.1x |
+| Linux | 0.071 ms | 0.990 ms | 13.9x |
 
-## Runtime invariants
+Linux:
 
-```{mermaid}
-flowchart LR
-  Load[Load model] --> Setup[Allocate weights + arenas]
-  Setup --> Run[Repeated inference]
-  Run --> Check{Heap allocation?}
-  Check -->|zero| Pass[Contract holds]
-  Check -->|non-zero| Fail[Regression: investigate]
+```bash
+FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench --benchmark_min_time=0.2s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
+python3 scripts/torch_ref.py bench models/mamba_flow.safetensors 1
+```
+
+Windows PowerShell:
+
+```powershell
+$env:FLOWEDGE_MODEL="models/mamba_flow.safetensors"
+.\build\flowedge_engine_bench.exe --benchmark_min_time=0.2s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
+.\.venv\Scripts\python.exe scripts\torch_ref.py bench models/mamba_flow.safetensors 1
+```
+
+### Euler action head
+
+Same deterministic 4-layer head, Euler 10 steps, and 20,000 iterations.
+
+| Platform | FlowEdge mean | PyTorch mean | Speedup | FlowEdge p99 | PyTorch p99 | Speedup |
+|---|---:|---:|---:|---:|---:|---:|
+| Windows | 375.73 us | 1,384.08 us | 3.68x | 579.40 us | 2,277.40 us | 3.93x |
+| Linux | 395.18 us | 939.67 us | 2.38x | 649.80 us | 1,694.64 us | 2.61x |
+
+Linux:
+
+```bash
+./build/flowedge_latency_bench euler 20000
+python3 scripts/torch_ref.py latency euler 20000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_latency_bench.exe euler 20000
+.\.venv\Scripts\python.exe scripts\torch_ref.py latency euler 20000
 ```
 
 ## Diffusion Policy
@@ -82,7 +109,7 @@ snapshots directly into `bytes`. Diffusion and LeRobot callers can use
 `sample_diffusion_into`, `predict_action_chunk_into`, and `select_action_into`
 with caller-owned buffers to avoid per-step output allocations. These APIs are
 documented in [the Python API guide](api/python.md) and the
-[LeRobot adapter guide](guides/lerobot).
+[LeRobot adapter guide](guides/lerobot.md).
 
 ## Relay
 
@@ -90,83 +117,177 @@ Measured 2026-08-31. Smoke checkpoint, Heun 6 steps, 5,000 requests.
 
 | Benchmark | Windows | Linux |
 |---|---:|---:|
-| Core library | 300,670 bytes | 350,000 |
-| Relay library | 422,170 bytes | 450,000 |
-| Model setup allocations | 13 | 32 |
-| Measured model hot-path allocations | 0 | 0 |
-| Relay/cooperative hot-path allocations | 0 | 0 |
+| Synchronous p99 | 47.60 us | 40.10 us |
+| Pool, 1 worker | 37,240 req/s | 55,719 req/s |
+| Pool, 2 workers | 73,187 req/s | 109,507 req/s |
 
-Model loading may allocate. The zero-allocation contract starts after engine/worker setup.
+Linux:
 
-## Diffusion Policy reference
+```bash
+./build/flowedge_relay_bench models/mamba_flow.safetensors 5000 0
+./build/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 1 0
+./build/flowedge_relay_pool_bench models/mamba_flow.safetensors 5000 2 0
+```
 
-Pinned `lerobot/diffusion_pusht` conversion on the documented WSL2 host, four workers:
+Windows PowerShell:
 
-| Work | p50 |
-|---|---:|
-| One denoiser | 365.4 ms |
-| 10-step DDIM sample | 3.765 s |
+```powershell
+.\build\flowedge_relay_bench.exe models/mamba_flow.safetensors 5000 0
+.\build\flowedge_relay_pool_bench.exe models/mamba_flow.safetensors 5000 1 0
+.\build\flowedge_relay_pool_bench.exe models/mamba_flow.safetensors 5000 2 0
+```
 
-Dense-kernel optimization ranges from 1.09× to 3.18× over the earlier implementation. The fixed
-LeRobot head is functional, but these numbers are not real-time claims.
+## Cooperative jobs
 
-## Relay and cooperative paths
+Measured 2026-09-01. One million tiny counter jobs; framework overhead only.
 
 | Benchmark | Windows | Linux |
 |---|---:|---:|
-| Relay pool, 1 worker | 37,240 req/s | 55,719 req/s |
-| Relay pool, 2 workers | 73,187 req/s | 109,507 req/s |
 | Migrate and finish | 478.56 ns/job | 292.08 ns/job |
-| Direct route | 274.80 ns/job | 88.94 ns/job |
-| EDF + lifecycle metrics | 3.49 µs/job | 1.19 µs/job |
-| Shared-memory job service | 4.60 µs/job | 1.78 µs/job |
+| Direct route, run, and return | 274.80 ns/job | 88.94 ns/job |
+| EDF pool + lifecycle metrics | 3.49 us/job | 1.19 us/job |
+| Shared-memory client/service + pool + metrics | 4.60 us/job | 1.78 us/job |
 
-## Allocation-conscious APIs
-
-| Path | Use |
-|---|---|
-| C++ Mamba scan | Strided B/C rows; no per-layer projection copies |
-| Python decode | `decode_state()` exports directly to `bytes` |
-| Python diffusion | `sample_diffusion_into(condition, noise, output, ...)` |
-| LeRobot | `predict_action_chunk_into(...)`, `select_action_into(...)` |
-| Rollout loop | Reuse noise and action buffers |
-
-## Reproduce
-
-<details class="fe-explorer">
-<summary>Core tests and lint</summary>
+Linux:
 
 ```bash
-FLOWEDGE_BUILD_DIR=build ./scripts/build.sh Release \
-  -DFLOWEDGE_RELAY=ON -DFLOWEDGE_TESTS=ON -DFLOWEDGE_BENCH=ON
-ctest --test-dir build --output-on-failure
-FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh
+./build/flowedge_cooperative_job_bench 1000000
 ```
-</details>
 
-<details class="fe-explorer">
-<summary>Complete release gate</summary>
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_cooperative_job_bench.exe 1000000
+```
+
+### Deadline queue dispatch
+
+Measured 2026-09-02. 32 queued jobs, 3,000 rounds, median of repeated runs.
+
+| Platform | Before | Current | Speedup |
+|---|---:|---:|---:|
+| Windows | 4.62 us/job | 1.36 us/job | 3.40x |
+| Linux | 2.85 us/job | 1.22 us/job | 2.33x |
+
+Linux:
 
 ```bash
-FLOWEDGE_BUILD_DIR=build-all FLOWEDGE_VERIFY_BENCH_ITERS=500 \
-  ./scripts/verify_all.sh models/mamba_flow.safetensors
+./build/flowedge_job_queue_bench 3000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_job_queue_bench.exe 3000
+```
+
+### Mamba streaming adapter
+
+Measured 2026-09-02. Four tokens, one thread, median of five 1,000-job runs.
+
+| Platform | Direct adapter | Generic route | Migrate after token 2 + finish |
+|---|---:|---:|---:|
+| Windows | 108.16 us/job | 109.54 us/job | 114.32 us/job |
+| Linux | 115.74 us/job | 115.85 us/job | 129.32 us/job |
+
+Linux:
+
+```bash
+./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_mamba_stream_bench.exe models\mamba_flow.safetensors 1000
+```
+
+### Worker drain handoff
+
+Measured 2026-09-02. Eight work units, drain after the first boundary, median of five 10,000-job
+runs.
+
+| Platform | Mean | p50 | p99 |
+|---|---:|---:|---:|
+| Windows | 34.24 us | 5.80 us | 144.20 us |
+| Linux | 52.41 us | 54.54 us | 108.81 us |
+
+Linux:
+
+```bash
+./build/flowedge_worker_drain_bench 10000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_worker_drain_bench.exe 10000
+```
+
+### Action delivery
+
+Measured 2026-09-02. Four-step, two-axis chunks; median of five 1,000,000-iteration runs.
+
+| Platform | Accept + publish / step | Replace + blended publish |
+|---|---:|---:|
+| Windows | 49.13 ns | 225.63 ns |
+| Linux | 60.75 ns | 306.73 ns |
+
+Linux:
+
+```bash
+./build/flowedge_action_delivery_bench 1000000
+```
+
+Windows PowerShell:
+
+```powershell
+.\build\flowedge_action_delivery_bench.exe 1000000
+```
+
+### QoS overload admission
+
+Measured 2026-09-03. Typed best-effort rejection with protected interactive and critical slots;
+median of five 1,000,000-iteration runs.
+
+| Platform | Rejection latency |
+|---|---:|
+| Windows | 114.481 ns |
+| Linux | 65.6609 ns |
+
+Linux:
+
+```bash
+for i in 1 2 3 4 5; do ./build/flowedge_job_qos_bench 1000000; done
+```
+
+Windows PowerShell:
+
+```powershell
+1..5 | ForEach-Object { .\build\flowedge_job_qos_bench.exe 1000000 }
+```
+
+These results are references, not deployment guarantees.
+
+## Size and initialization budgets
+
+The complete verification script also reports the checked-in budgets in
+`bench/budgets.json`:
+
+```bash
+FLOWEDGE_BUILD_DIR=build-all ./scripts/verify_all.sh models/mamba_flow.safetensors
 cat build-all/budget-report.md
 ```
 
-The gate runs tests, samples, Relay/job demos, benchmarks, install-consumer checks, and allocation
-budgets.
-</details>
+The report measures Core and Relay static-library bytes and model initialization
+allocations. Initialization is checked across three `load -> run -> free` cycles
+so a setup regression or lifecycle mismatch is visible. It fails when a checked-in
+limit is exceeded and separately rejects any allocation in the measured model hot
+path. The limits are review thresholds for the Release build, not claims about
+every compiler or linker configuration.
 
-<details class="fe-explorer">
-<summary>Focused latency commands</summary>
-
-```bash
-./build/flowedge_engine_bench --benchmark_min_time=0.2s
-./build/flowedge_latency_bench euler 20000
-./build/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
-./build/flowedge_cooperative_job_bench 1000000
-```
-</details>
-
-See [verification](guides/verification) for release gates and [allocation issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63)
-for the stricter caller-owned load API.
+FlowEdge's hard allocation guarantee applies after engine/worker initialization:
+repeated inference and Relay hot paths must allocate zero heap memory. Model loading
+may still allocate today; strict zero-allocation initialization is tracked separately
+because it requires caller-owned storage or a load-time arena API; see
+[issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63).
