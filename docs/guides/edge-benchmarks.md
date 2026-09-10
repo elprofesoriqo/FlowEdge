@@ -20,7 +20,7 @@ flowchart LR
 ```bash
 cp bench/artifacts/lerobot-vs-flowedge.template.json bench/artifacts/run.json
 # Fill run.json with the checkpoint hash, processor stats, host, commands, and both measurements.
-python scripts/benchmark_artifact.py bench/artifacts/run.json \
+python tools/benchmark/benchmark_artifact.py bench/artifacts/run.json \
   --report bench/artifacts/run.md
 ```
 
@@ -42,7 +42,7 @@ the reason. The report will keep the missing comparison visible.
 
 The artifact also requires model and processor revisions, a checkpoint SHA-256, canonical
 observation schema hash, normalization/action units, hardware/compiler/build details, and the
-exact commands. `scripts/benchmark_artifact.py` rejects missing fields or non-monotonic quantiles.
+exact commands. `tools/benchmark/benchmark_artifact.py` rejects missing fields or non-monotonic quantiles.
 
 ## Interpreting a report
 

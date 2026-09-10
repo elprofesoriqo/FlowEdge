@@ -36,7 +36,7 @@ echo "== Action-head Real-time Latency (us) [Euler, N=10] =="
 echo "Engine     | Mean (us) | p50 (us)  | p99 (us)  | p999 (us) | Min (us)  | Max (us)  | Allocs"
 echo "----------------------------------------------------------------------------------------"
 "$exe_l" euler "$LATENCY_ITERS"
-"$PY" "$ROOT/scripts/torch_ref.py" latency euler "$TORCH_LATENCY_ITERS" || echo "PyTorch          | (requires torch/numpy)"
+"$PY" "$ROOT/tools/benchmark/torch_ref.py" latency euler "$TORCH_LATENCY_ITERS" || echo "PyTorch          | (requires torch/numpy)"
 
 echo ""
 echo "== kernel microbenchmarks =="
@@ -66,4 +66,4 @@ else
 fi
 
 echo "== PyTorch =="
-"$PY" "$ROOT/scripts/torch_ref.py" bench "$MODEL" 1 || echo "PyTorch forward: (requires torch/numpy)"
+"$PY" "$ROOT/tools/benchmark/torch_ref.py" bench "$MODEL" 1 || echo "PyTorch forward: (requires torch/numpy)"

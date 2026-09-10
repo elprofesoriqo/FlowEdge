@@ -15,8 +15,8 @@ import numpy as np
 import torch
 from safetensors.torch import load_file
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verify_diffusion import ConditionalUnet1d, reference_sample
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 
 def main() -> None:
@@ -28,6 +28,7 @@ def main() -> None:
     args = parser.parse_args()
     sys.path.insert(0, str(args.build.resolve()))
     import flowedge
+    from tools.verification.verify_diffusion import ConditionalUnet1d, reference_sample
 
     config_path = args.source.with_name("config.json")
     config = json.loads(config_path.read_text(encoding="utf-8"))

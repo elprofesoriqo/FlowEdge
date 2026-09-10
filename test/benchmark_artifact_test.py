@@ -6,8 +6,7 @@ import json
 import unittest
 from pathlib import Path
 
-import benchmark_artifact
-
+from tools.benchmark import benchmark_artifact
 
 ROOT = Path(__file__).parents[1]
 TEMPLATE = ROOT / "bench" / "artifacts" / "lerobot-vs-flowedge.template.json"

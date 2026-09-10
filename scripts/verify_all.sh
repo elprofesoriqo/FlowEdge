@@ -54,8 +54,8 @@ FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/build.sh" Release \
 ctest --test-dir "$BUILD_DIR" --output-on-failure
 
 if [[ -n "$PYTHON" ]]; then
-  (cd "$ROOT" && "$PYTHON" scripts/test_benchmark_artifact.py)
-  "$PYTHON" "$ROOT/scripts/report_budgets.py" \
+  (cd "$ROOT" && "$PYTHON" -m unittest discover -s test -p benchmark_artifact_test.py)
+  "$PYTHON" "$ROOT/tools/benchmark/report_budgets.py" \
     --build-dir "$BUILD_DIR" --model "$MODEL" \
     --budget "$ROOT/bench/budgets.json" --report "$BUILD_DIR/budget-report.md"
 else
@@ -112,13 +112,13 @@ CONSUMER="$CONSUMER_DIR/flowedge_install_consumer"
 if [[ "$PYTHON_OPTION" == ON ]]; then
   export PYTHONPATH="$BUILD_DIR${PYTHONPATH:+:$PYTHONPATH}"
   if "$PYTHON" -c 'import numpy, safetensors' >/dev/null 2>&1; then
-    "$PYTHON" "$ROOT/scripts/verify_external_head.py" "$BUILD_DIR"
+    "$PYTHON" "$ROOT/tools/verification/verify_external_head.py" "$BUILD_DIR"
   else
     echo "note: Python extension built; numpy+safetensors verification dependencies unavailable"
   fi
   if "$PYTHON" -c 'import numpy, torch, safetensors' >/dev/null 2>&1; then
-    (cd "$ROOT" && "$PYTHON" scripts/verify_ulp.py "$MODEL")
-    (cd "$ROOT" && "$PYTHON" scripts/verify_diffusion.py "$BUILD_DIR")
+    (cd "$ROOT" && "$PYTHON" tools/verification/verify_ulp.py "$MODEL")
+    (cd "$ROOT" && "$PYTHON" tools/verification/verify_diffusion.py "$BUILD_DIR")
   else
     echo "note: PyTorch ULP verification dependencies unavailable"
   fi

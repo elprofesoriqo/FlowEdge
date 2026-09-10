@@ -54,15 +54,15 @@ units. LeRobot normally executes only `n_action_steps`, beginning at index
 
 ## Verify and benchmark
 
-`scripts/verify_diffusion.py` creates a small LeRobot-shaped checkpoint, runs the
+`tools/verification/verify_diffusion.py` creates a small LeRobot-shaped checkpoint, runs the
 converter, loads the Python extension, and checks denoiser, DDIM, DDPM,
 determinism, metadata, and un-normalization against an independent PyTorch
 reference. Current explicit tolerances are `2e-4` for one denoiser pass, `4e-4`
 for DDIM, and `8e-4` for seeded DDPM; observed errors are printed.
 
 ```bash
-PYTHONPATH=build python scripts/verify_diffusion.py build
-PYTHONPATH=build python scripts/verify_diffusion_public.py \
+PYTHONPATH=build python tools/verification/verify_diffusion.py build
+PYTHONPATH=build python tools/verification/verify_diffusion_public.py \
   models/diffusion_pusht/model.safetensors \
   models/diffusion_pusht.flowedge.safetensors --build build
 FLOWEDGE_BENCH_CPU="Ryzen 9 7950X" \
