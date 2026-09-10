@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "captured_at": "replace-with-UTC-timestamp",
+  "model": {
+    "id": "org/model-name",
+    "revision": "git-or-hub-commit",
+    "sha256": "sha256-of-checkpoint"
+  },
+  "processor": {
+    "id": "lerobot/processor-name",
+    "revision": "git-or-hub-commit",
+    "stats": {
+      "normalization": "minmax",
+      "stats_revision": "processor-stats-commit"
+    }
+  },
+  "contract": {
+    "observation_schema_hash": "sha256-of-canonical-observation-schema",
+    "observation_steps": 2,
+    "action_dim": 2,
+    "action_steps": 16,
+    "batch_size": 1,
+    "inference_steps": 10,
+    "action_units": "normalized",
+    "normalization": "minmax"
+  },
+  "hardware": {
+    "host": "replace-with-host",
+    "os": "replace-with-os-and-version",
+    "cpu": "replace-with-cpu-model",
+    "threads": 1,
+    "compiler": "replace-with-compiler-version",
+    "build_type": "Release"
+  },
+  "commands": {
+    "flowedge": "FLOWEDGE_THREADS=1 ./build/flowedge_diffusion_latency_bench model.flowedge.safetensors 10 1000",
+    "lerobot": "python -m flowedge_lerobot.benchmark --checkpoint model --steps 10 --iterations 1000"
+  },
+  "measurements": {
+    "flowedge": {
+      "status": "not_measured",
+      "reason": "fill from a captured FlowEdge run"
+    },
+    "lerobot": {
+      "status": "not_measured",
+      "reason": "fill from a captured LeRobot/PyTorch run on the same host"
+    }
+  },
+  "limitations": [
+    "This template contains no performance result.",
+    "The reference path must use the same checkpoint, processor stats, input contract, and inference steps."
+  ]
+}

@@ -54,6 +54,7 @@ FLOWEDGE_BUILD_DIR="$BUILD_DIR" "$ROOT/scripts/build.sh" Release \
 ctest --test-dir "$BUILD_DIR" --output-on-failure
 
 if [[ -n "$PYTHON" ]]; then
+  (cd "$ROOT" && "$PYTHON" scripts/test_benchmark_artifact.py)
   "$PYTHON" "$ROOT/scripts/report_budgets.py" \
     --build-dir "$BUILD_DIR" --model "$MODEL" \
     --budget "$ROOT/bench/budgets.json" --report "$BUILD_DIR/budget-report.md"
