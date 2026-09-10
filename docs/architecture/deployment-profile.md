@@ -43,5 +43,6 @@ valid through the legacy compatibility path until a future profile version
 makes metadata mandatory.
 
 The C++ contract is implemented in
-`src/core/protocol/deployment_profile.h`; conversion and runtime exposure are
-tracked separately in the deployment-profile issues.
+`src/core/protocol/deployment_profile.h`. Diffusion conversion embeds this
+profile from the LeRobot config and action statistics; runtime exposure and
+preflight inspection use the same versioned metadata.
