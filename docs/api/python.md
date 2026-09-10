@@ -98,6 +98,9 @@ buffer. Seeded `scheduler="ddpm"` is deterministic; the DDIM result depends only
 on the condition and supplied initial noise. `diffusion_denoise` runs one
 normalized U-Net pass for verification or profiling.
 
+The LeRobot companion adapter exposes the same allocation-conscious pattern through
+`predict_action_chunk_into` and `select_action_into`; reuse those buffers in a control loop.
+
 `e.diffusion_metadata` exposes `horizon`, `action_steps`, `observation_steps`,
 `train_timesteps`, and the clipping policy. LeRobot normally executes
 `actions[observation_steps - 1: observation_steps - 1 + action_steps]` from the

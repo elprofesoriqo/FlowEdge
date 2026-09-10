@@ -44,7 +44,9 @@ class RolloutTests(unittest.TestCase):
     def test_bounded_loop_stops(self):
         robot = FakeRobot()
         policy = FlowEdgeDiffusionPolicy(FakeEngine())
-        result = run_rollout(policy, robot, lambda observation: observation, steps=3, seed=7)
+        result = run_rollout(
+            policy, robot, lambda observation: observation, steps=3, seed=7
+        )
 
         self.assertEqual(result.steps, 3)
         self.assertTrue(result.stopped)

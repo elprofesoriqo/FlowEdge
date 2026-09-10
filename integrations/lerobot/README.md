@@ -47,6 +47,12 @@ result = run_rollout(
 assert result.stopped
 ```
 
+For a control loop that owns its buffers, use `predict_action_chunk_into` or
+`select_action_into`. The adapter reuses one full-horizon workspace and the rollout shim reuses
+its noise and action arrays, avoiding per-step NumPy allocations. Calls are single-threaded per
+policy instance because that workspace is intentionally shared; `send_action` must consume the
+borrowed action before the next loop iteration.
+
 This is the integration seam for SO-100/SO-101 applications; robot drivers, feature processors,
 joint limits, and hardware emergency-stop behavior remain application-owned. The included tests
 use a fake robot so the loop can be checked without hardware.

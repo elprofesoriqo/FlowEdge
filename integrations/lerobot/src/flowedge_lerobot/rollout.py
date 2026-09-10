@@ -53,16 +53,18 @@ def run_rollout(
 
     policy.reset()
     rng = np.random.default_rng(seed)
+    noise = np.empty((policy.metadata.horizon, policy.action_dim), dtype=np.float32)
+    action = np.empty(policy.action_dim, dtype=np.float32)
     completed = 0
     try:
         robot.reset()
         for _ in range(steps):
             condition = encode_condition(robot.observe())
-            noise_shape = (policy.metadata.horizon, policy.action_dim)
-            noise = np.asarray(rng.standard_normal(noise_shape), dtype=np.float32)
-            action = policy.select_action(
+            rng.standard_normal(noise.shape, dtype=np.float32, out=noise)
+            policy.select_action_into(
                 condition,
                 noise,
+                action,
                 steps=diffusion_steps,
                 scheduler=scheduler,
                 seed=seed + completed,

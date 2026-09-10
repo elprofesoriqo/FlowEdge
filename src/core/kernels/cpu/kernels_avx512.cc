@@ -543,17 +543,19 @@ void discretize_and_scan(std::span<const float> delta, std::span<const float> a_
                          std::span<const float> b, std::span<const float> u,
                          std::span<const float> c_proj, std::span<const float> d_skip,
                          std::span<float> h, std::span<float> y, std::size_t length,
-                         std::size_t d_inner, std::size_t d_state, bool reset_state) noexcept
+                         std::size_t d_inner, std::size_t d_state, bool reset_state,
+                         std::size_t row_stride) noexcept
 {
   float* __restrict__ hs = h.data();
+  row_stride = row_stride == 0uz ? d_state : row_stride;
   if (reset_state)
     std::fill_n(hs, d_inner * d_state, 0.0F);
 
   for (std::size_t t{0uz}; t < length; ++t) {
     const float* __restrict__ dt = delta.data() + (t * d_inner);
     const float* __restrict__ ut = u.data() + (t * d_inner);
-    const float* __restrict__ bt = b.data() + (t * d_state);
-    const float* __restrict__ c_t = c_proj.data() + (t * d_state);
+    const float* __restrict__ bt = b.data() + (t * row_stride);
+    const float* __restrict__ c_t = c_proj.data() + (t * row_stride);
     const float* __restrict__ dk = d_skip.data();
     float* __restrict__ y_t = y.data() + (t * d_inner);
 

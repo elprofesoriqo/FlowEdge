@@ -96,6 +96,21 @@ sample was 3.765 s p50 with four workers. Caller-thread-only measurements were
 real-time guarantee; the next performance milestone is ISA-specialized
 convolution or a packed-im2col path.
 
+### Allocation-conscious inference paths
+
+Mamba prefill and streaming decode now pass the projected B/C rows directly to
+the scan kernel with a row stride. This removes two per-layer temporary buffers
+and their row copies while preserving the existing zero-allocation hot-path
+contract. `DiscretizeAndScan.SupportsStridedInputRows` covers the padded-row
+layout used by the model.
+
+The Python extension keeps one NumPy module handle per engine and exports decode
+snapshots directly into `bytes`. Diffusion and LeRobot callers can use
+`sample_diffusion_into`, `predict_action_chunk_into`, and `select_action_into`
+with caller-owned buffers to avoid per-step output allocations. These APIs are
+documented in [the Python API guide](api/python.md) and the
+[LeRobot adapter guide](../integrations/lerobot/README.md).
+
 ## Relay
 
 Measured 2026-08-31. Smoke checkpoint, Heun 6 steps, 5,000 requests.
