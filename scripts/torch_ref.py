@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import time
+from collections.abc import Sequence
 
 import numpy as np
 import torch
@@ -8,17 +9,18 @@ import torch.nn.functional as F
 from safetensors.torch import load_file
 
 
-def main():
-    MODE = sys.argv[1] if len(sys.argv) > 1 else "dump"
-    MODEL = sys.argv[2] if len(sys.argv) > 2 else "models/mamba.safetensors"
+def main(argv: Sequence[str] | None = None) -> None:
+    args = sys.argv[1:] if argv is None else argv
+    MODE = args[0] if args else "dump"
+    MODEL = args[1] if len(args) > 1 else "models/mamba.safetensors"
     TOKENS = [1, 2, 3, 4]
     EPS = 1e-5
 
     if MODE == "latency":  # flow-head ODE per-call latency distribution
         torch.set_num_threads(1)
         A, C, H, T, L, N = 32, 768, 256, 128, 4, 10
-        method = sys.argv[2] if len(sys.argv) > 2 else "euler"
-        iters = int(sys.argv[3]) if len(sys.argv) > 3 else 5000
+        method = args[1] if len(args) > 1 else "euler"
+        iters = int(args[2]) if len(args) > 2 else 5000
         if method not in {"euler", "heun", "rk4"}:
             raise SystemExit("latency method must be euler, heun, or rk4")
         if iters <= 0:
@@ -85,7 +87,7 @@ def main():
         print(
             f"PyTorch    | {lat.mean():9.2f} | {p50:9.2f} | {p99:9.2f} | {p999:9.2f} | {lat[0]:9.2f} | {lat[-1]:9.2f} | >0"
         )
-        sys.exit(0)
+        return
 
     W = load_file(MODEL)
     W = {k: v.float() for k, v in W.items()}
@@ -136,7 +138,7 @@ def main():
 
     with torch.no_grad():
         if MODE == "bench":
-            torch.set_num_threads(int(sys.argv[3]) if len(sys.argv) > 3 else 1)
+            torch.set_num_threads(int(args[2]) if len(args) > 2 else 1)
             for _ in range(3):
                 forward()
             t0 = time.perf_counter()
@@ -148,7 +150,7 @@ def main():
                 f"seq={len(TOKENS)} threads={torch.get_num_threads()}"
             )
         else:
-            out = sys.argv[3] if len(sys.argv) > 3 else "models/baseline"
+            out = args[2] if len(args) > 2 else "models/baseline"
             ht = forward()  # [seq, d_model], post norm_f
             h = ht.numpy().astype(np.float32)
             np.save(out + ".npy", h)
