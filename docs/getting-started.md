@@ -123,8 +123,8 @@ a = e.sample(prefix=prefix,
 - Model loading may allocate once for weights and runtime setup. The supported hot paths
   allocate no heap memory after engine/worker initialization.
 - One engine owns one mutable stream or active solve; use separate engines for concurrent sessions.
-- The implemented execution backend is CPU. CUDA, Tenstorrent, transformer, and diffusion work is
-  tracked but not available through the current build.
+- The implemented backend is CPU. Mamba + flow and converted LeRobot Diffusion Policy are available;
+  CUDA, Tenstorrent, and Transformer work remain tracked.
 - Relay shared-memory rings are local SPSC endpoints, not a distributed queue.
 - Deadline admission is disabled until you provide a measured `--nfe-ns` value.
 - FlowEdge improves predictability inside the runtime but does not replace OS-level real-time setup or

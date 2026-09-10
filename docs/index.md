@@ -10,10 +10,6 @@ A policy has two parts. A backbone reads the observation prefix and compresses i
 
 It is not a training framework and not a graph runtime. It is a fixed set of hand-written architectures that share one kernel library. Every weight and every scratch buffer comes from a single arena, sized once at load, so the runtime path allocates nothing.
 
-## Purpose
-
-Training frameworks trade latency for flexibility. PyTorch runs an interpreter over each op, and ONNX Runtime carries a graph engine and a stack of dependencies. Neither is built for a loop that has to finish inside a fixed period on an embedded board. FlowEdge is. It stays small, keeps its memory static, and is checked against PyTorch in CI on every commit.
-
 ## What you can use today
 
 | Goal | Entry point |
@@ -86,18 +82,6 @@ graph TD
   K["Kernels: CPU"] -.-> B
   K -.-> H
 ```
-
-## Start here
-
-- [Getting Started](getting-started). Build, load a model, sample an action.
-- [Capabilities](capabilities). Choose a workflow and understand current limitations.
-- [Performance](performance). PyTorch comparisons and exact commands.
-- [Diffusion Policy](guides/diffusion-policy). Run the fixed-shape robotics policy path.
-- [LeRobot adapter](guides/lerobot). Connect a converted LeRobot Diffusion Policy checkpoint.
-- [Edge benchmarks](guides/edge-benchmarks). Publish an auditable LeRobot comparison.
-- [Deadline profile](guides/deadline-profile). Gate p99 latency and regression budgets.
-- [Relay Quickstart](guides/relay-quickstart). Run the service and understand outcomes.
-- [C-ABI](api/c-abi). The public surface.
 
 ```{toctree}
 :hidden:
