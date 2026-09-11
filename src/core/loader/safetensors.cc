@@ -558,7 +558,7 @@ std::expected<std::optional<std::string>, const char*> safetensors_metadata_valu
     mapped.mf.close();
     return std::unexpected("Invalid safetensors metadata value");
   }
-  const auto decoded = unescape_json_string(encoded.value);
+  auto decoded = unescape_json_string(encoded.value);
   mapped.mf.close();
   if (!decoded)
     return std::unexpected(decoded.error());
@@ -618,9 +618,9 @@ std::expected<void, const char*> inspect_safetensors(std::string_view path,
 ModelWeights::ModelWeights(std::size_t weight_bytes,
                            std::optional<DeploymentProfile> deployment_profile)
     : storage_(weight_bytes + (kMaxTensors * (kSimdAlign - 1uz))),
-      arena_{std::span<std::byte>{storage_.data(), storage_.size()}}, weight_bytes_{weight_bytes}
+      arena_{std::span<std::byte>{storage_.data(), storage_.size()}}, weight_bytes_{weight_bytes},
+      deployment_profile_{std::move(deployment_profile)}
 {
-  deployment_profile_ = std::move(deployment_profile);
 }
 
 std::expected<std::shared_ptr<const ModelWeights>, const char*> ModelWeights::open(
@@ -632,7 +632,7 @@ std::expected<std::shared_ptr<const ModelWeights>, const char*> ModelWeights::op
     if (!encoded_profile)
       return std::unexpected(encoded_profile.error());
     if (*encoded_profile) {
-      const auto parsed_profile = parse_deployment_profile(**encoded_profile);
+      auto parsed_profile = parse_deployment_profile(**encoded_profile);
       if (!parsed_profile)
         return std::unexpected(deployment_profile_error_message(parsed_profile.error()).data());
       deployment_profile = std::move(*parsed_profile);
