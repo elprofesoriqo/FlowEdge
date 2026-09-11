@@ -125,7 +125,7 @@ struct Field
 
 [[nodiscard]] bool valid_hash(std::string_view value) noexcept
 {
-  if (value.size() != 71uz || value.substr(0uz, 7uz) != "sha256:")
+  if (value.size() != 71uz || !value.starts_with("sha256:"))
     return false;
   return std::ranges::all_of(value.substr(7uz), [](const char ch) noexcept {
     return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
@@ -286,8 +286,7 @@ std::expected<DeploymentProfile, DeploymentProfileError> parse_deployment_profil
   profile.model_compatibility_version = static_cast<std::uint32_t>(value);
   if (!schema_hash.string || !valid_hash(schema_hash.value))
     return std::unexpected(DeploymentProfileError::kInvalidObservationSchemaHash);
-  std::copy(schema_hash.value.begin(), schema_hash.value.end(),
-            profile.observation_schema_hash.begin());
+  std::ranges::copy(schema_hash.value, profile.observation_schema_hash.begin());
   profile.observation_schema_hash[schema_hash.value.size()] = '\0';
   if (!parse_uint(action_dim.value, profile.action_dim))
     return std::unexpected(DeploymentProfileError::kInvalidActionDim);
