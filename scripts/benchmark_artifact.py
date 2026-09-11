@@ -144,6 +144,12 @@ def _metric(
     return _display(value, suffix)
 
 
+def _triplet(measurement: dict[str, Any], field: str) -> str:
+    return " / ".join(
+        _metric(measurement, field, quantile, " ms") for quantile in QUANTILES
+    )
+
+
 def _comparison(measurements: dict[str, Any]) -> list[str]:
     flowedge = measurements.get("flowedge") or {"status": "not_measured"}
     lerobot = measurements.get("lerobot") or {"status": "not_measured"}
@@ -214,15 +220,11 @@ def render(document: dict[str, Any]) -> str:
             rows.append(f"| status | `{reason}` | | | | | | |")
             continue
 
-        def triplet(field: str) -> str:
-            return " / ".join(
-                _metric(measurement, field, quantile, " ms") for quantile in QUANTILES
-            )
-
         allocations = measurement["allocations"]
         rows.append(
-            f"| {backend} | {_display(measurement['startup_ms'], ' ms')} | {triplet('encoder_ms')} | "
-            f"{triplet('policy_ms')} | {triplet('end_to_end_ms')} | "
+            f"| {backend} | {_display(measurement['startup_ms'], ' ms')} | "
+            f"{_triplet(measurement, 'encoder_ms')} | {_triplet(measurement, 'policy_ms')} | "
+            f"{_triplet(measurement, 'end_to_end_ms')} | "
             f"{_display(measurement['throughput_hz'], ' Hz')} | {_display(measurement['rss_mb'], ' MiB')} | "
             f"{allocations['setup']} / {allocations['hot_path']} |"
         )

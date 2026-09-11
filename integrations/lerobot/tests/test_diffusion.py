@@ -81,8 +81,10 @@ class DiffusionAdapterTests(unittest.TestCase):
             (np.zeros(4), np.zeros((5, 2)), "noise"),
         )
         for condition, noise, message in cases:
-            with self.subTest(message=message):
-                with self.assertRaisesRegex(ValueError, message):
-                    FlowEdgeDiffusionPolicy(FakeEngine()).predict_action_chunk(
-                        condition, noise
-                    )
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(ValueError, message),
+            ):
+                FlowEdgeDiffusionPolicy(FakeEngine()).predict_action_chunk(
+                    condition, noise
+                )

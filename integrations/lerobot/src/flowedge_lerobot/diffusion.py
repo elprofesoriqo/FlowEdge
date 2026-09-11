@@ -45,7 +45,7 @@ class DiffusionActionContract:
         return self.observation_steps - 1
 
     @classmethod
-    def from_metadata(cls, metadata: dict[str, Any]) -> "DiffusionActionContract":
+    def from_metadata(cls, metadata: dict[str, Any]) -> DiffusionActionContract:
         required = (
             "condition_dim",
             "action_dim",
@@ -95,7 +95,7 @@ class FlowEdgeDiffusionPolicy:
     @classmethod
     def from_checkpoint(
         cls, path: str, *, threads: int | None = None
-    ) -> "FlowEdgeDiffusionPolicy":
+    ) -> FlowEdgeDiffusionPolicy:
         """Load a converted checkpoint without making FlowEdge a LeRobot dependency."""
         import flowedge
 
