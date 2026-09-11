@@ -72,7 +72,7 @@ Terminal 2 submits a diagnostic request, then stops the daemon:
 ./build-relay/src/relay/flowedge-relayctl shutdown
 ```
 
-For a long-lived application, use `RelayClient` as shown in `examples/relay_client_sample.cc` rather
+For a long-lived application, use `RelayClient` as shown in `examples/relay/relay_client_sample.cc` rather
 than loading model metadata for every diagnostic request.
 
 ## Choose production settings
