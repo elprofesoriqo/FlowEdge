@@ -9,6 +9,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+function(flowedge_executable target source)
+  add_executable(${target} ${source})
+  target_link_libraries(${target} PRIVATE ${ARGN})
+endfunction()
+
 option(FLOWEDGE_TESTS "Build the GoogleTest suite (dev/CI-only)" OFF)
 option(FLOWEDGE_BENCH "Build the Google Benchmark microbenchmarks (dev-only)" OFF)
 option(FLOWEDGE_PYTHON "Build the pybind11 Python module (dev/verification)" OFF)
@@ -33,26 +38,14 @@ endif()
 
 # EXAMPLES
 foreach(ex flow_sample mamba_forward external_flow_sample streaming_snapshot diffusion_sample)
-  add_executable(${ex} examples/${ex}.cc)
-  target_link_libraries(${ex} PRIVATE FlowEdge::Core)
+  flowedge_executable(${ex} examples/${ex}.cc FlowEdge::Core)
 endforeach()
-add_executable(flowedge-inspect tools/checkpoint_inspect.cc)
-target_link_libraries(flowedge-inspect PRIVATE FlowEdge::Core)
+flowedge_executable(flowedge-inspect tools/checkpoint_inspect.cc FlowEdge::Core)
 if(FLOWEDGE_RELAY)
-  add_executable(relay_client_sample examples/relay_client_sample.cc)
-  target_link_libraries(relay_client_sample PRIVATE FlowEdge::Relay)
-
-  add_executable(cooperative_job_sample examples/cooperative_job_sample.cc)
-  target_link_libraries(cooperative_job_sample PRIVATE FlowEdge::Relay)
-
-  add_executable(routed_job_sample examples/routed_job_sample.cc)
-  target_link_libraries(routed_job_sample PRIVATE FlowEdge::Relay)
-
-  add_executable(mamba_relay_stream examples/mamba_relay_stream.cc)
-  target_link_libraries(mamba_relay_stream PRIVATE FlowEdge::Relay)
-
-  add_executable(action_delivery_sample examples/action_delivery_sample.cc)
-  target_link_libraries(action_delivery_sample PRIVATE FlowEdge::Relay)
+  foreach(ex relay_client_sample cooperative_job_sample routed_job_sample mamba_relay_stream
+             action_delivery_sample)
+    flowedge_executable(${ex} examples/${ex}.cc FlowEdge::Relay)
+  endforeach()
 endif()
 
 # BENCHMARKS
@@ -75,20 +68,14 @@ if(FLOWEDGE_BENCH)
     endif()
   endforeach()
 
-  add_executable(flowedge_kernels_bench bench/kernels_bench.cc)
-  target_link_libraries(flowedge_kernels_bench PRIVATE FlowEdge::Core benchmark::benchmark)
-
-  add_executable(flowedge_engine_bench bench/engine_bench.cc)
-  target_link_libraries(flowedge_engine_bench PRIVATE FlowEdge::Core benchmark::benchmark)
-
-  add_executable(flowedge_latency_bench bench/latency_bench.cc)
-  target_link_libraries(flowedge_latency_bench PRIVATE FlowEdge::Core)
-
-  add_executable(flowedge_model_latency_bench bench/model_latency_bench.cc)
-  target_link_libraries(flowedge_model_latency_bench PRIVATE FlowEdge::Core)
-
-  add_executable(flowedge_diffusion_latency_bench bench/diffusion_latency_bench.cc)
-  target_link_libraries(flowedge_diffusion_latency_bench PRIVATE FlowEdge::Core)
+  flowedge_executable(flowedge_kernels_bench bench/kernels_bench.cc FlowEdge::Core
+                      benchmark::benchmark)
+  flowedge_executable(flowedge_engine_bench bench/engine_bench.cc FlowEdge::Core
+                      benchmark::benchmark)
+  flowedge_executable(flowedge_latency_bench bench/latency_bench.cc FlowEdge::Core)
+  flowedge_executable(flowedge_model_latency_bench bench/model_latency_bench.cc FlowEdge::Core)
+  flowedge_executable(flowedge_diffusion_latency_bench bench/diffusion_latency_bench.cc
+                      FlowEdge::Core)
 
   execute_process(
     COMMAND git rev-parse --short=12 HEAD
@@ -99,38 +86,24 @@ if(FLOWEDGE_BENCH)
   if(NOT FLOWEDGE_GIT_COMMIT)
     set(FLOWEDGE_GIT_COMMIT "unknown")
   endif()
-  add_executable(flowedge-profile bench/deadline_profile.cc)
-  target_link_libraries(flowedge-profile PRIVATE FlowEdge::Core)
+  flowedge_executable(flowedge-profile bench/deadline_profile.cc FlowEdge::Core)
   target_compile_definitions(flowedge-profile PRIVATE
     FLOWEDGE_GIT_COMMIT="${FLOWEDGE_GIT_COMMIT}")
 
-  add_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc)
-  target_link_libraries(flowedge_threaded_matmul_bench PRIVATE FlowEdge::Core benchmark::benchmark_main Threads::Threads)
+  flowedge_executable(flowedge_threaded_matmul_bench bench/threaded_matmul_bench.cc
+                      FlowEdge::Core benchmark::benchmark_main Threads::Threads)
 
   if(FLOWEDGE_RELAY)
-    add_executable(flowedge_relay_bench bench/relay_bench.cc)
-    target_link_libraries(flowedge_relay_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_relay_pool_bench bench/relay_pool_bench.cc)
-    target_link_libraries(flowedge_relay_pool_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_cooperative_job_bench bench/cooperative_job_bench.cc)
-    target_link_libraries(flowedge_cooperative_job_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_job_queue_bench bench/job_queue_bench.cc)
-    target_link_libraries(flowedge_job_queue_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_job_qos_bench bench/job_qos_bench.cc)
-    target_link_libraries(flowedge_job_qos_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_mamba_stream_bench bench/mamba_stream_bench.cc)
-    target_link_libraries(flowedge_mamba_stream_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_worker_drain_bench bench/worker_drain_bench.cc)
-    target_link_libraries(flowedge_worker_drain_bench PRIVATE FlowEdge::Relay)
-
-    add_executable(flowedge_action_delivery_bench bench/action_delivery_bench.cc)
-    target_link_libraries(flowedge_action_delivery_bench PRIVATE FlowEdge::Relay)
+    flowedge_executable(flowedge_relay_bench bench/relay_bench.cc FlowEdge::Relay)
+    flowedge_executable(flowedge_relay_pool_bench bench/relay_pool_bench.cc FlowEdge::Relay)
+    flowedge_executable(flowedge_cooperative_job_bench bench/cooperative_job_bench.cc
+                        FlowEdge::Relay)
+    flowedge_executable(flowedge_job_queue_bench bench/job_queue_bench.cc FlowEdge::Relay)
+    flowedge_executable(flowedge_job_qos_bench bench/job_qos_bench.cc FlowEdge::Relay)
+    flowedge_executable(flowedge_mamba_stream_bench bench/mamba_stream_bench.cc FlowEdge::Relay)
+    flowedge_executable(flowedge_worker_drain_bench bench/worker_drain_bench.cc FlowEdge::Relay)
+    flowedge_executable(flowedge_action_delivery_bench bench/action_delivery_bench.cc
+                        FlowEdge::Relay)
   endif()
 endif()
 
@@ -148,7 +121,6 @@ if(FLOWEDGE_TESTS)
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(googletest)
 
-  find_package(Threads REQUIRED)
   add_executable(flowedge_tests test/tests.cc test/cabi_tests.cc
                  test/deployment_profile_tests.cc test/deployment_profile_runtime_tests.cc
                  test/deadline_profile_tests.cc test/safetensors_tests.cc)
