@@ -157,6 +157,20 @@ jobs:
           path: build-sanitizers/Testing/Temporary/*.log
           if-no-files-found: ignore
 
+  onnx-parity:
+    name: ONNX adapter parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Export a fixed-shape policy and compare ONNX Runtime
+        run: |
+          python -m pip install --disable-pip-version-check numpy onnx onnxruntime onnxscript \
+            --extra-index-url https://download.pytorch.org/whl/cpu torch
+          PYTHONPATH=integrations/onnx/src python -m unittest discover -s integrations/onnx/tests -v
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest

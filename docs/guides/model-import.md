@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | Mamba / supported flow checkpoint | `convert/convert.py` → `.safetensors` | FlowEdge Core | Zero after setup | Supported |
 | LeRobot `diffusion_pusht` directory | `policy_inspect.py` → converter → `flowedge-lerobot` | Core + companion | Zero in native inference after setup | Supported |
-| Fixed-shape ONNX policy | `flowedge-onnx` | Optional ONNX Runtime | External runtime; measure separately | Adapter preview |
+| Fixed-shape one-I/O ONNX policy | `flowedge-onnx` | Optional ONNX Runtime | External runtime; measure separately | Supported adapter |
 | ExecuTorch `.pte` | Future companion adapter | ExecuTorch | External runtime; measure separately | Planned |
 
 Use the smallest path that preserves your policy. Native conversion is the only path covered by
@@ -17,6 +17,7 @@ python convert/policy_inspect.py policy_dir --json
 python -m pip install -e 'integrations/onnx[runtime]'
 ```
 
-For an ONNX model, run a deterministic fixture through its source framework and `OnnxAdapter.run_into`;
-compare the caller-owned output before using it in a control loop. Dynamic shapes, multiple I/O, and
-unsupported operators need a model-specific adapter or native converter rather than a hidden graph runtime.
+The CI fixture exports a deterministic PyTorch policy and checks its ONNX Runtime output through
+`OnnxAdapter.run_into`. Repeat that parity check for your model before a control loop. Dynamic shapes,
+multiple I/O, and unsupported operators need a model-specific adapter or native converter rather than a
+hidden graph runtime.
