@@ -8,6 +8,27 @@ import torch
 import torch.nn.functional as F
 
 
+def sample(velocity, initial, method, steps):
+    x = initial.clone()
+    for index in range(steps):
+        time_value, dt = index / steps, 1.0 / steps
+        k1 = velocity(x, time_value)
+        if method == "euler":
+            x += dt * k1
+        elif method == "heun":
+            x += 0.5 * dt * (k1 + velocity(x + dt * k1, time_value + dt))
+        else:
+            half = 0.5 * dt
+            k2 = velocity(x + half * k1, time_value + half)
+            k3 = velocity(x + half * k2, time_value + half)
+            x += (
+                dt
+                / 6.0
+                * (k1 + 2.0 * k2 + 2.0 * k3 + velocity(x + dt * k3, time_value + dt))
+            )
+    return x
+
+
 def run(args):
     torch.set_num_threads(1)
     A, C, H, T, L, N = 32, 768, 256, 128, 4, 10
@@ -48,35 +69,18 @@ def run(args):
             h = F.silu(w @ h)
         return Wf["out"] @ h
 
-    def sample():
-        x = x0.clone()
-        for k in range(N):
-            t, dt = k / N, 1.0 / N
-            k1 = vel(x, t)
-            if method == "euler":
-                x = x + dt * k1
-            elif method == "heun":
-                k2 = vel(x + dt * k1, t + dt)
-                x = x + 0.5 * dt * (k1 + k2)
-            else:
-                half = 0.5 * dt
-                k2 = vel(x + half * k1, t + half)
-                k3 = vel(x + half * k2, t + half)
-                k4 = vel(x + dt * k3, t + dt)
-                x = x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-        return x
-
     with torch.no_grad():
         for _ in range(50):
-            sample()
+            sample(vel, x0, method, N)
         lat = np.empty(iters)
         for it in range(iters):
             t0 = time.perf_counter()
-            sample()
+            sample(vel, x0, method, N)
             lat[it] = (time.perf_counter() - t0) * 1e6
     lat.sort()
     p50, p99, p999 = (lat[int(q * (iters - 1))] for q in (0.50, 0.99, 0.999))
     print(
-        f"PyTorch    | {lat.mean():9.2f} | {p50:9.2f} | {p99:9.2f} | {p999:9.2f} | {lat[0]:9.2f} | {lat[-1]:9.2f} | >0"
+        f"PyTorch    | {lat.mean():9.2f} | {p50:9.2f} | {p99:9.2f} | "
+        f"{p999:9.2f} | {lat[0]:9.2f} | {lat[-1]:9.2f} | >0"
     )
     return
