@@ -8,3 +8,4 @@ venv/
 ab_results.md
 /bench-results/
 __pycache__/
+*.egg-info/
