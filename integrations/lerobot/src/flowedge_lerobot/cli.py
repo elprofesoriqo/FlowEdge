@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
+import time
 from collections.abc import Sequence
 from dataclasses import asdict
 
@@ -88,6 +90,7 @@ def run_simulator(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    started = time.perf_counter()
     policy = FlowEdgeDiffusionPolicy.from_checkpoint(
         args.checkpoint, threads=args.threads
     )
@@ -99,7 +102,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         seed=args.seed,
         period_ms=args.period_ms,
     )
-    print(json.dumps(asdict(result), sort_keys=True))
+    report = asdict(result)
+    report.update(
+        platform=platform.platform(),
+        machine=platform.machine(),
+        startup_ms=(time.perf_counter() - started) * 1_000,
+    )
+    print(json.dumps(report, sort_keys=True))
     return 0
 
 
