@@ -121,7 +121,7 @@ if(FLOWEDGE_TESTS)
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(googletest)
 
-  add_executable(flowedge_tests test/tests.cc test/cabi_tests.cc
+  add_executable(flowedge_tests test/kernel_tests.cc test/core_model_tests.cc test/cabi_tests.cc
                  test/deployment_profile_tests.cc test/deployment_profile_runtime_tests.cc
                  test/deadline_profile_tests.cc test/safetensors_tests.cc)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
