@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import platform
 import time
@@ -13,6 +14,42 @@ import numpy as np
 
 from .diffusion import FlowEdgeDiffusionPolicy
 from .rollout import RolloutResult, run_rollout
+
+
+def _peak_rss_bytes() -> int | None:
+    """Return process high-water RSS without making a runtime dependency mandatory."""
+
+    if platform.system() == "Windows":
+
+        class Counters(ctypes.Structure):
+            _fields_ = [
+                ("cb", ctypes.c_ulong),
+                ("page_faults", ctypes.c_ulong),
+                ("peak_working_set", ctypes.c_size_t),
+                ("working_set", ctypes.c_size_t),
+                ("quota_peak_paged", ctypes.c_size_t),
+                ("quota_paged", ctypes.c_size_t),
+                ("quota_peak_non_paged", ctypes.c_size_t),
+                ("quota_non_paged", ctypes.c_size_t),
+                ("pagefile", ctypes.c_size_t),
+                ("peak_pagefile", ctypes.c_size_t),
+            ]
+
+        counters = Counters(ctypes.sizeof(Counters))
+        if ctypes.windll.psapi.GetProcessMemoryInfo(
+            ctypes.windll.kernel32.GetCurrentProcess(),
+            ctypes.byref(counters),
+            ctypes.sizeof(counters),
+        ):
+            return counters.peak_working_set
+        return None
+    try:
+        import resource
+
+        rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return rss if platform.system() == "Darwin" else rss * 1024
+    except (ImportError, OSError):
+        return None
 
 
 class _SimulatedRobot:
@@ -107,6 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         platform=platform.platform(),
         machine=platform.machine(),
         startup_ms=(time.perf_counter() - started) * 1_000,
+        peak_rss_bytes=_peak_rss_bytes(),
     )
     print(json.dumps(report, sort_keys=True))
     return 0

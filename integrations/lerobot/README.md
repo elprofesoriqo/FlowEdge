@@ -68,7 +68,7 @@ flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
 ```
 
 The command prints JSON telemetry (`steps`, `elapsed_ms`, `p50_ms`, `p99_ms`, `max_ms`,
-`missed_deadlines`, `startup_ms`, platform, and machine) and never imports a concrete robot driver. Add `--period-ms` to count steps
+`missed_deadlines`, `startup_ms`, `peak_rss_bytes`, platform, and machine) and never imports a concrete robot driver. `peak_rss_bytes` is process high-water RSS and can be `null` when the host cannot expose it. Add `--period-ms` to count steps
 over a control-loop deadline. Replace `run_simulator` with a `RolloutRobot` adapter when
 connecting SO-100/SO-101 hardware.
 

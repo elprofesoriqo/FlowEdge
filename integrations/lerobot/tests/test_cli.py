@@ -50,6 +50,7 @@ class CliTests(unittest.TestCase):
         self.assertTrue(payload["stopped"])
         self.assertIn("p99_ms", payload)
         self.assertGreaterEqual(payload["startup_ms"], 0.0)
+        self.assertIsInstance(payload["peak_rss_bytes"], (int, type(None)))
         self.assertTrue(payload["platform"])
         self.assertTrue(payload["machine"])
 
