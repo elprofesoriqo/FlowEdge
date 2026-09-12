@@ -23,6 +23,7 @@ It is not a training framework and not a graph runtime. It is a fixed set of han
 | Compare FlowEdge with PyTorch | [Performance](performance) |
 | Convert or port a supported checkpoint | [Converter](guides/converter) |
 | Deploy a supported LeRobot policy | [LeRobot adapter](guides/lerobot) |
+| Choose a model artifact path | [Model import](guides/model-import) |
 | Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
 
 ## Repository map
@@ -123,6 +124,7 @@ guides/converter
 guides/checkpoint-preflight
 guides/diffusion-policy
 guides/lerobot
+guides/model-import
 guides/edge-benchmarks
 guides/deadline-profile
 guides/sanitizers
