@@ -140,4 +140,5 @@ guides/generic-job-daemon
 roadmap
 product-direction
 FlowEdge Relay <ecosystem/relay-proposal>
+LeRobot edge-inference RFC draft <ecosystem/lerobot-rfc>
 ```
