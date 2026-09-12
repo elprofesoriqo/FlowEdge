@@ -1,6 +1,6 @@
 # FlowEdge + LeRobot adapter
 
-This companion package is the first LeRobot integration boundary for FlowEdge. It deliberately
+This companion package is a LeRobot-discoverable `lerobot_policy_flowedge` deployment plugin. It deliberately
 does not change `src/core` or `src/relay`, and it does not replace LeRobot's observation encoder.
 
 ## Current scope
@@ -24,7 +24,9 @@ python -m pip install -e integrations/lerobot
 python -m unittest discover -s integrations/lerobot/tests
 ```
 
-The companion package is intentionally independent from LeRobot's release cycle. The
+The plugin is intentionally independent from LeRobot's release cycle. It registers `--policy.type=flowedge`
+and accepts a converted checkpoint through `checkpoint_path`; it is inference-only, so training remains in
+LeRobot. The
 `flowedge-lerobot-rollout` command provides a bounded simulator smoke test; hardware validation
 and processor parity remain tracked in issue #65 and its subissues.
 
