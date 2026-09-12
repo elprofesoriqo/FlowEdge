@@ -1,0 +1,748 @@
+#include "relay_test_utils.h"
+
+TEST(CooperativeJob, MigratesIterativeStateBitExactly)
+{
+  TestCooperativeBackend source_backend{};
+  auto source_result = make_iterative_job(source_backend, test_job_descriptor());
+  ASSERT_TRUE(source_result) << source_result.error().message;
+  CooperativeJob source = *source_result;
+  ASSERT_TRUE(source.start());
+  const auto partial = source.advance(2uz);
+  ASSERT_TRUE(partial) << partial.error().message;
+  EXPECT_EQ(partial->state, JobState::kRunning);
+  EXPECT_EQ(partial->completed_work_units, 2u);
+
+  std::vector<std::byte> capsule(source.capsule_bytes());
+  const auto exported = source.export_capsule(capsule);
+  ASSERT_TRUE(exported) << exported.error().message;
+  EXPECT_EQ(*exported, capsule.size());
+  const auto view = read_state_capsule(capsule);
+  ASSERT_TRUE(view) << view.error().message;
+  EXPECT_EQ(view->metadata.descriptor.kind, JobKind::kIterative);
+  EXPECT_EQ(view->metadata.completed_work_units, 2u);
+
+  TestCooperativeBackend migrated_backend{};
+  auto migrated_result = make_iterative_job(migrated_backend, test_job_descriptor());
+  ASSERT_TRUE(migrated_result) << migrated_result.error().message;
+  CooperativeJob migrated = *migrated_result;
+  const auto restored = migrated.restore_capsule(capsule);
+  ASSERT_TRUE(restored) << restored.error().message;
+  EXPECT_EQ(restored->state, JobState::kRunning);
+
+  ASSERT_TRUE(source.advance(4uz));
+  const auto migrated_complete = migrated.advance(8uz);
+  ASSERT_TRUE(migrated_complete) << migrated_complete.error().message;
+  EXPECT_EQ(migrated_complete->state, JobState::kComplete);
+  EXPECT_EQ(source_backend.step, migrated_backend.step);
+  EXPECT_EQ(source_backend.values, migrated_backend.values);
+}
+
+TEST(MambaStreamAdapter, MigratesExactCoreStateAndMatchesUninterruptedExecution)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  constexpr std::array<std::int32_t, 4> tokens{1, 2, 3, 4};
+  std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{fe_weights_load(
+                                                                      model.string().c_str()),
+                                                                  fe_weights_free};
+  ASSERT_NE(weights, nullptr) << fe_engine_last_error();
+  auto opened_source = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_destination = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_reference = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  ASSERT_TRUE(opened_source) << opened_source.error();
+  ASSERT_TRUE(opened_destination) << opened_destination.error();
+  ASSERT_TRUE(opened_reference) << opened_reference.error();
+  MambaStreamAdapter source = std::move(*opened_source);
+  MambaStreamAdapter destination = std::move(*opened_destination);
+  MambaStreamAdapter reference = std::move(*opened_reference);
+  weights.reset();
+
+  std::array<std::byte, tokens.size() * sizeof(std::int32_t)> request_bytes{};
+  const auto encoded = encode_mamba_stream_request(tokens, request_bytes);
+  ASSERT_TRUE(encoded) << encoded.error();
+  const auto request = std::span{request_bytes}.first(*encoded);
+  const JobDescriptor descriptor = source.make_descriptor(41u, 3u, tokens.size());
+  ASSERT_TRUE(source.prepare(request));
+  auto source_job_result = make_streaming_job(source, descriptor);
+  ASSERT_TRUE(source_job_result) << source_job_result.error().message;
+  CooperativeJob source_job = *source_job_result;
+  ASSERT_TRUE(source_job.start());
+  const auto partial = source_job.advance(2uz);
+  ASSERT_TRUE(partial) << partial.error().message;
+  EXPECT_EQ(partial->completed_work_units, 2u);
+
+  std::vector<std::byte> capsule(source_job.capsule_bytes());
+  const auto exported = source_job.export_capsule(capsule);
+  ASSERT_TRUE(exported) << exported.error().message;
+  EXPECT_EQ(*exported, capsule.size());
+
+  auto destination_job_result = make_streaming_job(destination, descriptor);
+  ASSERT_TRUE(destination_job_result) << destination_job_result.error().message;
+  CooperativeJob destination_job = *destination_job_result;
+  const auto restored = destination_job.restore_capsule(capsule);
+  ASSERT_TRUE(restored) << restored.error().message;
+  EXPECT_EQ(restored->completed_work_units, 2u);
+  const auto migrated_complete = destination_job.advance(2uz);
+  ASSERT_TRUE(migrated_complete) << migrated_complete.error().message;
+  EXPECT_EQ(migrated_complete->state, JobState::kComplete);
+
+  ASSERT_TRUE(reference.prepare(request));
+  auto reference_job_result = make_streaming_job(reference, descriptor);
+  ASSERT_TRUE(reference_job_result) << reference_job_result.error().message;
+  CooperativeJob reference_job = *reference_job_result;
+  ASSERT_TRUE(reference_job.start());
+  const auto reference_complete = reference_job.advance(tokens.size());
+  ASSERT_TRUE(reference_complete) << reference_complete.error().message;
+  ASSERT_EQ(reference_complete->state, JobState::kComplete);
+  ASSERT_EQ(destination.result().size(), reference.result().size());
+  EXPECT_EQ(std::memcmp(destination.result().data(), reference.result().data(),
+                        reference.result().size()),
+            0);
+}
+
+TEST(MambaStreamAdapter, DrainsAndMigratesRealModelThroughWorkerPool)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  std::array<std::int32_t, 512> tokens{};
+  for (std::size_t index{}; index < tokens.size(); ++index)
+    tokens[index] = static_cast<std::int32_t>((index % 31uz) + 1uz);
+  std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{fe_weights_load(
+                                                                      model.string().c_str()),
+                                                                  fe_weights_free};
+  ASSERT_NE(weights, nullptr) << fe_engine_last_error();
+  auto opened = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_destination = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  auto opened_reference = MambaStreamAdapter::open(weights.get(), tokens.size(), 0u);
+  ASSERT_TRUE(opened) << opened.error();
+  ASSERT_TRUE(opened_destination) << opened_destination.error();
+  ASSERT_TRUE(opened_reference) << opened_reference.error();
+  MambaStreamAdapter adapter = std::move(*opened);
+  MambaStreamAdapter destination = std::move(*opened_destination);
+  MambaStreamAdapter reference = std::move(*opened_reference);
+  weights.reset();
+  std::array<std::byte, tokens.size() * sizeof(std::int32_t)> request_bytes{};
+  const auto encoded = encode_mamba_stream_request(tokens, request_bytes);
+  ASSERT_TRUE(encoded) << encoded.error();
+  const auto payload = std::span{request_bytes}.first(*encoded);
+  const JobDescriptor descriptor = adapter.make_descriptor(42u, 1u, tokens.size());
+
+  ASSERT_TRUE(reference.prepare(payload));
+  auto reference_job_result = make_streaming_job(reference, descriptor);
+  ASSERT_TRUE(reference_job_result) << reference_job_result.error().message;
+  CooperativeJob reference_job = *reference_job_result;
+  ASSERT_TRUE(reference_job.start());
+  ASSERT_TRUE(reference_job.advance(tokens.size()));
+
+  std::array<JobAdapterRegistration, 1> source_entries{};
+  std::array<JobAdapterRegistration, 1> destination_entries{};
+  std::array<JobAdapterRegistry, 2> registries{JobAdapterRegistry{source_entries},
+                                               JobAdapterRegistry{destination_entries}};
+  ASSERT_TRUE(registries[0].add(adapter.registration()));
+  ASSERT_TRUE(registries[1].add(destination.registration()));
+  for (JobAdapterRegistry& registry : registries)
+    registry.freeze();
+  auto events = JobEventBuffer::create(16uz);
+  ASSERT_TRUE(events) << events.error();
+  const std::size_t migration_capacity = state_capsule_bytes(adapter.max_state_bytes());
+  auto created = JobWorkerPool::create(registries, 2uz, {}, 2uz, 1uz, WorkerPlacement::kNone,
+                                       &*events, migration_capacity);
+  ASSERT_TRUE(created) << created.error();
+  JobWorkerPool pool = std::move(*created);
+  auto request_message = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*request_message, 501u, descriptor, 0u, payload),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(pool.submit(*request_message), JobSubmitResult::kAccepted);
+  ASSERT_EQ(pool.request_worker_drain(0uz), WorkerDrainResult::kStarted);
+
+  const JobResultMessage* result{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (result == nullptr && std::chrono::steady_clock::now() < timeout) {
+    result = pool.ready_result();
+    if (result == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(validate(*result), ProtocolResult::kSuccess);
+  EXPECT_EQ(job_result_code(*result), JobResultCode::kComplete);
+  EXPECT_EQ(result->metadata.progress.completed_work_units, tokens.size());
+  ASSERT_EQ(result->payload_values().size(), reference.result().size());
+  EXPECT_EQ(std::memcmp(result->payload_values().data(), reference.result().data(),
+                        reference.result().size()),
+            0);
+  EXPECT_TRUE(pool.worker_drained(0uz));
+  pool.release_ready_result();
+  EXPECT_TRUE(pool.release_session(descriptor.session_id));
+  JobMetrics metrics{};
+  while (const JobEventMessage* event = events->front()) {
+    metrics.record(*event);
+    events->pop();
+  }
+  EXPECT_EQ(metrics.counters().migrations_started, 1u);
+  EXPECT_EQ(metrics.counters().migrations_completed, 1u);
+}
+
+TEST(CooperativeJob, RejectsCorruptAndIncompatibleCapsulesBeforeRestore)
+{
+  TestCooperativeBackend backend{};
+  auto source_result = make_streaming_job(backend, test_job_descriptor());
+  ASSERT_TRUE(source_result);
+  CooperativeJob source = *source_result;
+  ASSERT_TRUE(source.start());
+  ASSERT_TRUE(source.advance(1uz));
+  std::vector<std::byte> capsule(source.capsule_bytes());
+  ASSERT_TRUE(source.export_capsule(capsule));
+
+  std::vector<std::byte> corrupt = capsule;
+  corrupt[kStateCapsuleHeaderBytes] ^= std::byte{0x40};
+  TestCooperativeBackend corrupt_destination{};
+  auto corrupt_result = make_streaming_job(corrupt_destination, test_job_descriptor());
+  ASSERT_TRUE(corrupt_result);
+  CooperativeJob corrupt_job = *corrupt_result;
+  const auto corrupt_restore = corrupt_job.restore_capsule(corrupt);
+  ASSERT_FALSE(corrupt_restore);
+  EXPECT_EQ(corrupt_restore.error().code, JobErrorCode::kCapsuleInvalid);
+  EXPECT_EQ(corrupt_job.progress().state, JobState::kReady);
+  EXPECT_TRUE(corrupt_job.restore_capsule(capsule));
+
+  JobDescriptor incompatible_descriptor = test_job_descriptor();
+  ++incompatible_descriptor.state_schema;
+  TestCooperativeBackend incompatible_backend{};
+  auto incompatible_result = make_streaming_job(incompatible_backend, incompatible_descriptor);
+  ASSERT_TRUE(incompatible_result);
+  CooperativeJob incompatible = *incompatible_result;
+  const auto incompatible_restore = incompatible.restore_capsule(capsule);
+  ASSERT_FALSE(incompatible_restore);
+  EXPECT_EQ(incompatible_restore.error().code, JobErrorCode::kCapsuleIncompatible);
+  EXPECT_EQ(incompatible.progress().state, JobState::kReady);
+}
+
+TEST(CooperativeJob, ClassifiesAdaptersAndCancelsAtAWorkBoundary)
+{
+  TestCooperativeBackend iterative_backend{};
+  TestCooperativeBackend streaming_backend{};
+  TestCooperativeBackend speculative_backend{};
+  auto iterative = make_iterative_job(iterative_backend, test_job_descriptor());
+  auto streaming = make_streaming_job(streaming_backend, test_job_descriptor());
+  auto speculative = make_speculative_job(speculative_backend, test_job_descriptor());
+  ASSERT_TRUE(iterative);
+  ASSERT_TRUE(streaming);
+  ASSERT_TRUE(speculative);
+  EXPECT_EQ(iterative->descriptor().kind, JobKind::kIterative);
+  EXPECT_EQ(streaming->descriptor().kind, JobKind::kStreaming);
+  EXPECT_EQ(speculative->descriptor().kind, JobKind::kSpeculative);
+
+  ASSERT_TRUE(streaming->start());
+  ASSERT_TRUE(streaming->advance(1uz));
+  const auto cancelled = streaming->advance(1uz, streaming->descriptor().generation + 1u);
+  ASSERT_TRUE(cancelled);
+  EXPECT_EQ(cancelled->state, JobState::kCancelled);
+  EXPECT_TRUE(streaming_backend.cancelled);
+  EXPECT_EQ(cancelled->completed_work_units, 1u);
+}
+
+TEST(EdfScheduler, EnforcesFreshnessThenOrdersByDeadline)
+{
+  EdfScheduler scheduler{4uz};
+  EXPECT_EQ(scheduler.submit(request(1u, 1u, 400u)), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.submit(request(2u, 1u, 300u)), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.submit(request(3u, 2u, 500u)), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.size(), 1uz);
+  EXPECT_EQ(scheduler.submit(request(4u, 1u, 200u)), SubmitResult::kStale);
+  EXPECT_EQ(scheduler.submit(request(5u, 2u, 250u)), SubmitResult::kAccepted);
+
+  const ConditionMessage* first = scheduler.pop(100u);
+  ASSERT_NE(first, nullptr);
+  EXPECT_EQ(first->envelope.sequence, 5u);
+  const ConditionMessage* second = scheduler.pop(100u);
+  ASSERT_NE(second, nullptr);
+  EXPECT_EQ(second->envelope.sequence, 3u);
+  EXPECT_FALSE(scheduler.pop(100u));
+  EXPECT_EQ(scheduler.stats().stale, 3u);
+}
+
+TEST(EdfScheduler, ExpiresRequestsAndEvictsLatestDeadline)
+{
+  EdfScheduler scheduler{2uz};
+  EXPECT_EQ(scheduler.submit(request(1u, 4u, 400u)), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.submit(request(2u, 4u, 500u)), SubmitResult::kAccepted);
+  ActionMessage displaced{};
+  EXPECT_EQ(scheduler.submit(request(3u, 4u, 300u), {}, &displaced),
+            SubmitResult::kAcceptedAndEvicted);
+  EXPECT_EQ(validate(displaced), ProtocolResult::kSuccess);
+  EXPECT_EQ(action_code(displaced), RelayActionCode::kRejectedCapacity);
+  EXPECT_EQ(displaced.envelope.sequence, 2u);
+  ASSERT_EQ(scheduler.stats().evicted, 1u);
+
+  ActionMessage expired{};
+  EXPECT_FALSE(scheduler.pop(350u, &expired));
+  EXPECT_EQ(validate(expired), ProtocolResult::kSuccess);
+  EXPECT_EQ(action_code(expired), RelayActionCode::kExpired);
+  EXPECT_EQ(expired.envelope.sequence, 3u);
+
+  const ConditionMessage* first = scheduler.pop(350u);
+  ASSERT_NE(first, nullptr);
+  EXPECT_EQ(first->envelope.sequence, 1u);
+  EXPECT_FALSE(scheduler.pop(600u));
+  EXPECT_EQ(scheduler.stats().expired, 1u);
+}
+
+TEST(EdfScheduler, RejectsUnreachableDeadlinePrefixesWithoutPruningFeasibleWork)
+{
+  EdfScheduler scheduler{4uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 5u}};
+  const AdmissionContext idle{.now_ns = 100u};
+  EXPECT_EQ(scheduler.submit(request(1u, 4u, 200u), idle), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.submit(request(2u, 4u, 250u), idle), SubmitResult::kDeadlineUnreachable);
+  EXPECT_EQ(scheduler.size(), 1uz);
+  EXPECT_EQ(scheduler.stats().unreachable, 1u);
+
+  // A fresh generation cancels the older queued prefix, so it is evaluated on
+  // its own and does not destroy feasible work unless admission succeeds.
+  EXPECT_EQ(scheduler.submit(request(3u, 5u, 200u), idle), SubmitResult::kAccepted);
+  EXPECT_EQ(scheduler.size(), 1uz);
+  EXPECT_EQ(scheduler.newest_generation(), 5u);
+
+  EdfScheduler active_scheduler{2uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 5u}};
+  AdmissionContext active{.now_ns = 100u};
+  active.active[0] = {.generation = 4u, .remaining_nfe = 2u};
+  EXPECT_EQ(active_scheduler.submit(request(4u, 4u, 200u), active),
+            SubmitResult::kDeadlineUnreachable);
+
+  EdfScheduler replacement{1uz, AdmissionPolicy{.nanoseconds_per_nfe = 10u, .reserve_ns = 0u}};
+  EXPECT_EQ(replacement.submit(request(5u, 4u, 250u), idle), SubmitResult::kAccepted);
+  ActionMessage replaced{};
+  EXPECT_EQ(replacement.submit(request(6u, 4u, 200u), idle, &replaced),
+            SubmitResult::kAcceptedAndEvicted);
+  EXPECT_EQ(replaced.envelope.sequence, 5u);
+
+  EdfScheduler saturated{2uz,
+                         AdmissionPolicy{.nanoseconds_per_nfe =
+                                             std::numeric_limits<std::uint64_t>::max(),
+                                         .reserve_ns = std::numeric_limits<std::uint64_t>::max()}};
+  EXPECT_EQ(saturated.submit(request(7u, 4u, std::numeric_limits<std::uint64_t>::max()), idle),
+            SubmitResult::kDeadlineUnreachable);
+}
+
+TEST(EdfScheduler, AdmitsIndependentDeadlineWorkAcrossWorkerLanes)
+{
+  const AdmissionPolicy policy{.nanoseconds_per_nfe = 10u, .reserve_ns = 0u};
+  EdfScheduler single_lane{4uz, policy};
+  EdfScheduler two_lanes{4uz, policy};
+  const ConditionMessage first = request(20u, 8u, 190u); // 8 NFE = 80 ns
+  const ConditionMessage second = request(21u, 8u, 190u);
+  const AdmissionContext single{.now_ns = 100u, .worker_count = 1uz};
+  const AdmissionContext parallel{.now_ns = 100u, .worker_count = 2uz};
+
+  EXPECT_EQ(single_lane.submit(first, single), SubmitResult::kAccepted);
+  EXPECT_EQ(single_lane.submit(second, single), SubmitResult::kDeadlineUnreachable);
+  EXPECT_EQ(two_lanes.submit(first, parallel), SubmitResult::kAccepted);
+  EXPECT_EQ(two_lanes.submit(second, parallel), SubmitResult::kAccepted);
+
+  EdfScheduler occupied{4uz, policy};
+  AdmissionContext one_busy{.now_ns = 100u, .worker_count = 2uz};
+  one_busy.active[0] = {.generation = 8u, .remaining_nfe = 8u};
+  EXPECT_EQ(occupied.submit(first, one_busy), SubmitResult::kAccepted);
+  EXPECT_EQ(occupied.submit(second, one_busy), SubmitResult::kDeadlineUnreachable);
+}
+
+TEST(SharedMemoryRing, ExchangesChecksummedVariableSizedMessages)
+{
+  const std::string name = unique_name("fe-rl-ring");
+  auto created = SharedMemoryRing::create(name, RingConfig{2u, sizeof(ConditionMessage)});
+  ASSERT_TRUE(created) << created.error();
+  auto opened = SharedMemoryRing::open(name);
+  ASSERT_TRUE(opened) << opened.error();
+  SharedMemoryRing producer = std::move(*created);
+  SharedMemoryRing consumer = std::move(*opened);
+
+  const auto message = std::make_unique<ConditionMessage>(request(42u, 8u, 1'000u));
+  EXPECT_EQ(producer.try_push(wire_bytes(*message)), RingResult::kSuccess);
+  EXPECT_EQ(producer.try_push(wire_bytes(*message)), RingResult::kSuccess);
+  EXPECT_EQ(producer.try_push(wire_bytes(*message)), RingResult::kFull);
+  EXPECT_EQ(consumer.size(), 2u);
+
+  auto received = std::make_unique<ConditionMessage>();
+  std::size_t bytes{};
+  EXPECT_EQ(consumer.try_pop(std::as_writable_bytes(std::span{received.get(), 1uz}), bytes),
+            RingResult::kSuccess);
+  EXPECT_EQ(bytes, wire_size(*received));
+  EXPECT_EQ(received->envelope.sequence, 42u);
+  EXPECT_EQ(received->metadata.generation, 8u);
+  EXPECT_FLOAT_EQ(received->condition_values()[2], 3.0f);
+
+  const ControlMessage shutdown = make_shutdown_message(43u, 77u);
+  EXPECT_EQ(producer.try_push(shutdown), RingResult::kSuccess);
+  EXPECT_EQ(consumer.try_pop(std::as_writable_bytes(std::span{received.get(), 1uz}), bytes),
+            RingResult::kSuccess);
+  EXPECT_EQ(consumer.try_pop(std::as_writable_bytes(std::span{received.get(), 1uz}), bytes),
+            RingResult::kSuccess);
+  EXPECT_EQ(bytes, sizeof(ControlMessage));
+  EXPECT_EQ(received->envelope.kind, MessageKind::kShutdown);
+  EXPECT_EQ(consumer.try_pop(std::as_writable_bytes(std::span{received.get(), 1uz}), bytes),
+            RingResult::kEmpty);
+}
+
+TEST(RelayTrace, ReplaysExactConditionAndActionRecords)
+{
+  const std::filesystem::path path =
+      std::filesystem::temp_directory_path() / (unique_name("flowedge-relay") + ".trace");
+  const ConditionMessage condition = request(7u, 11u, 900u);
+  ActionMessage action{};
+  action.envelope.sequence = condition.envelope.sequence;
+  action.envelope.session_id = condition.envelope.session_id;
+  action.metadata.struct_size = sizeof(action.metadata);
+  action.metadata.protocol_version = FE_PROTOCOL_VERSION;
+  action.metadata.status = FE_ACTION_COMPLETE;
+  action.metadata.generation = condition.metadata.generation;
+  action.metadata.condition_dim = condition.metadata.condition_dim;
+  action.metadata.action_dim = condition.metadata.action_dim;
+  action.envelope.struct_size = static_cast<std::uint32_t>(wire_size(action));
+  action.action[0] = 0.5f;
+
+  JobDescriptor descriptor = test_job_descriptor(11u);
+  descriptor.kind = JobKind::kIterative;
+  descriptor.deadline_ns = 0u;
+  descriptor.total_work_units = 2u;
+  std::array<std::byte, sizeof(std::uint64_t)> job_payload{};
+  StateWriter payload_writer{job_payload};
+  ASSERT_TRUE(payload_writer.write(std::uint64_t{42u}));
+  auto job_request = std::make_unique<JobRequestMessage>();
+  ASSERT_EQ(make_job_request(*job_request, 80u, descriptor, 1'000u, job_payload,
+                             JobServiceClass::kCritical),
+            ProtocolResult::kSuccess);
+  auto job_result = std::make_unique<JobResultMessage>();
+  ASSERT_EQ(make_job_result(*job_result, 80u, descriptor,
+                            JobProgress{.state = JobState::kComplete,
+                                        .completed_work_units = 2u,
+                                        .remaining_work_units = 0u},
+                            1'100u, JobResultCode::kComplete, job_payload,
+                            JobServiceClass::kCritical),
+            ProtocolResult::kSuccess);
+  JobEventMessage job_event{};
+  ASSERT_EQ(make_job_event(job_event, 80u,
+                           JobEventDetails{.event = JobEventKind::kCompleted,
+                                           .descriptor = descriptor,
+                                           .progress = JobProgress{.state = JobState::kComplete,
+                                                                   .completed_work_units = 2u,
+                                                                   .remaining_work_units = 0u},
+                                           .timestamp_ns = 1'100u,
+                                           .timing = JobEventTiming{.queue_ns = 10u,
+                                                                    .execution_ns = 80u,
+                                                                    .end_to_end_ns = 100u},
+                                           .worker_index = 1u,
+                                           .result_code = JobResultCode::kComplete,
+                                           .service_class = JobServiceClass::kCritical}),
+            ProtocolResult::kSuccess);
+
+  {
+    auto opened = TraceWriter::open(path.string().c_str());
+    ASSERT_TRUE(opened) << opened.error();
+    TraceWriter writer = std::move(*opened);
+    ASSERT_TRUE(writer.append(condition));
+    ASSERT_TRUE(writer.append(action));
+    ASSERT_TRUE(writer.append(*job_request));
+    ASSERT_TRUE(writer.append(*job_result));
+    ASSERT_TRUE(writer.append(job_event));
+    writer.flush();
+  }
+
+  // Trace v2 is canonical little-endian rather than a dump of native structs.
+  // Check the file and record magics plus representative integer/float bytes.
+  {
+    std::ifstream file{path, std::ios::binary};
+    ASSERT_TRUE(file);
+    std::array<unsigned char, 172uz> bytes{};
+    file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    ASSERT_EQ(file.gcount(), static_cast<std::streamsize>(bytes.size()));
+    EXPECT_EQ(std::memcmp(bytes.data(), "FETRACE2", 8uz), 0);
+    EXPECT_EQ(bytes[8], 2u);
+    EXPECT_EQ(bytes[9], 0u);
+    EXPECT_EQ(std::memcmp(bytes.data() + 16uz, "REC2", 4uz), 0);
+    EXPECT_EQ(std::memcmp(bytes.data() + 48uz, "FRE1", 4uz), 0);
+    EXPECT_EQ(bytes[64], 7u);  // envelope.sequence, little-endian
+    EXPECT_EQ(bytes[72], 77u); // envelope.session_id, little-endian
+    EXPECT_EQ(bytes[168], 0u); // first condition float: 1.0f = 0x3f800000
+    EXPECT_EQ(bytes[169], 0u);
+    EXPECT_EQ(bytes[170], 0x80u);
+    EXPECT_EQ(bytes[171], 0x3fu);
+  }
+  auto opened = TraceReader::open(path.string().c_str());
+  ASSERT_TRUE(opened) << opened.error();
+  TraceReader reader = std::move(*opened);
+  const auto first = reader.next();
+  ASSERT_TRUE(first);
+  ASSERT_TRUE(*first);
+  EXPECT_EQ((*first)->kind, MessageKind::kCondition);
+  EXPECT_EQ((*first)->sequence, 7u);
+  ASSERT_EQ((*first)->message.size(), wire_size(condition));
+  EXPECT_EQ(std::memcmp((*first)->message.data(), &condition, wire_size(condition)), 0);
+
+  const auto second = reader.next();
+  ASSERT_TRUE(second);
+  ASSERT_TRUE(*second);
+  EXPECT_EQ((*second)->kind, MessageKind::kAction);
+  EXPECT_EQ((*second)->sequence, 7u);
+  ASSERT_EQ((*second)->message.size(), wire_size(action));
+  EXPECT_EQ(std::memcmp((*second)->message.data(), &action, wire_size(action)), 0);
+  const auto third = reader.next();
+  ASSERT_TRUE(third);
+  ASSERT_TRUE(*third);
+  EXPECT_EQ((*third)->kind, MessageKind::kJobRequest);
+  ASSERT_EQ((*third)->message.size(), wire_size(*job_request));
+  EXPECT_EQ(std::memcmp((*third)->message.data(), job_request.get(), wire_size(*job_request)), 0);
+
+  const auto fourth = reader.next();
+  ASSERT_TRUE(fourth);
+  ASSERT_TRUE(*fourth);
+  EXPECT_EQ((*fourth)->kind, MessageKind::kJobResult);
+  ASSERT_EQ((*fourth)->message.size(), wire_size(*job_result));
+  EXPECT_EQ(std::memcmp((*fourth)->message.data(), job_result.get(), wire_size(*job_result)), 0);
+
+  const auto fifth = reader.next();
+  ASSERT_TRUE(fifth);
+  ASSERT_TRUE(*fifth);
+  EXPECT_EQ((*fifth)->kind, MessageKind::kJobEvent);
+  ASSERT_EQ((*fifth)->message.size(), sizeof(job_event));
+  EXPECT_EQ(std::memcmp((*fifth)->message.data(), &job_event, sizeof(job_event)), 0);
+  const auto eof = reader.next();
+  ASSERT_TRUE(eof);
+  EXPECT_FALSE(*eof);
+  std::error_code ignored{};
+  std::filesystem::remove(path, ignored);
+}
+
+TEST(RelayMetrics, RecordsTypedOutcomesAndFixedLatencyHistograms)
+{
+  RelayMetrics metrics{};
+  metrics.record_condition(true);
+  metrics.record_condition(false);
+  metrics.record_accepted(3uz);
+
+  ActionMessage complete{};
+  complete.envelope.flags = static_cast<std::uint32_t>(RelayActionCode::kInference);
+  complete.metadata.status = FE_ACTION_COMPLETE;
+  complete.metadata.timestamp_ns = 100u;
+  metrics.record_action(complete, 170u,
+                        WorkerTiming{.dispatched_ns = 110u,
+                                     .started_ns = 120u,
+                                     .finished_ns = 150u});
+  const ConditionMessage condition = request(90u, 11u, 300u);
+  ActionMessage rejected{};
+  make_rejected_action(rejected, condition, 200u, RelayActionCode::kRejectedDeadline);
+  metrics.record_action(rejected, 200u);
+  metrics.record_action_drop();
+  metrics.observe_workers(2uz, 1u);
+
+  const RelayMetricCounters& counters = metrics.counters();
+  EXPECT_EQ(counters.conditions_received, 2u);
+  EXPECT_EQ(counters.conditions_corrupt, 1u);
+  EXPECT_EQ(counters.conditions_accepted, 1u);
+  EXPECT_EQ(counters.actions_published, 2u);
+  EXPECT_EQ(counters.actions_dropped, 1u);
+  EXPECT_EQ(counters.inference_complete, 1u);
+  EXPECT_EQ(counters.rejected_deadline, 1u);
+  EXPECT_EQ(counters.queue_high_watermark, 3u);
+  EXPECT_EQ(counters.busy_workers_high_watermark, 2u);
+  EXPECT_EQ(counters.worker_failures, 1u);
+  EXPECT_EQ(metrics.queue_latency().count(), 1u);
+  EXPECT_EQ(metrics.queue_latency().sum_ns(), 20u);
+  EXPECT_EQ(metrics.execution_latency().sum_ns(), 30u);
+  EXPECT_EQ(metrics.end_to_end_latency().count(), 2u);
+
+  std::ostringstream prometheus{};
+  write_prometheus(prometheus, metrics);
+  EXPECT_NE(prometheus.str().find("flowedge_relay_inference_complete_total 1"), std::string::npos);
+  EXPECT_NE(prometheus.str().find("flowedge_relay_execution_latency_ns_bucket"), std::string::npos);
+  std::ostringstream json{};
+  write_metrics_json(json, metrics);
+  EXPECT_NE(json.str().find("\"rejected_deadline\":1"), std::string::npos);
+  std::ostringstream otlp{};
+  write_otlp_json(otlp, metrics);
+  EXPECT_NE(otlp.str().find("\"resourceMetrics\""), std::string::npos);
+  EXPECT_NE(otlp.str().find("flowedge.relay.execution_latency"), std::string::npos);
+}
+
+TEST(HeadWorker, RunsAndCancelsGenerationTrackedRequests)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+  auto opened = HeadWorker::open(model.string(), 0u);
+  ASSERT_TRUE(opened) << opened.error();
+  HeadWorker worker = std::move(*opened);
+  const auto& metadata = worker.model_metadata();
+  std::vector<float> condition(metadata.condition_dim, 0.125f);
+  std::vector<float> noise(metadata.action_dim, -0.25f);
+
+  ConditionMessage message{};
+  ASSERT_EQ(make_condition_message(message, metadata, 1u, 9u, 100u, 0u, 5u, 2uz, FE_SOLVER_EULER,
+                                   condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_TRUE(worker.begin(message)) << worker.last_error();
+  ActionMessage action{};
+  WorkerStep step{};
+  do {
+    step = worker.advance(action);
+  } while (step == WorkerStep::kInProgress);
+  EXPECT_EQ(step, WorkerStep::kComplete) << worker.last_error();
+  EXPECT_EQ(validate(action), ProtocolResult::kSuccess);
+  EXPECT_EQ(action.metadata.status, FE_ACTION_COMPLETE);
+  EXPECT_EQ(action.metadata.generation, 5u);
+
+  message.envelope.sequence = 2u;
+  message.metadata.generation = 6u;
+  ASSERT_TRUE(worker.begin(message)) << worker.last_error();
+  worker.cancel_before(7u);
+  EXPECT_EQ(worker.advance(action), WorkerStep::kCancelled);
+  EXPECT_EQ(action.metadata.status, FE_ACTION_CANCELLED);
+  EXPECT_EQ(action.metadata.generation, 6u);
+}
+
+TEST(CoreWeights, SharesImmutableCheckpointAcrossIndependentEngineState)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  std::unique_ptr<fe_weights, decltype(&fe_weights_free)> weights{fe_weights_load(
+                                                                      model.string().c_str()),
+                                                                  fe_weights_free};
+  ASSERT_NE(weights, nullptr) << fe_engine_last_error();
+  EXPECT_GT(fe_weights_size_bytes(weights.get()), 0uz);
+  std::unique_ptr<fe_engine, decltype(&fe_engine_free)> first{
+      fe_engine_create_from_weights(weights.get(), 0u), fe_engine_free};
+  std::unique_ptr<fe_engine, decltype(&fe_engine_free)> second{
+      fe_engine_create_from_weights(weights.get(), 0u), fe_engine_free};
+  ASSERT_NE(first, nullptr) << fe_engine_last_error();
+  ASSERT_NE(second, nullptr) << fe_engine_last_error();
+  weights.reset(); // engines retain the shared immutable checkpoint lifetime
+
+  fe_model_metadata first_metadata{};
+  fe_model_metadata second_metadata{};
+  ASSERT_EQ(fe_engine_model_metadata(first.get(), &first_metadata), 0);
+  ASSERT_EQ(fe_engine_model_metadata(second.get(), &second_metadata), 0);
+  EXPECT_TRUE(
+      std::ranges::equal(first_metadata.model_digest.bytes, second_metadata.model_digest.bytes));
+  std::vector<float> condition(first_metadata.condition_dim, 0.125f);
+  std::vector<float> noise(first_metadata.action_dim, -0.25f);
+  std::vector<float> first_action(first_metadata.action_dim);
+  std::vector<float> second_action(first_metadata.action_dim);
+  ASSERT_EQ(fe_engine_sample_condition(first.get(), condition.data(), noise.data(), 6uz,
+                                       FE_SOLVER_HEUN, first_action.data()),
+            0);
+  ASSERT_EQ(fe_engine_sample_condition(second.get(), condition.data(), noise.data(), 6uz,
+                                       FE_SOLVER_HEUN, second_action.data()),
+            0);
+  EXPECT_EQ(first_action, second_action);
+}
+
+TEST(WorkerTopology, ParsesPortablePlacementPolicies)
+{
+  const auto none = parse_worker_placement("none");
+  const auto compact = parse_worker_placement("compact");
+  const auto spread = parse_worker_placement("spread");
+  ASSERT_TRUE(none);
+  ASSERT_TRUE(compact);
+  ASSERT_TRUE(spread);
+  EXPECT_EQ(*none, WorkerPlacement::kNone);
+  EXPECT_EQ(*compact, WorkerPlacement::kCompact);
+  EXPECT_EQ(*spread, WorkerPlacement::kSpread);
+  EXPECT_FALSE(parse_worker_placement("random"));
+}
+
+TEST(HeadWorkerPool, RunsTwoRequestsOnPreallocatedWorkerThreads)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+  auto opened = HeadWorkerPool::open(model.string(), 2uz, 0u, WorkerPlacement::kSpread);
+  ASSERT_TRUE(opened) << opened.error();
+  HeadWorkerPool pool = std::move(*opened);
+  EXPECT_GT(pool.shared_weight_bytes(), 0uz);
+  const auto& metadata = pool.model_metadata();
+  std::vector<float> condition(metadata.condition_dim, 0.125f);
+  std::vector<float> noise(metadata.action_dim, -0.25f);
+
+  ConditionMessage first{};
+  ConditionMessage second{};
+  ASSERT_EQ(make_condition_message(first, metadata, 101u, 9u, 100u, 0u, 7u, 20uz, FE_SOLVER_HEUN,
+                                   condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_EQ(make_condition_message(second, metadata, 102u, 9u, 100u, 0u, 7u, 20uz, FE_SOLVER_HEUN,
+                                   condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_TRUE(pool.try_dispatch(first)) << pool.last_error();
+  ASSERT_TRUE(pool.try_dispatch(second)) << pool.last_error();
+  EXPECT_FALSE(pool.try_dispatch(first));
+
+  std::array<bool, 2> received{};
+  std::size_t completed{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (completed < received.size() && std::chrono::steady_clock::now() < timeout) {
+    const ActionMessage* const action = pool.ready_action();
+    if (action == nullptr) {
+      std::this_thread::yield();
+      continue;
+    }
+    ASSERT_EQ(validate(*action), ProtocolResult::kSuccess);
+    ASSERT_EQ(action->metadata.status, FE_ACTION_COMPLETE);
+    ASSERT_GE(action->envelope.sequence, 101u);
+    ASSERT_LE(action->envelope.sequence, 102u);
+    const std::size_t index = static_cast<std::size_t>(action->envelope.sequence - 101u);
+    EXPECT_FALSE(received[index]);
+    received[index] = true;
+    ++completed;
+    pool.release_ready_action();
+  }
+  EXPECT_EQ(completed, received.size());
+  EXPECT_EQ(pool.busy_count(), 0uz);
+  EXPECT_TRUE(pool.has_idle());
+}
+
+TEST(HeadWorkerPool, CancelsDispatchedWorkAndInvalidatesBorrowedStaleResults)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+  auto opened = HeadWorkerPool::open(model.string(), 1uz, 0u);
+  ASSERT_TRUE(opened) << opened.error();
+  HeadWorkerPool pool = std::move(*opened);
+  const auto& metadata = pool.model_metadata();
+  std::vector<float> condition(metadata.condition_dim, 0.125f);
+  std::vector<float> noise(metadata.action_dim, -0.25f);
+
+  ConditionMessage request{};
+  ASSERT_EQ(make_condition_message(request, metadata, 201u, 10u, 100u, 0u, 5u, 1'000uz,
+                                   FE_SOLVER_HEUN, condition, noise),
+            ProtocolResult::kSuccess);
+  ASSERT_TRUE(pool.try_dispatch(request)) << pool.last_error();
+  pool.cancel_before(6u);
+
+  const ActionMessage* action{};
+  const auto timeout = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (action == nullptr && std::chrono::steady_clock::now() < timeout) {
+    action = pool.ready_action();
+    if (action == nullptr)
+      std::this_thread::yield();
+  }
+  ASSERT_NE(action, nullptr);
+  ASSERT_EQ(validate(*action), ProtocolResult::kSuccess);
+  EXPECT_EQ(action->metadata.status, FE_ACTION_CANCELLED);
+  EXPECT_EQ(action->metadata.generation, 5u);
+
+  pool.cancel_before(6u);
+  EXPECT_EQ(pool.ready_action(), nullptr);
+  EXPECT_TRUE(pool.has_idle());
+}
+
+} // namespace
