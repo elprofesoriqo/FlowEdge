@@ -137,6 +137,23 @@ Windows PowerShell:
 .\build\flowedge_relay_pool_bench.exe models/mamba_flow.safetensors 5000 2 0
 ```
 
+### Reproducible Relay audit
+
+Use one Release build and repeat the script on the same host before accepting a
+hot-path change. It records OS, commit, commands, timings, and allocation
+counters for worker-pool, queue, QoS, streaming, drain, and action delivery.
+
+```bash
+FLOWEDGE_BUILD_DIR=build-relay \
+FLOWEDGE_RELAY_BENCH_REPORT_DIR=bench-results \
+./scripts/relay_bench.sh models/mamba_flow.safetensors
+```
+
+On Windows, run it from Git Bash or WSL against the intended native build; keep
+the two report files with the change. Every reported `hot_path_allocations` value
+must remain zero. The script is an audit runner, not a cross-host comparison:
+compare medians only within a same-host, same-workload series.
+
 ## Cooperative jobs
 
 Measured 2026-09-01. One million tiny counter jobs; framework overhead only.
