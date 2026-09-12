@@ -42,3 +42,9 @@ normalization. Legacy embedded statistics and modern processor sidecars are
 supported; converted diffusion checkpoints carry a deployment profile so
 `flowedge-inspect` can validate the action contract before deployment. Other
 normalization modes fail conversion with a targeted error.
+
+Validate a downloaded LeRobot policy directory before conversion:
+
+```bash
+python convert/policy_inspect.py models/diffusion_pusht --json
+```
