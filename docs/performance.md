@@ -28,7 +28,7 @@ Windows PowerShell:
 ```powershell
 $env:FLOWEDGE_MODEL="models/mamba_flow.safetensors"
 .\build\flowedge_engine_bench.exe --benchmark_min_time=0.2s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
-.\.venv\Scripts\python.exe scripts\torch_ref.py bench models/mamba_flow.safetensors 1
+.\.venv\Scripts\python.exe tools\benchmark\torch_ref.py bench models/mamba_flow.safetensors 1
 ```
 
 ### Euler action head
@@ -51,7 +51,7 @@ Windows PowerShell:
 
 ```powershell
 .\build\flowedge_latency_bench.exe euler 20000
-.\.venv\Scripts\python.exe scripts\torch_ref.py latency euler 20000
+.\.venv\Scripts\python.exe tools\benchmark\torch_ref.py latency euler 20000
 ```
 
 ## Diffusion Policy
