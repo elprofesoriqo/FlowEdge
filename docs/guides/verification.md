@@ -47,8 +47,8 @@ Python checks run when their dependencies are available.
 | Need | Command |
 |---|---|
 | C++ tests | `ctest --test-dir build --output-on-failure` |
-| PyTorch parity | `python scripts/verify_ulp.py models/mamba_flow.safetensors` |
-| External-head + streaming smoke | `python scripts/verify_external_head.py build` |
+| PyTorch parity | `python tools/verification/verify_ulp.py models/mamba_flow.safetensors` |
+| External-head + streaming smoke | `python tools/verification/verify_external_head.py build` |
 | Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |
 | Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
 | Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |

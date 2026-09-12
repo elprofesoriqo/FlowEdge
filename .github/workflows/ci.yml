@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: |
           pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
-          python scripts/verify_ulp.py models/mamba_flow.safetensors
+          python tools/verification/verify_ulp.py models/mamba_flow.safetensors
         env:
           PYTHONPATH: build
 
@@ -95,8 +95,8 @@ jobs:
           assert np.allclose(xa, xb, atol=1e-6), (xa, xb)
           print("convert round-trip OK", xa[:3])
           PY
-          python scripts/verify_external_head.py
-          python scripts/verify_diffusion.py build
+          python tools/verification/verify_external_head.py
+          python tools/verification/verify_diffusion.py build
         env:
           PYTHONPATH: build
 

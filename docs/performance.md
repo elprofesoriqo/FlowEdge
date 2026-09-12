@@ -20,7 +20,7 @@ Linux:
 
 ```bash
 FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench --benchmark_min_time=0.2s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
-python3 scripts/torch_ref.py bench models/mamba_flow.safetensors 1
+python3 tools/benchmark/torch_ref.py bench models/mamba_flow.safetensors 1
 ```
 
 Windows PowerShell:
@@ -44,7 +44,7 @@ Linux:
 
 ```bash
 ./build/flowedge_latency_bench euler 20000
-python3 scripts/torch_ref.py latency euler 20000
+python3 tools/benchmark/torch_ref.py latency euler 20000
 ```
 
 Windows PowerShell:

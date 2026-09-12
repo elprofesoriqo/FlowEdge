@@ -2,7 +2,7 @@
 # Compare kernel performance against a Git ref without touching the caller's checkout.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BASELINE_REF="main"
 FILTER=""
 RUNS=9
@@ -84,7 +84,7 @@ capture() {
   case "$(uname -s)" in
     MINGW* | MSYS* | CYGWIN*)
       local powershell_args=(
-        -NoProfile -NonInteractive -File "$(cygpath -m "$ROOT/scripts/run_windows_benchmark.ps1")"
+        -NoProfile -NonInteractive -File "$(cygpath -m "$ROOT/tools/benchmark/run_windows_benchmark.ps1")"
         -Executable "$(cygpath -m "$executable")"
         -Output "$(cygpath -m "$output")"
         -Runs "$RUNS"
@@ -109,7 +109,7 @@ capture "$BASELINE_SOURCE" "$BASELINE_BUILD" "$OUT/baseline-kernels.json"
 capture "$ROOT" "$CURRENT_BUILD" "$OUT/candidate-kernels.json"
 PYTHON="${PYTHON:-$(command -v python3 || command -v python || command -v py || true)}"
 if [[ -n "$PYTHON" ]] && "$PYTHON" -c 'import sys' >/dev/null 2>&1; then
-  "$PYTHON" "$ROOT/scripts/benchmark_regression.py" \
+  "$PYTHON" "$ROOT/tools/benchmark/benchmark_regression.py" \
     --baseline "$OUT/baseline-kernels.json" \
     --candidate "$OUT/candidate-kernels.json" \
     --threshold "$THRESHOLD" \
@@ -121,7 +121,7 @@ elif [[ "$(uname -s)" =~ ^(MINGW|MSYS|CYGWIN) && "$ROOT" =~ ^/[A-Za-z]/ &&
   DRIVE="${ROOT:1:1}"
   WSL_ROOT="/mnt/${DRIVE,,}${ROOT:2}"
   WSL_OUT="/mnt/${DRIVE,,}${OUT:2}"
-  MSYS_NO_PATHCONV=1 wsl.exe python3 "$WSL_ROOT/scripts/benchmark_regression.py" \
+  MSYS_NO_PATHCONV=1 wsl.exe python3 "$WSL_ROOT/tools/benchmark/benchmark_regression.py" \
     --baseline "$WSL_OUT/baseline-kernels.json" \
     --candidate "$WSL_OUT/candidate-kernels.json" \
     --threshold "$THRESHOLD" \

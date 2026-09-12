@@ -251,7 +251,7 @@ def _write_modern_processor_fixture(directory, state, config, action_min, action
 
 
 def main():
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     build_dir = None
     if len(sys.argv) > 1:
         build_dir = Path(sys.argv[1]).resolve()

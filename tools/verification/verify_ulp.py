@@ -3,6 +3,12 @@
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools" / "benchmark"))
 
 if os.path.exists("build") and "build" not in sys.path:
     sys.path.append("build")
@@ -17,11 +23,9 @@ if os.name == "nt":
             os.add_dll_directory(str(winpthread.parent))
             break
 
-import numpy as np
-
 PREFIX = np.array(
     [1, 2, 3, 4], dtype=np.int32
-)  # must match scripts/torch_ref.py TOKENS
+)  # must match tools/benchmark/torch_ref.py TOKENS
 NFE = 10
 EPS_REL = 2e-3  # per-dim relative-error gate
 EPS_ULP = 4096  # per-dim float32 ULP gate

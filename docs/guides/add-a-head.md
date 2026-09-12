@@ -26,7 +26,7 @@ The constructor resolves weight pointers by name and derives config from their s
 3. Carve scratch with `arena_span`. Take `mark()` at the top of `sample` and `reset_to` at the end. Nothing allocates on the hot path.
 4. Add a converter mapping so a checkpoint loads. See [Converter](converter). Carry the normalization stats and un-normalize the action if the checkpoint stores them.
 5. Add a sampling entrypoint to the C-ABI, or a head selector on `fe_engine_sample`.
-6. Add a PyTorch reference to `scripts/torch_ref.py` and wire the [ULP gate](verification).
+6. Add a PyTorch reference to `tools/benchmark/torch_ref.py` and wire the [ULP gate](verification).
 7. Add tests to `test/tests.cc`. Add an example. Tick the head on the home page cards and write an ADR.
 
 Reference: `src/core/heads/flow/flow.h` and `flow.cc`.

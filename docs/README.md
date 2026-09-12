@@ -8,13 +8,12 @@ The public entry points are intentionally small:
 | Python API | `python/`, `docs/api/python.md` |
 | LeRobot deployment seam | `integrations/lerobot/`, `docs/guides/lerobot.md` |
 | Core and Relay contracts | `src/`, `docs/architecture/` |
-| Converter and checkpoint checks | `convert/`, `scripts/verify_*.py` |
+| Converter and checkpoint checks | `convert/`, `tools/verification/` |
 | Reproducible verification | `scripts/verify_all.sh` |
 
-Scripts are grouped by job: `build.sh`, `test.sh`, `lint.sh`, and `sanitize.sh` are
-developer wrappers; `verify_all.sh` is the complete gate; benchmark and model-reference
-helpers are maintainer tools. Examples and benchmarks are built from `CMakeLists.txt` and
-are kept because the verification gate runs them.
+`scripts/` contains user-facing build, test, benchmark, and demo commands. Maintainer-only
+benchmark and parity helpers live under `tools/`. Examples and benchmarks stay compiled by
+`CMakeLists.txt` and exercised by the verification gate.
 
 `cmake/FlowEdgeConfig.cmake.in` is the install/export template. `CMakeFiles/`, `build*/`,
 and `docs/_build/` are generated output and ignored.
