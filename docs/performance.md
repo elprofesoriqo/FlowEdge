@@ -149,10 +149,18 @@ FLOWEDGE_RELAY_BENCH_REPORT_DIR=bench-results \
 ./scripts/relay_bench.sh models/mamba_flow.safetensors
 ```
 
-On Windows, run it from Git Bash or WSL against the intended native build; keep
-the two report files with the change. Every reported `hot_path_allocations` value
-must remain zero. The script is an audit runner, not a cross-host comparison:
-compare medians only within a same-host, same-workload series.
+Windows PowerShell produces the same report format from a native Release build:
+
+```powershell
+$env:FLOWEDGE_BUILD_DIR="build-relay"
+$env:FLOWEDGE_RELAY_BENCH_REPORT_DIR="bench-results"
+.\scripts\relay_bench.ps1 models\mamba_flow.safetensors
+```
+
+Keep the before/after report files with the change. Every reported
+`hot_path_allocations` value must remain zero. The runners are audit tools, not
+cross-host comparisons: compare medians only within a same-host, same-workload
+series.
 
 ## Cooperative jobs
 
