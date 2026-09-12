@@ -49,6 +49,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(payload["steps"], 2)
         self.assertTrue(payload["stopped"])
         self.assertIn("p99_ms", payload)
+        self.assertGreaterEqual(payload["startup_ms"], 0.0)
+        self.assertTrue(payload["platform"])
+        self.assertTrue(payload["machine"])
 
 
 if __name__ == "__main__":
