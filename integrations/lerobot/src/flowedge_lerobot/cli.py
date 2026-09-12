@@ -36,10 +36,15 @@ def _peak_rss_bytes() -> int | None:
             ]
 
         counters = Counters(ctypes.sizeof(Counters))
-        if ctypes.windll.psapi.GetProcessMemoryInfo(
-            ctypes.windll.kernel32.GetCurrentProcess(),
-            ctypes.byref(counters),
-            ctypes.sizeof(counters),
+        psapi = ctypes.WinDLL("psapi", use_last_error=True)
+        psapi.GetProcessMemoryInfo.argtypes = (
+            ctypes.c_void_p,
+            ctypes.POINTER(Counters),
+            ctypes.c_ulong,
+        )
+        psapi.GetProcessMemoryInfo.restype = ctypes.c_bool
+        if psapi.GetProcessMemoryInfo(
+            ctypes.c_void_p(-1), ctypes.byref(counters), ctypes.sizeof(counters)
         ):
             return counters.peak_working_set
         return None
