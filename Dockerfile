@@ -22,6 +22,7 @@ RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99disable-c
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
+# Noble's fallback clang 18 lacks C++23 std::expected in its default standard library.
 RUN set -eux; \
     if curl --connect-timeout 10 --max-time 60 --retry 5 --retry-delay 5 --retry-all-errors \
       -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm-snapshot.gpg.key \
@@ -38,8 +39,8 @@ RUN set -eux; \
         rm -f /usr/share/keyrings/apt.llvm.org.gpg /etc/apt/sources.list.d/llvm.list; \
         apt-get update; \
         apt-get install -y clang clang-format clang-tidy; \
-        compiler=clang; \
-        compiler_plus=clang++; \
+        compiler=gcc; \
+        compiler_plus=g++; \
         formatter=clang-format; \
         tidy=clang-tidy; \
     fi; \
