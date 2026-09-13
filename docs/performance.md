@@ -153,6 +153,7 @@ Windows PowerShell produces the same report format from a native Release build:
 
 ```powershell
 $env:FLOWEDGE_BUILD_DIR="build-relay"
+$env:FLOWEDGE_BUILD_JOBS="2" # use a bounded build to avoid memory pressure
 $env:FLOWEDGE_RELAY_BENCH_REPORT_DIR="bench-results"
 .\scripts\relay_bench.ps1 models\mamba_flow.safetensors
 ```
