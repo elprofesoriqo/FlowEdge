@@ -8,9 +8,10 @@ import unittest
 )
 class PluginTests(unittest.TestCase):
     def test_plugin_registers_flowedge_policy(self):
-        import lerobot_policy_flowedge  # noqa: F401
         from lerobot.configs.policies import PreTrainedConfig
+        from lerobot.utils.import_utils import register_third_party_plugins
 
+        register_third_party_plugins()
         self.assertIsNotNone(PreTrainedConfig.get_choice_class("flowedge"))
 
 

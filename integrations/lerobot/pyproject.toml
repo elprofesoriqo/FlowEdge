@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 dependencies = [
   "flowedge>=0.1.0",
-  "lerobot>=0.4.4",
+  "lerobot>=0.4.4,<0.5",
   "numpy>=1.20",
 ]
 
