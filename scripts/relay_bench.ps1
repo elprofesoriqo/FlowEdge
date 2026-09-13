@@ -7,6 +7,9 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $build = if ($env:FLOWEDGE_BUILD_DIR) { $env:FLOWEDGE_BUILD_DIR } else { Join-Path $root 'build-relay' }
 $iterations = if ($env:FLOWEDGE_RELAY_BENCH_ITERS) { $env:FLOWEDGE_RELAY_BENCH_ITERS } else { 500 }
+$buildJobs = 2
+if ($env:FLOWEDGE_BUILD_JOBS) { $buildJobs = [int]$env:FLOWEDGE_BUILD_JOBS }
+if ($buildJobs -lt 1) { throw "FLOWEDGE_BUILD_JOBS must be positive" }
 
 if (-not (Test-Path -LiteralPath $Model)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Model) | Out-Null
@@ -15,7 +18,7 @@ if (-not (Test-Path -LiteralPath $Model)) {
 
 $generator = if (Get-Command ninja -ErrorAction SilentlyContinue) { 'Ninja' } else { 'Visual Studio 17 2022' }
 cmake -S $root -B $build -G $generator -DFLOWEDGE_RELAY=ON -DFLOWEDGE_BENCH=ON -DFLOWEDGE_TESTS=OFF
-cmake --build $build --config Release --parallel
+cmake --build $build --config Release --parallel $buildJobs
 
 $report = if ($env:FLOWEDGE_RELAY_BENCH_REPORT_DIR) {
     New-Item -ItemType Directory -Force -Path $env:FLOWEDGE_RELAY_BENCH_REPORT_DIR | Out-Null
