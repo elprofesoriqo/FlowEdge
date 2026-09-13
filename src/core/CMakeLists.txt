@@ -74,6 +74,11 @@ if(NOT HAS_MDSPAN)
 endif()
 
 target_link_libraries(flowedge_core PUBLIC Threads::Threads)
+if(MINGW)
+  # A mixed GCC-C/Clang-C++ configuration can detect C pthreads in libc while
+  # the C++ standard library still requires winpthread for atomic wait/notify.
+  target_link_libraries(flowedge_core PUBLIC winpthread)
+endif()
 target_include_directories(flowedge_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<INSTALL_INTERFACE:include>

@@ -1,0 +1,306 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-09-13T14:00:38.402081+00:00",
+  "model": {
+    "id": "lerobot/diffusion_pusht",
+    "revision": "84a7c23178445c6bbf7e1a884ff497017910f653",
+    "sha256": "995d14d35db57d95c35ad9704c3d79c8612b7bc45f3877e5c46c2cdc516856a8",
+    "converted_sha256": "3367c7236d7a0d6da74e28cde1514ecc7b31470ec028e244cf28c93f93e0b5d6"
+  },
+  "processor": {
+    "id": "lerobot/diffusion_pusht",
+    "revision": "84a7c23178445c6bbf7e1a884ff497017910f653",
+    "stats": {
+      "observation.image": {
+        "mean": [
+          [
+            [
+              0.48500001430511475
+            ]
+          ],
+          [
+            [
+              0.4560000002384186
+            ]
+          ],
+          [
+            [
+              0.4059999883174896
+            ]
+          ]
+        ],
+        "std": [
+          [
+            [
+              0.2290000021457672
+            ]
+          ],
+          [
+            [
+              0.2240000069141388
+            ]
+          ],
+          [
+            [
+              0.22499999403953552
+            ]
+          ]
+        ]
+      },
+      "observation.state": {
+        "max": [
+          496.14617919921875,
+          510.9578857421875
+        ],
+        "min": [
+          13.45642375946045,
+          32.93829345703125
+        ]
+      }
+    },
+    "config_sha256": "d391a7bf488accd1c26b2043482f0060b0855b1ec236f3d7358486918472c0a5"
+  },
+  "contract": {
+    "observation_schema_hash": "2dde368a238be30a27b8a7c243b724c51d7c744946f28e439c2afc625e2904fe",
+    "observation_steps": 2,
+    "action_steps": 8,
+    "action_dim": 2,
+    "batch_size": 1,
+    "inference_steps": 10,
+    "action_units": "dataset",
+    "normalization": "minmax",
+    "solver": "ddim"
+  },
+  "hardware": {
+    "host": "Jankowski",
+    "os": "Windows-10-10.0.26200-SP0",
+    "cpu": "Intel64 Family 6 Model 158 Stepping 13, GenuineIntel",
+    "threads": 1,
+    "compiler": "Clang 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)",
+    "build_type": "Release"
+  },
+  "commands": {
+    "flowedge": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/diffusion-pusht-cpu-replay.json",
+    "lerobot": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/diffusion-pusht-cpu-replay.json"
+  },
+  "measurements": {
+    "flowedge": {
+      "status": "measured",
+      "startup_ms": 998.0020999999999,
+      "encoder_ms": {
+        "p50": 101.24905,
+        "p95": 130.46199000000001,
+        "p99": 138.54975799999997
+      },
+      "policy_ms": {
+        "p50": 25848.0848,
+        "p95": 26390.37961,
+        "p99": 26541.522482
+      },
+      "end_to_end_ms": {
+        "p50": 25966.7725,
+        "p95": 26488.65288,
+        "p99": 26643.189456
+      },
+      "throughput_hz": 0.046029950540369347,
+      "rss_mb": 3293.43359375,
+      "rss_reason": "",
+      "allocations": {
+        "setup": null,
+        "hot_path": null,
+        "reason": "Python/PyTorch/native process allocations are not instrumented by this runner"
+      }
+    },
+    "lerobot": {
+      "status": "measured",
+      "startup_ms": 1145.4018,
+      "encoder_ms": {
+        "p50": 100.7641,
+        "p95": 115.04272500000002,
+        "p99": 128.57262499999996
+      },
+      "policy_ms": {
+        "p50": 3021.96515,
+        "p95": 3061.19026,
+        "p99": 3066.505092
+      },
+      "end_to_end_ms": {
+        "p50": 3120.53595,
+        "p95": 3164.03372,
+        "p99": 3171.596024
+      },
+      "throughput_hz": 0.38176489663567487,
+      "rss_mb": 3293.43359375,
+      "rss_reason": "",
+      "allocations": {
+        "setup": null,
+        "hot_path": null,
+        "reason": "Python/PyTorch/native process allocations are not instrumented by this runner"
+      }
+    }
+  },
+  "raw_samples": {
+    "flowedge": {
+      "encoder_ms": [
+        40.953,
+        42.9516,
+        41.2819,
+        41.1521,
+        40.2061,
+        39.5963,
+        129.9299,
+        140.5717,
+        101.6143,
+        100.8838,
+        121.201,
+        105.2027,
+        98.05,
+        123.4479,
+        104.2698,
+        99.6722,
+        102.5154,
+        102.2881,
+        112.7024,
+        100.3337
+      ],
+      "policy_ms": [
+        10150.5942,
+        10039.8486,
+        10053.1835,
+        9993.7633,
+        10030.1338,
+        19005.3716,
+        25954.5597,
+        25806.7777,
+        25690.8081,
+        25901.6437,
+        25843.3652,
+        25893.3095,
+        26380.436,
+        25845.5309,
+        25869.6224,
+        25952.6449,
+        26579.3082,
+        25850.6387,
+        25917.4123,
+        25951.9303
+      ],
+      "end_to_end_ms": [
+        10191.5472,
+        10082.8002,
+        10094.4654,
+        10034.9154,
+        10070.3399,
+        19044.9679,
+        26084.4896,
+        25947.3494,
+        25792.4224,
+        26002.5275,
+        25964.5662,
+        25998.5122,
+        26478.486,
+        25968.9788,
+        25973.8922,
+        26052.3171,
+        26681.8236,
+        25952.9268,
+        26030.1147,
+        26052.264
+      ]
+    },
+    "lerobot": {
+      "encoder_ms": [
+        40.4625,
+        39.8673,
+        43.5272,
+        39.9223,
+        41.1003,
+        39.6775,
+        101.6442,
+        114.1526,
+        100.9328,
+        99.4942,
+        105.6528,
+        98.3129,
+        102.6598,
+        131.9551,
+        102.6956,
+        102.211,
+        102.4484,
+        98.8287,
+        100.6668,
+        100.8614
+      ],
+      "policy_ms": [
+        1365.9576,
+        1412.4204,
+        1373.9076,
+        1363.0827,
+        1357.3265,
+        1375.4263,
+        2984.6684,
+        3029.2543,
+        3032.9242,
+        2995.5158,
+        3067.8338,
+        3021.7519,
+        3044.7503,
+        3029.5118,
+        3060.8406,
+        3013.7581,
+        3059.0604,
+        3022.1784,
+        3026.6104,
+        3044.4106
+      ],
+      "end_to_end_ms": [
+        1406.4201,
+        1452.2877,
+        1417.4348,
+        1403.005,
+        1398.4268,
+        1415.1038,
+        3086.3126,
+        3143.4069,
+        3133.857,
+        3095.01,
+        3173.4866,
+        3120.0648,
+        3147.4101,
+        3161.4669,
+        3163.5362,
+        3115.9691,
+        3161.5088,
+        3121.0071,
+        3127.2772,
+        3145.272
+      ]
+    }
+  },
+  "parity": {
+    "max_abs_error": 7.62939453125e-05,
+    "atol": 0.001,
+    "rtol": 0.0001
+  },
+  "fixture": {
+    "file": "diffusion-pusht-cpu-replay.observations.npz",
+    "sha256": "0e2616b6312a6f0682a7307682e4701011499a473f80ee734f570d438cccd60f",
+    "seed": 7
+  },
+  "versions": {
+    "torch": "2.10.0",
+    "lerobot": "0.4.4",
+    "gym-pusht": "0.1.5",
+    "numpy": "2.2.6"
+  },
+  "iterations": 20,
+  "warmup": 2,
+  "limitations": [
+    "CPU full-policy replay of one fixed PushT observation history; not closed-loop task success.",
+    "End-to-end includes preprocessing, encoder, history and sampling; excludes camera capture, IPC and robot delivery.",
+    "RSS is shared process high-water memory with both implementations resident, not per-backend memory.",
+    "Allocations are unmeasured; no zero-allocation claim applies to this Python visual pipeline.",
+    "Startup excludes interpreter/import time and uses the existing filesystem cache.",
+    "Small iteration counts do not establish stable p99 estimates."
+  ]
+}

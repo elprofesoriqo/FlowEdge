@@ -1,4 +1,5 @@
 #include "api/engine.h"
+#include "protocol/deadline_flow.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #if defined(__MINGW32__) && defined(__clang__)
 namespace std {
@@ -482,6 +484,51 @@ private:
 
 PYBIND11_MODULE(flowedge, m)
 {
+#if defined(__clang__)
+  m.attr("compiler") = "Clang " __clang_version__;
+#elif defined(__GNUC__)
+  m.attr("compiler") = "GCC " __VERSION__;
+#elif defined(_MSC_VER)
+  m.attr("compiler") = std::string{"MSVC "} + std::to_string(_MSC_VER);
+#else
+  m.attr("compiler") = "unknown";
+#endif
+#if defined(NDEBUG)
+  m.attr("build_type") = "Release";
+#else
+  m.attr("build_type") = "Debug";
+#endif
+  py::class_<fe::ExecutionPlan>(m, "ExecutionPlan")
+      .def(py::init<>())
+      .def_readwrite("id", &fe::ExecutionPlan::id)
+      .def_readwrite("steps", &fe::ExecutionPlan::steps)
+      .def_readwrite("solver", &fe::ExecutionPlan::solver)
+      .def_readwrite("precision", &fe::ExecutionPlan::precision)
+      .def_readwrite("trace_id", &fe::ExecutionPlan::trace_id)
+      .def_readwrite("hardware_mask", &fe::ExecutionPlan::hardware_mask)
+      .def_readwrite("latency_ns", &fe::ExecutionPlan::latency_ns)
+      .def_readwrite("memory_bytes", &fe::ExecutionPlan::memory_bytes)
+      .def_readwrite("quality", &fe::ExecutionPlan::quality);
+  py::class_<fe::PlanContext>(m, "PlanContext")
+      .def(py::init<>())
+      .def_readwrite("slack_ns", &fe::PlanContext::slack_ns)
+      .def_readwrite("buffered_actions", &fe::PlanContext::buffered_actions)
+      .def_readwrite("period_ns", &fe::PlanContext::period_ns)
+      .def_readwrite("reserve_ns", &fe::PlanContext::reserve_ns)
+      .def_readwrite("switch_ns", &fe::PlanContext::switch_ns)
+      .def_readwrite("available_memory_bytes", &fe::PlanContext::available_memory_bytes)
+      .def_readwrite("hardware_mask", &fe::PlanContext::hardware_mask)
+      .def_readwrite("minimum_quality", &fe::PlanContext::minimum_quality)
+      .def_readwrite("healthy", &fe::PlanContext::healthy);
+  py::class_<fe::DeadlineFlow>(m, "DeadlineFlow")
+      .def(py::init([](const std::vector<fe::ExecutionPlan>& plans) {
+        auto selector = fe::DeadlineFlow::create(plans);
+        if (!selector)
+          throw std::invalid_argument("expected 1-32 unique, calibrated execution plans");
+        return *selector;
+      }))
+      .def("select", &fe::DeadlineFlow::select)
+      .def("observe", &fe::DeadlineFlow::observe);
   m.doc() = "FlowEdge: flow-matching action-head inference";
 
   py::class_<Engine>(m, "Engine")

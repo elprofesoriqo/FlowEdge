@@ -5,6 +5,11 @@ Relay runtime. The first supported path is the converted `lerobot/diffusion_push
 
 ## Boundary
 
+The plugin now supports `input_mode="visual"` with the supported source RGB encoder,
+normalization statistics, and observation history. It consumes queued actions across calls
+and uses seeded noise. See [policy evaluation](policy-evaluation) for setup and conformance
+commands. The low-level condition-vector API below remains available for external encoders.
+
 LeRobot remains responsible for observation capture, image/state encoding, feature normalization,
 robot limits, and emergency-stop behavior. FlowEdge receives the flattened condition, runs the
 fixed-memory Diffusion Policy head, un-normalizes actions using the converted checkpoint metadata,

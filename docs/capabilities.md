@@ -52,6 +52,10 @@ flowchart LR
 | Generic jobs | Iterative, streaming, speculative; QoS reservations; drain, quarantine, recovery |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
+| LeRobot | Encoded conditions or the supported source visual Diffusion Policy encoder; seeded chunk consumption |
+| Evaluation | Matched visual-policy replay; PushT closed-loop runner; periodic inference with underrun/freshness telemetry |
+| DeadlineFlow | Fixed-capacity calibrated-plan selector; CPU DDIM bridge; accelerator plans remain future work |
+| External runtime | Optional fixed-shape ONNX Runtime companion adapter; separate allocation contract |
 
 ## Runtime guarantees
 
@@ -71,7 +75,7 @@ flowchart LR
 
 | Area | Status |
 |---|---|
-| External runtime plugins | ONNX Runtime, TensorRT, PyTorch, llama.cpp/vLLM adapters are planned |
+| External runtime plugins | TensorRT, general PyTorch, llama.cpp/vLLM adapters are planned |
 | Transformer and KV cache | Planned in issue #10 |
 | Diffusion Policy | LeRobot `diffusion_pusht` head is available; DiT and π0 remain planned |
 | CUDA, Metal, Vulkan, TTNN | Planned backends |

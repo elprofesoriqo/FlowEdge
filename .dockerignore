@@ -12,5 +12,7 @@ __pycache__
 .pytest_cache
 .mypy_cache
 .ruff_cache
+docs/_build
+bench-results
 models
 ab_results.md

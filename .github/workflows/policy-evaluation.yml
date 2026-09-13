@@ -1,0 +1,60 @@
+name: Pinned visual policy evaluation
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: Matched replay samples (small runs do not establish p99)
+        type: number
+        default: 20
+      max_steps:
+        description: Steps per bounded PushT episode
+        type: number
+        default: 100
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      REVISION: 84a7c23178445c6bbf7e1a884ff497017910f653
+      ITERATIONS: ${{ inputs.iterations }}
+      MAX_STEPS: ${{ inputs.max_steps }}
+      CMAKE_BUILD_PARALLEL_LEVEL: 2
+      SDL_VIDEODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the pinned policy runtime
+        run: |
+          python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu 'lerobot==0.4.4'
+          python -m pip install . -e 'integrations/lerobot[evaluation]'
+          python -m unittest discover -s integrations/lerobot/tests -v
+      - name: Fetch and convert the trained checkpoint
+        run: |
+          hf download lerobot/diffusion_pusht --revision "$REVISION" \
+            --include config.json model.safetensors --local-dir models/diffusion_pusht
+          python convert/convert.py models/diffusion_pusht models/policy.safetensors --arch diffusion --dtype f32
+      - name: Verify complete policy replay and capture measurements
+        run: |
+          python -m flowedge_lerobot.benchmark models/policy.safetensors \
+            --source models/diffusion_pusht --revision "$REVISION" --threads 1 \
+            --iterations "$ITERATIONS" --warmup 2 --steps 10 --output bench-results/replay.json
+          python tools/benchmark/benchmark_artifact.py bench-results/replay.json --report bench-results/replay.md
+      - name: Run matched bounded PushT episodes
+        run: |
+          for backend in flowedge lerobot; do
+            python -m flowedge_lerobot.evaluate models/policy.safetensors \
+              --source models/diffusion_pusht --backend "$backend" --episodes 1 \
+              --max-steps "$MAX_STEPS" --steps 10 --threads 1 --output "bench-results/pusht-$backend.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-policy-evaluation
+          path: bench-results/
+          if-no-files-found: warn

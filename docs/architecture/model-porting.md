@@ -8,7 +8,7 @@ enough.
 | --- | --- | --- | --- |
 | Custom encoder + FlowEdge MLP flow head | Direct | Train/export `flow.*`; feed one F32 condition vector | Production-ready integration path |
 | Mamba-1 language/control checkpoints | Strong backbone fit | LM projection, sampling, tokenizer adapter, checkpoint mapping | Small, useful port |
-| Mamba-3 SISO/MIMO | Strong architectural fit, incompatible recurrence | Complex/angle state, trapezoidal update, K/V state, grouped heads, LM head | Highest-value new backbone |
+| Mamba-3 SISO/MIMO | Strong architectural fit, incompatible recurrence | Complex/angle state, trapezoidal update, K/V state, grouped heads, LM head | Deferred behind SmolVLA/Tenstorrent |
 | SmolVLA | Objective fits; architecture does not | Transformer flow expert with self/cross attention over VLM tokens | Port after condition-sequence ABI |
 | pi0 / pi0.5 | Objective fits; architecture does not | PaliGemma/VLM token interface and coupled flow action expert | Adapter first, exact port later |
 | GR00T N1.5 | Objective fits; architecture does not | DiT action model cross-attending to Eagle VLM embeddings | External runtime first |
@@ -29,9 +29,10 @@ pi0.5 as flow-based models, while pi0-FAST is autoregressive. [GR00T N1.5](https
 uses a DiT that cross-attends to VLM embeddings. Their weights cannot be flattened into
 `flow.cond_proj` without retraining.
 
-## Recommended exact port: Mamba-3
+## Deferred backbone option: Mamba-3
 
-The next backbone should be Mamba-3, starting with SISO decode and then MIMO. The official
+The active priority is SmolVLA's exact action expert and Tenstorrent execution, as specified
+in the [roadmap](../roadmap). Mamba-3 is a later option, starting with SISO decode and then MIMO. The official
 [Mamba repository](https://github.com/state-spaces/mamba) now includes Mamba-3, and the
 [paper](https://arxiv.org/abs/2603.15569) describes it as inference-first, with a richer recurrence,
 complex-valued state updates, and a MIMO formulation. Those properties align with FlowEdge's fixed
@@ -50,8 +51,8 @@ The implementation should be a new `models/mamba3/` module rather than condition
 6. Add MIMO only after SISO correctness; its extra K/V state should have an explicit arena formula.
 
 Mamba-2 remains useful as an intermediate reference, but implementing it first only makes sense if a
-specific customer checkpoint requires it. Mamba-3 is the more distinctive long-term ML-systems
-target.
+specific customer checkpoint requires it. Neither additional Mamba port takes priority over
+the active SmolVLA/Tenstorrent robotics program.
 
 ## Recommended VLA port boundary
 

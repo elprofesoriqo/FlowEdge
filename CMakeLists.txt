@@ -189,6 +189,9 @@ if(FLOWEDGE_PYTHON)
       message(FATAL_ERROR "libwinpthread-1.dll is required to package the MinGW Python extension")
     endif()
     install(FILES "${FLOWEDGE_WINPTHREAD_DLL}" DESTINATION .)
+    add_custom_command(TARGET flowedge POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${FLOWEDGE_WINPTHREAD_DLL}" "$<TARGET_FILE_DIR:flowedge>")
   endif()
   install(TARGETS flowedge LIBRARY DESTINATION . RUNTIME DESTINATION .) # wheel root: pip install .
 endif()

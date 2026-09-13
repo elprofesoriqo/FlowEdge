@@ -1,6 +1,7 @@
 """LeRobot processor factory for the FlowEdge deployment plugin."""
 
 from lerobot.processor import (
+    AddBatchDimensionProcessorStep,
     DeviceProcessorStep,
     IdentityProcessorStep,
     PolicyProcessorPipeline,
@@ -12,12 +13,24 @@ from lerobot.processor.converters import (
 
 
 def make_flowedge_pre_post_processors(config, dataset_stats=None):
-    del dataset_stats
-    return (
-        PolicyProcessorPipeline(
-            steps=[DeviceProcessorStep(device=config.device)],
+    config.validate_features()
+    if config.input_mode == "visual":
+        from flowedge_lerobot.observation import observation_processor
+
+        preprocessor = observation_processor(
+            config.source_checkpoint_path, dataset_stats
+        )
+    else:
+        if dataset_stats:
+            raise ValueError(
+                "encoded conditions must already be normalized; dataset_stats requires visual input"
+            )
+        preprocessor = PolicyProcessorPipeline(
+            steps=[AddBatchDimensionProcessorStep(), DeviceProcessorStep(device="cpu")],
             name="flowedge_preprocessor",
-        ),
+        )
+    return (
+        preprocessor,
         PolicyProcessorPipeline(
             steps=[DeviceProcessorStep(device="cpu"), IdentityProcessorStep()],
             name="flowedge_postprocessor",

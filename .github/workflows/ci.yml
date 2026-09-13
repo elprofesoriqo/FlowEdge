@@ -172,7 +172,7 @@ jobs:
           PYTHONPATH=integrations/onnx/src python -m unittest discover -s integrations/onnx/tests -v
 
   lerobot-plugin:
-    name: LeRobot plugin discovery
+    name: LeRobot plugin behavior and evaluation contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,8 +184,11 @@ jobs:
           python -m pip install --disable-pip-version-check \
             --extra-index-url https://download.pytorch.org/whl/cpu lerobot==0.4.4
           python -m pip install --no-deps -e . -e integrations/lerobot
-      - name: Discover the installed FlowEdge policy
-        run: python -m unittest integrations/lerobot/tests/test_plugin.py -v
+      - name: Verify installed plugin behavior and evaluation contracts
+        run: |
+          python -m unittest discover -s integrations/lerobot/tests -v
+          flowedge-lerobot-benchmark --help
+          flowedge-lerobot-evaluate --help
 
   docker:
     name: Docker Build

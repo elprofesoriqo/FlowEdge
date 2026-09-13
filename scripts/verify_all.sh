@@ -112,6 +112,8 @@ CONSUMER="$CONSUMER_DIR/flowedge_install_consumer"
 if [[ "$PYTHON_OPTION" == ON ]]; then
   export PYTHONPATH="$BUILD_DIR${PYTHONPATH:+:$PYTHONPATH}"
   if "$PYTHON" -c 'import numpy, safetensors' >/dev/null 2>&1; then
+    PYTHONPATH="$ROOT/integrations/lerobot/src:$PYTHONPATH" \
+      "$PYTHON" -m unittest discover -s "$ROOT/integrations/lerobot/tests" -v
     "$PYTHON" "$ROOT/tools/verification/verify_external_head.py" "$BUILD_DIR"
   else
     echo "note: Python extension built; numpy+safetensors verification dependencies unavailable"
@@ -119,6 +121,10 @@ if [[ "$PYTHON_OPTION" == ON ]]; then
   if "$PYTHON" -c 'import numpy, torch, safetensors' >/dev/null 2>&1; then
     (cd "$ROOT" && "$PYTHON" tools/verification/verify_ulp.py "$MODEL")
     (cd "$ROOT" && "$PYTHON" tools/verification/verify_diffusion.py "$BUILD_DIR")
+    if "$PYTHON" -c 'import lerobot, torchvision' >/dev/null 2>&1; then
+      PYTHONPATH="$ROOT/integrations/lerobot/src:$PYTHONPATH" "$PYTHON" -m flowedge_lerobot.benchmark --help
+      PYTHONPATH="$ROOT/integrations/lerobot/src:$PYTHONPATH" "$PYTHON" -m flowedge_lerobot.evaluate --help
+    fi
   else
     echo "note: PyTorch ULP verification dependencies unavailable"
   fi

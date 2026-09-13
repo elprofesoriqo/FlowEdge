@@ -6,14 +6,18 @@ does not change `src/core` or `src/relay`, and it does not replace LeRobot's obs
 ## Current scope
 
 - Converted `lerobot/diffusion_pusht` checkpoints.
-- Flattened, already-preprocessed observation conditions.
+- Encoded conditions, or source visual observations with the supported RGB encoder and statistics.
 - FlowEdge DDIM/DDPM inference and LeRobot action-horizon slicing.
 - Deployment-only Python adapter; training remains in LeRobot.
 
 The adapter follows the same action contract documented by FlowEdge's Diffusion Policy guide:
 LeRobot consumes `actions[observation_steps - 1: observation_steps - 1 + action_steps]` from the
-full denoised horizon. Feature normalization, image encoding, robot limits, and emergency-stop
-behavior remain outside FlowEdge.
+full denoised horizon. The visual companion path owns normalization, image encoding, and
+observation history outside native Core. Robot limits and emergency-stop behavior remain application-owned.
+
+The plugin consumes chunks across `select_action` calls, uses seeded Gaussian noise, and clears
+both history and queued actions on reset. See [policy evaluation](../../docs/guides/policy-evaluation.md)
+for `input_mode`, source checkpoint setup, matched replay, PushT, and periodic delivery.
 
 ## Development install
 

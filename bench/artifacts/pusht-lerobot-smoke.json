@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "environment": "gym_pusht/PushT-v0",
+  "backend": "lerobot",
+  "checkpoint_sha256": "3367c7236d7a0d6da74e28cde1514ecc7b31470ec028e244cf28c93f93e0b5d6",
+  "source_sha256": "995d14d35db57d95c35ad9704c3d79c8612b7bc45f3877e5c46c2cdc516856a8",
+  "mode": "synchronous_simulation",
+  "inference_steps": 10,
+  "plans_sha256": null,
+  "period_ms": null,
+  "threads": 1,
+  "episodes": [
+    {
+      "seed": 7,
+      "success": false,
+      "steps": 100,
+      "max_reward": 0.6530525096694175,
+      "elapsed_s": 18.138230499986093,
+      "timing": null
+    }
+  ],
+  "success_rate": 0.0,
+  "limitations": [
+    "Simulation only; no robot-hardware validation.",
+    "Small episode counts do not establish a reliable task-success estimate."
+  ]
+}
