@@ -96,3 +96,13 @@ python tools/verification/export_smolvla_reference.py \
 The exporter does not synthesize defaults and rejects missing, reshaped, or
 non-RGB-range inputs. Its action chunk and JSON digests form the later
 FlowEdge parity target.
+
+The native inspector recognizes this real checkpoint schema but fails closed:
+
+```bash
+build/flowedge-inspect models/smolvla_base/model.safetensors --json
+```
+
+The report identifies `family: "smolvla"` and explains that the LeRobot
+preprocessing boundary, VLM encoder, and action expert are not implemented.
+This is a schema/provenance check, not a claim of native SmolVLA support.
