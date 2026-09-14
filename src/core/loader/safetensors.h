@@ -29,7 +29,7 @@ struct TensorView
   const void* data{};
   Dtype dtype{};
   std::array<std::size_t, 4> shape{};
-  std::array<char, 64> name{}; // null-terminated; safetensors keys are short
+  std::array<char, 128> name{}; // null-terminated; supports long policy keys
   std::size_t bytes{};
   std::uint8_t ndim{};
 
@@ -62,7 +62,7 @@ struct TensorMetadata
 {
   TensorView::Dtype dtype{TensorView::Dtype::Unsupported};
   std::array<std::size_t, 4> shape{};
-  std::array<char, 64> name{};
+  std::array<char, 128> name{};
   std::size_t bytes{};
   std::uint8_t ndim{};
 
