@@ -22,6 +22,11 @@ C++ checkpoint fixture is used as release evidence; an actual converted policy
 and a matched reference replay are required before this baseline can be called
 deployed.
 
+The C and Python APIs also expose `run_embeddings`, which accepts caller-owned
+`[sequence, d_model]` F32 rows and runs the same reset-and-prefill path. This is
+the intended boundary for a future LeRobot visual/language encoder; it does not
+make the current SmolVLA checkpoint executable.
+
 The converter is exercised with the downloaded `sshleifer/tiny-gpt2` checkpoint
 at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares a Hugging
 Face hidden states against native full-prefix and streaming execution on prefix
@@ -36,6 +41,15 @@ python tools/verification/verify_transformer_reference.py \
 
 This validates real checkpoint conversion, full-prefix execution, and streaming
 KV-cache parity only; it is not an action-policy, latency, or SmolVLA result.
+
+Verify the external-embedding boundary against the same real checkpoint (the
+Python module must be built with `FLOWEDGE_PYTHON=ON`):
+
+```bash
+python tools/verification/verify_transformer_embeddings.py \
+  models/tiny-gpt2.flowedge.safetensors --module-path build \
+  --output bench/artifacts/tiny-gpt2-transformer-embeddings.json
+```
 
 Check that the real checkpoint's streaming path performs no heap allocation
 after initialization:

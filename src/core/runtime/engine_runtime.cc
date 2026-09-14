@@ -575,4 +575,29 @@ int EngineRuntime::run_backbone(const std::int32_t* tokens, std::size_t seq_len,
   return 0;
 }
 
+int EngineRuntime::run_embeddings(const float* embeddings, std::size_t seq_len, float* out,
+                                  const char*& error) noexcept
+{
+  if (!transformer_.valid()) {
+    error = "Model has no Transformer backbone for external embeddings";
+    return 4;
+  }
+  const std::size_t width = transformer_.config().d_model;
+  const std::size_t prefix_limit = transformer_.config().max_sequence;
+  if (seq_len == 0uz || seq_len > prefix_limit ||
+      seq_len > (std::numeric_limits<std::size_t>::max() / width)) {
+    error = "Embedding sequence length is outside the configured prefill limit";
+    return 1;
+  }
+  transformer_.reset();
+  for (std::size_t index{}; index < seq_len; ++index) {
+    if (!transformer_.decode_embedding({embeddings + (index * width), width},
+                                       {out + (index * width), width})) {
+      error = "Transformer embedding sequence could not be executed";
+      return 3;
+    }
+  }
+  return 0;
+}
+
 } // namespace fe

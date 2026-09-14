@@ -317,6 +317,17 @@ int fe_engine_run(fe_engine* engine, const std::int32_t* tokens, std::size_t seq
   return engine->runtime.run(tokens, seq_len, out, last_error());
 }
 
+int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, std::size_t seq_len,
+                             float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || embeddings == nullptr || out == nullptr || seq_len == 0uz) {
+    last_error() = "Invalid arguments to fe_engine_run_embeddings";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.run_embeddings(embeddings, seq_len, out, last_error());
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif

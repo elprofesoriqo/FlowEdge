@@ -184,6 +184,27 @@ public:
     run_native(tokens, output);
   }
 
+  // External VLM/proprioception encoder embeddings -> hidden states.
+  py::object run_embeddings(py::handle embeddings_object)
+  {
+    py::object embeddings_array = contiguous_array(numpy_, embeddings_object, "float32");
+    const FloatBuffer embeddings{embeddings_array};
+    const std::size_t width = d_model();
+    if (width == 0uz || embeddings.size() == 0uz || embeddings.size() % width != 0uz)
+      throw std::runtime_error("embeddings must contain one or more complete d_model rows");
+    py::object out = float_matrix(numpy_, embeddings.size() / width, width);
+    FloatBuffer output{out, true};
+    run_embeddings_native(embeddings, output);
+    return out;
+  }
+
+  void run_embeddings_into(py::handle embeddings_object, py::handle output_object)
+  {
+    const FloatBuffer embeddings{embeddings_object};
+    FloatBuffer output{output_object, true};
+    run_embeddings_native(embeddings, output);
+  }
+
   py::object step(std::int32_t token)
   {
     py::object out = float_array(numpy_, d_model());
@@ -417,6 +438,22 @@ private:
       throw std::runtime_error(fe_engine_last_error());
   }
 
+  void run_embeddings_native(const FloatBuffer& embeddings, FloatBuffer& output)
+  {
+    const std::size_t width = d_model();
+    if (width == 0uz || embeddings.size() == 0uz || embeddings.size() % width != 0uz ||
+        output.size() != embeddings.size())
+      throw std::runtime_error("embedding input and output must be [seq_len, d_model]");
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_run_embeddings(engine_, embeddings.data(), embeddings.size() / width,
+                                     output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+  }
+
   void sample_native(const Int32Buffer& prefix, const FloatBuffer& noise, FloatBuffer& output,
                      std::size_t steps, std::string_view method)
   {
@@ -543,6 +580,9 @@ PYBIND11_MODULE(flowedge, m)
       .def_property_readonly("diffusion_metadata", &Engine::diffusion_metadata)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("run_into", &Engine::run_into, py::arg("tokens"), py::arg("output"))
+      .def("run_embeddings", &Engine::run_embeddings, py::arg("embeddings"))
+      .def("run_embeddings_into", &Engine::run_embeddings_into, py::arg("embeddings"),
+           py::arg("output"))
       .def("step", &Engine::step, py::arg("token"))
       .def("step_into", &Engine::step_into, py::arg("token"), py::arg("output"))
       .def("reset", &Engine::reset)

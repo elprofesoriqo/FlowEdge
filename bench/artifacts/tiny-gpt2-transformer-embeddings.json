@@ -1,0 +1,17 @@
+{
+  "checkpoint": "tiny-gpt2.flowedge.safetensors",
+  "checkpoint_sha256": "6a672c92e9a2b34d78e82c36dc6fc4da964d81550a59357828de6a60ed8f8796",
+  "embedding_vs_into_max_absolute_error": 0.0,
+  "hidden_values": 8,
+  "schema_version": 1,
+  "scope": "real converted GPT-2 token prefill versus caller-supplied embedding prefill; not SmolVLA or policy-quality evaluation",
+  "status": "passed",
+  "token_vs_embedding_max_absolute_error": 0.0,
+  "tokens": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "tolerance": 5e-06
+}
