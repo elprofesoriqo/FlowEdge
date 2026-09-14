@@ -1,0 +1,12 @@
+{
+  "device": "cpu",
+  "lerobot_version": "0.4.4",
+  "model": "lerobot/smolvla_base",
+  "parameter_count": 450046176,
+  "policy_type": "SmolVLAPolicy",
+  "revision": "c83c3163b8ca9b7e67c509fffd9121e66cb96205",
+  "schema_version": 1,
+  "scope": "upstream source-policy construction from local checkpoint and VLM weights; not FlowEdge inference, action generation, latency, or policy-quality evaluation",
+  "status": "passed",
+  "transformers_version": "4.57.6"
+}

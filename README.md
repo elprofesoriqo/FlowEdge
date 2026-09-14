@@ -10,7 +10,7 @@ Flow-matching action policies, static memory, deterministic execution, and deadl
 
 <br/>
 
-⚙️ **CPU** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="CUDA" height="22" src="assets/nvidia.svg">&nbsp;**CUDA** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="TT-Metal" height="22" src="assets/tenstorrent.jpg">&nbsp;**TT-Metal**
+**CPU available** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="Tenstorrent / TT-Metal" height="22" src="assets/tenstorrent.jpg">&nbsp;**Tenstorrent planned** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="NVIDIA CUDA" height="22" src="assets/nvidia.svg">&nbsp;**CUDA planned**
 
 [Documentation](https://elprofesoriqo.github.io/FlowEdge/) &nbsp;&nbsp;·&nbsp;&nbsp; [Getting Started](https://elprofesoriqo.github.io/FlowEdge/getting-started.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Performance](https://elprofesoriqo.github.io/FlowEdge/performance.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Contributing](CONTRIBUTING.md) &nbsp;&nbsp;·&nbsp;&nbsp; [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions)
 
@@ -24,9 +24,9 @@ Flow-matching action policies, static memory, deterministic execution, and deadl
 
 ## Performance Highlights
 
-On the included deterministic smoke checkpoint, FlowEdge reaches up to **18.1x faster Mamba backbone inference** and a **3.93x p99 action-latency speedup** over the matched PyTorch CPU reference.
-
-See [Performance](#performance) for methodology and complete results.
+FlowEdge does not publish generated-checkpoint or fixed-token speedups as
+policy-latency evidence. See [Performance](#performance) for the captured
+visual-policy replay, scope, and reproducible commands.
 
 ## What is FlowEdge?
 
@@ -52,7 +52,7 @@ Checked items are available on the current `main` branch.
 
 **Backbones:**
 - ☑ Mamba selective-SSM
-- ☐ Transformer
+- ◐ Generic Transformer decoder baseline (experimental CPU; GPT-2 conversion smoke-tested, policy parity pending)
 
 **Heads (Action Policies):**
 - ☑ Flow-Matching CNF
@@ -175,23 +175,11 @@ cmake --build build-relay -j
 
 ## Performance
 
-Mamba backbone forward with one CPU thread and matched checkpoint/input. Lower is better.
-
-> These results use the included deterministic smoke checkpoint. They are not yet a production-policy benchmark.
-
-| Backend | FlowEdge | PyTorch | Speedup |
-| :--- | ---: | ---: | ---: |
-| CPU (Windows) | 0.091 ms | 1.650 ms | **18.1x** |
-| CPU (Linux) | 0.071 ms | 0.990 ms | **13.9x** |
-
-### End-to-end action latency
-
-| Platform | FlowEdge p99 | PyTorch p99 | Speedup |
-| :--- | ---: | ---: | ---: |
-| Windows | 0.579 ms | 2.277 ms | **3.93x** |
-| Linux | 0.650 ms | 1.695 ms | **2.61x** |
-
-See [performance](docs/performance.md#backbone-forward) for methodology and exact commands.
+Generated-checkpoint/fixed-token C++ latency fixtures and their speedup claims
+were removed. The current public policy result is the captured Diffusion Policy
+replay; see [performance](docs/performance.md#diffusion-policy) for its scope
+and [policy evaluation](docs/guides/policy-evaluation.md) for the full-policy
+evidence contract.
 
 ## External encoder / head-only usage
 

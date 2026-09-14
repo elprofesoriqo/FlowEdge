@@ -56,7 +56,7 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure
 if [[ -n "$PYTHON" ]]; then
   (cd "$ROOT" && "$PYTHON" -m unittest discover -s test -p benchmark_artifact_test.py)
   "$PYTHON" "$ROOT/tools/benchmark/report_budgets.py" \
-    --build-dir "$BUILD_DIR" --model "$MODEL" \
+    --build-dir "$BUILD_DIR" --model "$MODEL" --token 1 --token 2 --token 3 --token 4 \
     --budget "$ROOT/bench/budgets.json" --report "$BUILD_DIR/budget-report.md"
 else
   echo "note: Python unavailable; skipping size/setup budget report"
@@ -67,7 +67,7 @@ fi
 grep -q '"deployment_profile":' "$BUILD_DIR/checkpoint-inspect.json"
 "$(resolve_executable flow_sample)" "$MODEL" heun 6
 "$(resolve_executable flow_sample)" "$MODEL" rk4 6
-"$(resolve_executable mamba_forward)" "$MODEL"
+"$(resolve_executable mamba_forward)" "$MODEL" 1 2 3 4
 "$(resolve_executable external_flow_sample)" "$MODEL"
 "$(resolve_executable streaming_snapshot)" "$MODEL"
 "$(resolve_executable cooperative_job_sample)"

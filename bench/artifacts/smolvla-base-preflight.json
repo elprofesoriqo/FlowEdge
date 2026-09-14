@@ -1,0 +1,22 @@
+{
+  "checkpoint": "model.safetensors",
+  "checkpoint_bytes": 906712520,
+  "config": {
+    "action_dim": 6,
+    "attention": "GQA self/cross attention",
+    "chunk_size": 50,
+    "expert_layers": 16,
+    "expert_width": 720,
+    "flow_steps": 10,
+    "mlp": "SwiGLU",
+    "norm": "RMSNorm"
+  },
+  "errors": [],
+  "model": "lerobot/smolvla_base",
+  "revision": "c83c3163b8ca9b7e67c509fffd9121e66cb96205",
+  "schema_version": 1,
+  "sha256": "7cd549ac2351fb069c0ddb3c34ad2d09cfc92b56a15dccdfc2e41467aaca01eb",
+  "status": "preflight-valid",
+  "supported_by_flowedge": false,
+  "tensor_count": 500
+}

@@ -6,6 +6,7 @@
 #include "heads/flow/flow.h"
 #include "loader/safetensors.h"
 #include "models/mamba/mamba.h"
+#include "models/transformer/transformer.h"
 #include "protocol/model_identity.h"
 
 #include <array>
@@ -50,7 +51,8 @@ public:
 
   [[nodiscard]] bool valid() const noexcept { return ready_; }
   [[nodiscard]] bool has_compatible_flow_head() const noexcept;
-  [[nodiscard]] const MambaConfig& config() const noexcept { return model_.config(); }
+  [[nodiscard]] std::size_t d_model() const noexcept;
+  [[nodiscard]] std::size_t n_layers() const noexcept;
   [[nodiscard]] unsigned thread_count() const noexcept;
   [[nodiscard]] const ModelIdentity& identity() const noexcept { return identity_; }
   [[nodiscard]] const DeploymentProfile* deployment_profile() const noexcept
@@ -99,11 +101,16 @@ private:
 
   int run_backbone(const std::int32_t* tokens, std::size_t seq_len, float* hidden,
                    const char*& error) noexcept;
+  [[nodiscard]] bool has_backbone() const noexcept
+  {
+    return model_.valid() || transformer_.valid();
+  }
 
   std::shared_ptr<const ModelWeights> weights_{};
   std::vector<std::byte> slab_;
   Arena arena_;
   Mamba model_;
+  Transformer transformer_;
   FlowHead flow_;
   DiffusionHead diffusion_;
   ModelIdentity identity_{};

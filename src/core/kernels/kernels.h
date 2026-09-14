@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -112,6 +113,57 @@ FE_FORCE_ALIGN void softplus(std::span<float> x) noexcept;
 // RMSNorm over rows of `dim`: out[r,i] = in[r,i] / sqrt(mean_i(in[r,:]²)+eps) · weight[i]
 FE_FORCE_ALIGN void rmsnorm(std::span<const float> in, std::span<const float> weight,
                             std::span<float> out, std::size_t rows, std::size_t dim) noexcept;
+
+// Affine LayerNorm over rows. Kept scalar and allocation-free so model backbones
+// can use it on every supported CPU before architecture-specific tuning.
+inline void layer_norm(std::span<const float> in, std::span<const float> weight,
+                       std::span<const float> bias, std::span<float> out, std::size_t rows,
+                       std::size_t dim, float epsilon = 1e-5F) noexcept
+{
+  for (std::size_t r{}; r < rows; ++r) {
+    const float* const input = in.data() + (r * dim);
+    float* const output = out.data() + (r * dim);
+    float mean{};
+    for (std::size_t i{}; i < dim; ++i)
+      mean += input[i];
+    mean /= static_cast<float>(dim);
+    float variance{};
+    for (std::size_t i{}; i < dim; ++i) {
+      const float centered = input[i] - mean;
+      variance += centered * centered;
+    }
+    const float scale = 1.0F / std::sqrt((variance / static_cast<float>(dim)) + epsilon);
+    for (std::size_t i{}; i < dim; ++i)
+      output[i] = ((input[i] - mean) * scale * weight[i]) + bias[i];
+  }
+}
+
+// Exact-tanh GELU used by the initial Transformer contract.
+inline void gelu(std::span<float> values) noexcept
+{
+  constexpr float kSqrtTwoOverPi = 0.7978845608028654F;
+  constexpr float kCoefficient = 0.044715F;
+  for (float& value : values) {
+    const float cube = value * value * value;
+    value = 0.5F * value * (1.0F + std::tanh(kSqrtTwoOverPi * (value + (kCoefficient * cube))));
+  }
+}
+
+// Stable in-place softmax for one contiguous score row.
+inline void softmax(std::span<float> values) noexcept
+{
+  if (values.empty())
+    return;
+  const float maximum = *std::max_element(values.begin(), values.end());
+  float sum{};
+  for (float& value : values) {
+    value = std::exp(value - maximum);
+    sum += value;
+  }
+  const float inverse = 1.0F / sum;
+  for (float& value : values)
+    value *= inverse;
+}
 
 // 1 causal-conv step: window is [channels][kernel] with the newest sample at index kernel-1.
 // y[c] = bias[c] + sum_k weight[c,k]·window[c,k]

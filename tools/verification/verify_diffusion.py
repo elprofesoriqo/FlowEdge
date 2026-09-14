@@ -479,14 +479,6 @@ def main():
             example = next((path for path in candidates if path.is_file()), None)
             if example is not None:
                 subprocess.run([str(example), str(converted), "5"], check=True)
-            benchmark_candidates = [
-                build_dir / "flowedge_diffusion_latency_bench",
-                build_dir / "flowedge_diffusion_latency_bench.exe",
-                build_dir / "Release" / "flowedge_diffusion_latency_bench.exe",
-            ]
-            benchmark = next((path for path in benchmark_candidates if path.is_file()), None)
-            if benchmark is not None:
-                subprocess.run([str(benchmark), str(converted), "5", "5"], check=True)
 
 
 if __name__ == "__main__":

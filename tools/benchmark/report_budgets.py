@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,14 +18,13 @@ def find_library(build_dir: Path, names: tuple[str, ...]) -> Path:
     return max(candidates, key=lambda path: path.stat().st_size)
 
 
-def initialization_allocations(executable: Path, model: Path) -> int:
+def initialization_allocations(executable: Path, model: Path, tokens: list[int]) -> int:
     completed = subprocess.run(
         [
             str(executable),
             str(model),
-            str(model),
-            "1",
-            "--lifecycle-cycles",
+            *(str(token) for token in tokens),
+            "--cycles",
             "3",
         ],
         check=False,
@@ -38,15 +36,15 @@ def initialization_allocations(executable: Path, model: Path) -> int:
             f"{executable} failed with exit code {completed.returncode}: "
             f"{completed.stderr.strip()}"
         )
-    match = re.search(
-        r"^FP32\s+\|.*\|\s*(\d+)\s+\|\s*(\d+)\s*$", completed.stdout, re.MULTILINE
-    )
-    if match is None:
-        raise RuntimeError("model latency benchmark did not report an FP32 initialization row")
-    hot_allocations = int(match.group(2))
+    try:
+        result = json.loads(completed.stdout)
+        hot_allocations = int(result["hot_path_allocations"])
+        setup_allocations = int(result["setup_allocations"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise RuntimeError("model lifecycle check did not emit a valid result") from error
     if hot_allocations != 0:
         raise RuntimeError(f"model hot path allocated {hot_allocations} times")
-    return int(match.group(1))
+    return setup_allocations
 
 
 def render(measured: dict[str, int], budgets: dict[str, int]) -> tuple[str, bool]:
@@ -71,7 +69,7 @@ def render(measured: dict[str, int], budgets: dict[str, int]) -> tuple[str, bool
         [
             "",
             "The initialization allocation count covers engine construction and is checked across "
-            "three load/run/free cycles; the benchmark also fails if the measured hot path allocates.",
+            "three load/run/free cycles; the lifecycle check also fails if the measured hot path allocates.",
         ]
     )
     return "\n".join(rows) + "\n", failed
@@ -81,6 +79,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--token", type=int, action="append", required=True)
     parser.add_argument("--budget", type=Path, default=Path("bench/budgets.json"))
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
@@ -99,24 +98,26 @@ def main() -> int:
         }
         core = find_library(args.build_dir, ("libflowedge_engine.a", "flowedge_engine.lib"))
         relay = find_library(args.build_dir, ("libflowedge_relay.a", "flowedge_relay.lib"))
-        benchmark = next(
+        lifecycle_check = next(
             (
                 path
                 for path in (
-                    args.build_dir / "flowedge_model_latency_bench",
-                    args.build_dir / "flowedge_model_latency_bench.exe",
-                    args.build_dir / "Release" / "flowedge_model_latency_bench.exe",
+                    args.build_dir / "flowedge_model_lifecycle_check",
+                    args.build_dir / "flowedge_model_lifecycle_check.exe",
+                    args.build_dir / "Release" / "flowedge_model_lifecycle_check.exe",
                 )
                 if path.is_file()
             ),
             None,
         )
-        if benchmark is None:
-            raise FileNotFoundError("flowedge_model_latency_bench was not found")
+        if lifecycle_check is None:
+            raise FileNotFoundError("flowedge_model_lifecycle_check was not found")
         measured = {
             "core_bytes": core.stat().st_size,
             "relay_bytes": relay.stat().st_size,
-            "model_initialization_allocations": initialization_allocations(benchmark, args.model),
+            "model_initialization_allocations": initialization_allocations(
+                lifecycle_check, args.model, args.token
+            ),
         }
         report, failed = render(measured, budgets)
     except (OSError, KeyError, TypeError, ValueError, RuntimeError, json.JSONDecodeError) as error:

@@ -7,7 +7,7 @@ tool maps supported PyTorch / Hugging Face checkpoints into those layouts.
 ```bash
 pip install torch safetensors huggingface_hub
 python convert/convert.py <source> models/my_model.safetensors \
-  [--arch mamba|diffusion] [--dtype f32|bf16]
+  [--arch mamba|transformer|diffusion] [--dtype f32|bf16]
 ```
 
 `<source>` may be a `.safetensors`, `.pt`, `.pth`, or `.bin` state dict. For a
@@ -18,6 +18,19 @@ Diffusion Policy it may also be the downloaded model directory.
 - **`mamba`** — Hugging Face `state-spaces/mamba-*`. Names already match
   FlowEdge, so conversion normalizes the embedding key and drops unused state.
   `flow.*` tensors, if present, pass through.
+
+- **`transformer`** — GPT-2-style causal decoder checkpoints with learned
+  positions, affine LayerNorm, GELU, and fused QKV attention. The converter
+  transposes Hugging Face GPT-2 `Conv1D` projections into FlowEdge's fixed
+  batch-one/KV-cache contract. It excludes tokenization, LM-head generation,
+  image/language preprocessing, and SmolVLA. SmolVLA needs a separate expert
+  converter because it uses RMSNorm, RoPE, GQA self/cross attention, and SwiGLU.
+
+```bash
+hf download sshleifer/tiny-gpt2 --local-dir models/tiny-gpt2
+python convert/convert.py models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
+  --arch transformer
+```
 
 - **`diffusion`** — the LeRobot `diffusion_pusht` `ConditionalUnet1D`. The
   converter finds `config.json` beside the model or accepts `--config`. It keeps

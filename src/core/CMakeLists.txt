@@ -27,6 +27,7 @@ add_library(flowedge_core STATIC
   protocol/snapshot.cc
   runtime/engine_runtime.cc
   models/mamba/mamba.cc
+  models/transformer/transformer.cc
   heads/diffusion/diffusion.cc
   heads/flow/flow.cc
   api/engine.cc

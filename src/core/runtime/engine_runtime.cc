@@ -4,6 +4,7 @@
 #include "protocol/snapshot.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -39,24 +40,54 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
   const std::size_t action_dim = flow_in[1];
   const std::size_t flow_time_dim = time_proj[1];
   const bool has_backbone = d_model != 0uz && d_inner != 0uz && d_state != 0uz && d_conv != 0uz;
+  const TensorView* const transformer_config = find_tensor(tensors, "transformer.config");
+  const bool has_transformer_config =
+      transformer_config != nullptr && transformer_config->is_f32() &&
+      transformer_config->ndim == 1uz && transformer_config->shape[0] == 6uz;
+  const float* const transformer_values =
+      has_transformer_config ? transformer_config->as_f32() : nullptr;
+  const auto dimension = [](float value, std::size_t maximum) noexcept {
+    if (!std::isfinite(value) || value < 1.0F || value > static_cast<float>(maximum) ||
+        std::trunc(value) != value)
+      return 0uz;
+    return static_cast<std::size_t>(value);
+  };
+  const std::size_t transformer_model =
+      has_transformer_config ? dimension(transformer_values[1], 16'384uz) : 0uz;
+  const std::size_t transformer_layers =
+      has_transformer_config ? dimension(transformer_values[2], 48uz) : 0uz;
+  const std::size_t transformer_prefix =
+      has_transformer_config ? dimension(transformer_values[4], 4'096uz) : 0uz;
+  const std::size_t transformer_mlp =
+      has_transformer_config ? dimension(transformer_values[5], 65'536uz) : 0uz;
+  const bool has_transformer = transformer_model != 0uz && transformer_layers != 0uz &&
+                               transformer_prefix != 0uz && transformer_mlp != 0uz;
   const bool has_flow = flow_hidden != 0uz && action_dim != 0uz && flow_time_dim != 0uz;
   const std::size_t diffusion_workspace = DiffusionHead::required_workspace_floats(tensors);
   const std::size_t diffusion_persistent = DiffusionHead::required_persistent_floats(tensors);
   const bool has_diffusion = diffusion_workspace != 0uz && diffusion_persistent != 0uz;
-  if (!has_backbone && !has_flow && !has_diffusion)
+  if (!has_backbone && !has_transformer && !has_flow && !has_diffusion)
     return 0uz;
 
   const std::size_t per_token =
       has_backbone ? (3uz * d_state * d_inner) + (16uz * d_inner) + (8uz * d_model) : 0uz;
   const std::size_t persistent_state =
       has_backbone ? 64uz * d_inner * (d_conv + (2uz * d_state)) * sizeof(float) : 0uz;
+  const std::size_t transformer_persistent =
+      has_transformer
+          ? 2uz * transformer_layers * transformer_prefix * transformer_model * sizeof(float)
+          : 0uz;
+  const std::size_t transformer_scratch =
+      has_transformer
+          ? ((9uz * transformer_model) + transformer_mlp + transformer_prefix) * sizeof(float)
+          : 0uz;
   const std::size_t flow_floats =
       has_flow ? (3uz * flow_hidden) + (6uz * action_dim) + ((3uz * flow_time_dim) / 2uz) : 0uz;
   const std::size_t runtime =
       (kThreadRingSlots * sizeof(Task)) + (kThreadRingSlots * sizeof(std::size_t)) +
       (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
       ((flow_floats + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
-      persistent_state + 4096uz;
+      persistent_state + transformer_persistent + transformer_scratch + 4096uz;
   return (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
@@ -76,6 +107,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     : weights_{std::move(weights)}, slab_{slab_bytes},
       arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
       model_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
+      transformer_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       flow_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       diffusion_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_}
 {
@@ -86,11 +118,13 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   const std::span<const TensorView> tensors = weights_->tensors();
   identity_.digest = fingerprint_tensors(tensors);
   identity_.precision = checkpoint_precision(tensors);
-  identity_.architecture = diffusion_.valid()                ? FE_ARCH_DIFFUSION_HEAD
-                           : model_.valid() && flow_.valid() ? FE_ARCH_MAMBA_FLOW
-                           : model_.valid()                  ? FE_ARCH_MAMBA
-                           : flow_.valid()                   ? FE_ARCH_FLOW_HEAD
-                                                             : FE_ARCH_UNKNOWN;
+  identity_.architecture = diffusion_.valid()                      ? FE_ARCH_DIFFUSION_HEAD
+                           : transformer_.valid() && flow_.valid() ? FE_ARCH_TRANSFORMER_FLOW
+                           : transformer_.valid()                  ? FE_ARCH_TRANSFORMER
+                           : model_.valid() && flow_.valid()       ? FE_ARCH_MAMBA_FLOW
+                           : model_.valid()                        ? FE_ARCH_MAMBA
+                           : flow_.valid()                         ? FE_ARCH_FLOW_HEAD
+                                                                   : FE_ARCH_UNKNOWN;
   if (model_.valid()) {
     const MambaConfig& config = model_.config();
     identity_.d_model = config.d_model;
@@ -98,6 +132,12 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     identity_.d_inner = config.d_inner;
     identity_.d_state = config.d_state;
     identity_.d_conv = config.d_conv;
+  }
+  if (transformer_.valid()) {
+    const TransformerConfig& config = transformer_.config();
+    identity_.d_model = config.d_model;
+    identity_.n_layers = config.n_layers;
+    identity_.d_inner = config.mlp_dim;
   }
   if (flow_.valid()) {
     identity_.action_dim = flow_.config().action_dim;
@@ -130,6 +170,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   }
 
   model_.set_pool(pool_);
+  transformer_.set_pool(pool_);
   flow_.set_pool(pool_);
   diffusion_.set_pool(pool_);
   if (model_.valid())
@@ -155,7 +196,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     error = "Runtime slab cannot hold the diffusion sampler workspace";
     return;
   }
-  ready_ = model_.valid() || flow_.valid() || diffusion_.valid();
+  ready_ = model_.valid() || transformer_.valid() || flow_.valid() || diffusion_.valid();
 }
 
 EngineRuntime::~EngineRuntime()
@@ -168,7 +209,21 @@ EngineRuntime::~EngineRuntime()
 
 bool EngineRuntime::has_compatible_flow_head() const noexcept
 {
-  return !flow_.valid() || !model_.valid() || flow_.config().cond_dim == model_.config().d_model;
+  return !flow_.valid() || !has_backbone() || flow_.config().cond_dim == d_model();
+}
+
+std::size_t EngineRuntime::d_model() const noexcept
+{
+  return transformer_.valid() ? transformer_.config().d_model
+         : model_.valid()     ? model_.config().d_model
+                              : 0uz;
+}
+
+std::size_t EngineRuntime::n_layers() const noexcept
+{
+  return transformer_.valid() ? transformer_.config().n_layers
+         : model_.valid()     ? model_.config().n_layers
+                              : 0uz;
 }
 
 unsigned EngineRuntime::thread_count() const noexcept
@@ -231,9 +286,16 @@ int EngineRuntime::run(const std::int32_t* tokens, std::size_t seq_len, float* o
 
 int EngineRuntime::step(std::int32_t token, float* out, const char*& error) noexcept
 {
-  if (decode_state_.empty()) [[unlikely]] {
+  if (decode_state_.empty() && !transformer_.valid()) [[unlikely]] {
     error = "Model has no streaming state initialized";
     return 2;
+  }
+  if (transformer_.valid()) {
+    if (!transformer_.decode_token(token, {out, transformer_.config().d_model})) {
+      error = "Token ID is out of range or Transformer KV cache is full";
+      return 3;
+    }
+    return 0;
   }
   const MambaConfig& c = model_.config();
   if (std::cmp_less(token, 0) || std::cmp_greater_equal(token, c.vocab)) {
@@ -257,6 +319,8 @@ int EngineRuntime::step(std::int32_t token, float* out, const char*& error) noex
 void EngineRuntime::reset() noexcept
 {
   std::ranges::fill(decode_state_, 0.0F);
+  if (transformer_.valid())
+    transformer_.reset();
 }
 
 int EngineRuntime::sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise,
@@ -267,7 +331,7 @@ int EngineRuntime::sample(const std::int32_t* tokens, std::size_t seq_len, const
     error = "Model has no flow head to sample from";
     return 4;
   }
-  if (!model_.valid()) {
+  if (!has_backbone()) {
     error = "Model has no backbone for token-conditioned sampling";
     return 4;
   }
@@ -275,14 +339,16 @@ int EngineRuntime::sample(const std::int32_t* tokens, std::size_t seq_len, const
     error = "Flow conditioning dimension does not match the backbone";
     return 4;
   }
-  if (seq_len == 0uz || seq_len > k_max_decode_seq) {
+  const std::size_t prefix_limit =
+      transformer_.valid() ? transformer_.config().max_sequence : k_max_decode_seq;
+  if (seq_len == 0uz || seq_len > prefix_limit) {
     error = "Token sequence exceeds the configured prefill limit";
     return 1;
   }
 
   std::byte* const mark = arena_.mark();
-  const MambaConfig& c = model_.config();
-  auto* const hidden = arena_.alloc_array<float, kSimdAlign>(seq_len * c.d_model);
+  const std::size_t width = d_model();
+  auto* const hidden = arena_.alloc_array<float, kSimdAlign>(seq_len * width);
   if (hidden == nullptr) {
     error = "Arena exhausted allocating hidden states";
     return 2;
@@ -293,7 +359,7 @@ int EngineRuntime::sample(const std::int32_t* tokens, std::size_t seq_len, const
     return rc;
   }
 
-  const std::span<const float> cond{hidden + ((seq_len - 1uz) * c.d_model), c.d_model};
+  const std::span<const float> cond{hidden + ((seq_len - 1uz) * width), width};
   int sample_rc = flow_begin(cond.data(), noise, steps, method, error);
   if (sample_rc == 0) {
     std::size_t remaining{steps};
@@ -470,17 +536,27 @@ int EngineRuntime::import_decode_state(std::span<const std::byte> source,
 int EngineRuntime::run_backbone(const std::int32_t* tokens, std::size_t seq_len, float* hidden,
                                 const char*& error) noexcept
 {
-  if (!model_.valid()) {
+  if (!has_backbone()) {
     error = "Model has no backbone";
     return 4;
   }
-  const MambaConfig& c = model_.config();
-  if (seq_len == 0uz || seq_len > k_max_decode_seq ||
-      seq_len > (std::numeric_limits<std::size_t>::max() / c.d_model)) {
+  const std::size_t width = d_model();
+  const std::size_t prefix_limit =
+      transformer_.valid() ? transformer_.config().max_sequence : k_max_decode_seq;
+  if (seq_len == 0uz || seq_len > prefix_limit ||
+      seq_len > (std::numeric_limits<std::size_t>::max() / width)) {
     error = "Token sequence length is outside the configured prefill limit";
     return 1;
   }
-  const std::size_t hidden_size = seq_len * c.d_model;
+  const std::size_t hidden_size = seq_len * width;
+  if (transformer_.valid()) {
+    if (!transformer_.forward_tokens({tokens, seq_len}, {hidden, hidden_size})) {
+      error = "Transformer token range or fixed prefix limit was violated";
+      return 3;
+    }
+    return 0;
+  }
+  const MambaConfig& c = model_.config();
   auto* const input = arena_.alloc_array<float, kSimdAlign>(hidden_size);
   if (input == nullptr) {
     error = "Arena exhausted during backbone forward pass";
