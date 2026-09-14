@@ -72,3 +72,27 @@ python tools/verification/verify_smolvla_source.py models/smolvla_base \
 
 This proves only that the pinned upstream `SmolVLAPolicy` can construct from
 the local checkpoint. It is not FlowEdge inference or an action-quality result.
+
+## SmolVLA source-parity capture contract
+
+Before implementing the action expert, export a source action chunk from a
+real observation captured through the upstream LeRobot processor. The `.npz`
+capture must contain batch-one, pre-processor tensors:
+
+- `observation.state`: F32 `[1, 6]`;
+- `observation.images.camera1`, `camera2`, and `camera3`: F32 `[1, 3, 256, 256]`
+  RGB values in `[0, 1]`;
+- `observation.language.tokens` and `observation.language.attention_mask`: I64
+  `[1, 48]`;
+- `noise`: F32 `[1, 50, 32]`, captured once and reused by every implementation.
+
+```bash
+python tools/verification/export_smolvla_reference.py \
+  models/smolvla_base real-observation.npz \
+  --output smolvla-source-action.npz \
+  --manifest smolvla-source-action.json
+```
+
+The exporter does not synthesize defaults and rejects missing, reshaped, or
+non-RGB-range inputs. Its action chunk and JSON digests form the later
+FlowEdge parity target.
