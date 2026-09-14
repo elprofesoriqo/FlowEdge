@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare a converted real GPT-2 checkpoint with Hugging Face on one prefix.
+"""Compare real GPT-2 full-prefix and streaming decode with FlowEdge.
 
 This is a conversion/runtime smoke check, not a policy-quality or latency
 benchmark. It intentionally uses a downloaded checkpoint instead of generated
@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -43,6 +42,30 @@ def runtime_path(path: Path, executable: Path) -> str:
     return completed.stdout.strip()
 
 
+def run_flowedge(binary: Path, converted: Path, tokens: list[int], stream: bool) -> list[float]:
+    command = [str(binary), runtime_path(converted, binary), "--json"]
+    if stream:
+        command.append("--stream")
+    command.extend(str(token) for token in tokens)
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        raise RuntimeError(
+            "FlowEdge execution failed: " + (completed.stderr.strip() or completed.stdout.strip())
+        )
+    try:
+        result = json.loads(completed.stdout)
+        outputs = result["outputs"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise RuntimeError("FlowEdge did not emit a valid JSON output") from error
+    if result.get("mode") != ("stream" if stream else "prefill"):
+        raise RuntimeError("FlowEdge reported an unexpected execution mode")
+    if not isinstance(result.get("d_model"), int) or result["d_model"] <= 0:
+        raise RuntimeError("FlowEdge reported an invalid hidden width")
+    if not isinstance(outputs, list) or len(outputs) != len(tokens) * result["d_model"]:
+        raise RuntimeError("FlowEdge reported an invalid output length")
+    return [float(value) for value in outputs]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="local GPT-2-style source directory")
@@ -59,45 +82,46 @@ def main() -> int:
 
     try:
         model = GPT2Model.from_pretrained(args.source).eval()
-        tokens = torch.tensor([[1, 2, 3, 4]], dtype=torch.long)
+        prefix = [1, 2, 3, 4]
+        tokens = torch.tensor([prefix], dtype=torch.long)
         with torch.no_grad():
-            reference = float(model(input_ids=tokens).last_hidden_state[0, 0, 0])
-        completed = subprocess.run(
-            [str(args.binary), runtime_path(args.converted, args.binary), "1", "2", "3", "4"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except (OSError, RuntimeError, ValueError) as error:
+            reference = model(input_ids=tokens).last_hidden_state.flatten().tolist()
+        prefill = run_flowedge(args.binary, args.converted, prefix, stream=False)
+        streaming = run_flowedge(args.binary, args.converted, prefix, stream=True)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
         print(f"reference verification failed: {error}", file=sys.stderr)
         return 2
-    match = re.search(r"out\[0\]=([-+0-9.eE]+)", completed.stdout)
-    if completed.returncode != 0 or match is None:
-        print(completed.stdout, end="", file=sys.stderr)
-        print(completed.stderr, end="", file=sys.stderr)
-        print("reference verification failed: FlowEdge prefix execution failed", file=sys.stderr)
+    if len(reference) != len(prefill) or len(prefill) != len(streaming):
+        print("reference verification failed: hidden output widths differ", file=sys.stderr)
         return 2
-    flowedge = float(match.group(1))
-    absolute_error = abs(reference - flowedge)
+    prefill_error = max(abs(expected - actual) for expected, actual in zip(reference, prefill))
+    streaming_error = max(abs(expected - actual) for expected, actual in zip(reference, streaming))
+    parity_error = max(abs(full - step) for full, step in zip(prefill, streaming))
+    max_error = max(prefill_error, streaming_error, parity_error)
     report = {
         "schema_version": 1,
         "model": "sshleifer/tiny-gpt2",
         "revision": args.revision,
         "source_sha256": sha256(args.source / "pytorch_model.bin"),
         "converted_sha256": sha256(args.converted),
-        "prefix": [1, 2, 3, 4],
-        "reference_first_hidden": reference,
-        "flowedge_first_hidden": flowedge,
-        "absolute_error": absolute_error,
+        "prefix": prefix,
+        "hidden_values": len(reference),
+        "full_prefix_max_absolute_error": prefill_error,
+        "streaming_max_absolute_error": streaming_error,
+        "full_prefix_vs_streaming_max_absolute_error": parity_error,
+        "max_absolute_error": max_error,
         "tolerance": args.tolerance,
-        "status": "passed" if absolute_error <= args.tolerance else "failed",
-        "scope": "real GPT-2 conversion and fixed-prefix runtime smoke check; not policy inference",
+        "status": "passed" if max_error <= args.tolerance else "failed",
+        "scope": (
+            "real GPT-2 conversion plus full-prefix/streaming runtime parity; "
+            "not policy inference"
+        ),
     }
     text = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(text, encoding="utf-8")
     print(text, end="")
-    return 0 if absolute_error <= args.tolerance else 1
+    return 0 if max_error <= args.tolerance else 1
 
 
 if __name__ == "__main__":

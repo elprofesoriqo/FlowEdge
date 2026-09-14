@@ -24,7 +24,8 @@ deployed.
 
 The converter is exercised with the downloaded `sshleifer/tiny-gpt2` checkpoint
 at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares a Hugging
-Face hidden value against the native executable on prefix `[1,2,3,4]`:
+Face hidden states against native full-prefix and streaming execution on prefix
+`[1,2,3,4]`:
 
 ```bash
 python tools/verification/verify_transformer_reference.py \
@@ -33,8 +34,8 @@ python tools/verification/verify_transformer_reference.py \
   --output bench/artifacts/tiny-gpt2-transformer-reference.json
 ```
 
-This validates a real checkpoint conversion and fixed-prefix execution only;
-it is not an action-policy, latency, or SmolVLA result.
+This validates real checkpoint conversion, full-prefix execution, and streaming
+KV-cache parity only; it is not an action-policy, latency, or SmolVLA result.
 
 ## SmolVLA preflight
 
