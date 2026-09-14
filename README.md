@@ -25,8 +25,8 @@ Flow-matching action policies, static memory, deterministic execution, and deadl
 ## Performance Highlights
 
 FlowEdge does not publish generated-checkpoint or fixed-token speedups as
-policy-latency evidence. See [Performance](#performance) for the captured
-visual-policy replay, scope, and reproducible commands.
+policy-latency evidence. See the [benchmark map](docs/benchmarks.md) for the
+captured visual-policy replay, PyTorch comparison, scope, and commands.
 
 ## What is FlowEdge?
 
@@ -177,9 +177,8 @@ cmake --build build-relay -j
 
 Generated-checkpoint/fixed-token C++ latency fixtures and their speedup claims
 were removed. The current public policy result is the captured Diffusion Policy
-replay; see [performance](docs/performance.md#diffusion-policy) for its scope
-and [policy evaluation](docs/guides/policy-evaluation.md) for the full-policy
-evidence contract.
+replay against LeRobot/PyTorch; see [benchmark map](docs/benchmarks.md) and
+[policy evaluation](docs/guides/policy-evaluation.md) for the evidence contract.
 
 ## External encoder / head-only usage
 
