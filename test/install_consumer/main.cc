@@ -1,4 +1,5 @@
 #include "api/engine.h"
+#include "protocol/deadline_flow.h"
 #include "relay/adapters/mamba_stream_adapter.h"
 #include "relay/adapters/routed_adapters.h"
 #include "relay/client/action_delivery.h"
@@ -175,8 +176,11 @@ int main()
       created->request_worker_drain(0uz) == fe::relay::WorkerDrainResult::kStarted;
   const bool drained = created->worker_drained(0uz) && created->accepting_worker_count() == 0uz;
   const bool resumed = created->resume_worker(0uz);
-  return scheduler.capacity() == 1uz && complete && routed_complete && pooled_complete &&
-                 session_released && drain_started && drained && resumed &&
+  const std::array plans{fe::ExecutionPlan{1u, 4u, 0u, 0u, 0u, 1u, 20u, 0u, 0.6}};
+  auto selector = fe::DeadlineFlow::create(plans);
+  const bool plan_selected = selector && selector->select(fe::PlanContext{.slack_ns = 100u}) == 1u;
+  return plan_selected && scheduler.capacity() == 1uz && complete && routed_complete &&
+                 pooled_complete && session_released && drain_started && drained && resumed &&
                  metrics.counters().completed == 1u &&
                  fe::relay::mamba_stream_request_bytes(4uz) == 4uz * sizeof(std::int32_t) &&
                  complete->state == fe::relay::JobState::kComplete &&

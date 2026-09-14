@@ -2,11 +2,11 @@
 
 <img class="fe-hero-img" src="_static/hero.png" alt="FlowEdge" />
 
-<p class="fe-lede">FlowEdge is a small C++23 engine for running flow-matching and diffusion action policies on the edge. It compiles to a dependency-free static binary and runs the whole control loop without a single heap allocation.</p>
+<p class="fe-lede">FlowEdge is a C++23 engine for fixed flow-matching and diffusion action policies. Supported native compute and Relay hot paths use preallocated memory. Python adapters, observation encoders, and robot drivers have separate allocation and timing behavior.</p>
 
 ## What it is
 
-A policy has two parts. A backbone reads the observation prefix and compresses it into a conditioning vector. A head takes that vector, starts from a noise sample, and integrates it into an action chunk. FlowEdge runs both on the CPU, fast enough for a real-time loop.
+The native Mamba path maps a prefix to a condition vector and integrates a flow head into an action chunk. The visual Diffusion Policy adapter uses the source LeRobot encoder outside Core. Measure the complete deployment path against its control period; native component speed alone does not establish real-time suitability.
 
 It is not a training framework and not a graph runtime. It is a fixed set of hand-written architectures that share one kernel library. Every weight and every scratch buffer comes from a single arena, sized once at load, so the runtime path allocates nothing.
 
@@ -48,7 +48,7 @@ It is not a training framework and not a graph runtime. It is a fixed set of han
   </div>
   <div class="fe-card">
     <h4>Heads</h4>
-    <ul><li class="done">Flow matching</li><li class="done">Diffusion Policy</li><li>DiT (experimental)</li></ul>
+    <ul><li class="done">Flow matching</li><li class="done">Diffusion Policy</li><li>DiT (planned)</li></ul>
   </div>
   <div class="fe-card">
     <h4>Solvers</h4>
@@ -90,6 +90,9 @@ graph TD
 Overview <self>
 getting-started
 capabilities
+guides/policy-evaluation
+guides/deadline-flow
+tenstorrent-program
 performance
 ```
 

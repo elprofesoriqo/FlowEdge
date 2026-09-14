@@ -4,11 +4,12 @@
     python convert/convert.py <source> <out.safetensors> [--arch mamba|diffusion]
         [--component all|backbone|head] [--dtype f32|bf16]
 
-<source> is a .safetensors, .pt, .pth or .bin (a state_dict). 
+<source> is a .safetensors, .pt, .pth or .bin (a state_dict).
 FlowEdge's tensor convention mirrors HF Mamba (`backbone.*`)
 + an optional `flow.*` action head,
 so converting a Mamba checkpoint is a rename + normalize pass.
 """
+
 import argparse
 import hashlib
 import json
@@ -123,7 +124,9 @@ def _processor_action_stats(path):
     try:
         stats = _load(path.parent / state_path)
     except (OSError, SafetensorError, ValueError) as exc:
-        raise ValueError(f"cannot read processor state {path.parent / state_path}: {exc}") from exc
+        raise ValueError(
+            f"cannot read processor state {path.parent / state_path}: {exc}"
+        ) from exc
     action_min, action_max = stats.get("action.min"), stats.get("action.max")
     if action_min is None or action_max is None:
         _config_error("processor state must contain action.min and action.max")
@@ -157,7 +160,9 @@ def _processor_state_contract(step):
         _config_error("unnormalizer_processor norm_map must be an object")
     normalization = norm_map.get("ACTION")
     if normalization != "MIN_MAX":
-        _config_error(f"processor ACTION normalization must be 'MIN_MAX', got {normalization!r}")
+        _config_error(
+            f"processor ACTION normalization must be 'MIN_MAX', got {normalization!r}"
+        )
     state_file = step.get("state_file")
     if not isinstance(state_file, str) or not state_file:
         _config_error("unnormalizer_processor state_file is required")
@@ -169,7 +174,9 @@ def _processor_state_contract(step):
 
 def _diffusion_parameters(config, processor_stats):
     if config is None:
-        _config_error("config.json is required (pass --config when it is not beside the model)")
+        _config_error(
+            "config.json is required (pass --config when it is not beside the model)"
+        )
     checks = {
         "type": (config.get("type"), "diffusion"),
         "beta_schedule": (config.get("beta_schedule"), "squaredcos_cap_v2"),
@@ -206,27 +213,69 @@ def _diffusion_parameters(config, processor_stats):
     timestep_dim = int(config["diffusion_step_embed_dim"])
     train_timesteps = int(config["num_train_timesteps"])
     _validate_diffusion_geometry(
-        down_dims, action_dim, horizon, action_steps, observation_steps, kernel,
-        groups, timestep_dim, train_timesteps,
+        down_dims,
+        action_dim,
+        horizon,
+        action_steps,
+        observation_steps,
+        kernel,
+        groups,
+        timestep_dim,
+        train_timesteps,
     )
     clip_range = float(config.get("clip_sample_range", 1.0))
     if not math.isfinite(clip_range) or clip_range <= 0:
         _config_error("clip_sample_range must be finite and positive")
     return (
-        down_dims, action_dim, horizon, action_steps, observation_steps, kernel,
-        groups, timestep_dim, train_timesteps, clip_range,
+        down_dims,
+        action_dim,
+        horizon,
+        action_steps,
+        observation_steps,
+        kernel,
+        groups,
+        timestep_dim,
+        train_timesteps,
+        clip_range,
     )
 
 
-def _validate_diffusion_geometry(down_dims, action_dim, horizon, action_steps, observation_steps, kernel, groups, timestep_dim, train_timesteps):
+def _validate_diffusion_geometry(
+    down_dims,
+    action_dim,
+    horizon,
+    action_steps,
+    observation_steps,
+    kernel,
+    groups,
+    timestep_dim,
+    train_timesteps,
+):
     checks = (
-        (action_dim > 0 and horizon > 0 and horizon % (1 << (len(down_dims) - 1)) == 0, "action dimension/horizon is invalid for the configured U-Net depth"),
+        (
+            action_dim > 0
+            and horizon > 0
+            and horizon % (1 << (len(down_dims) - 1)) == 0,
+            "action dimension/horizon is invalid for the configured U-Net depth",
+        ),
         (0 < observation_steps <= horizon, "n_obs_steps must be between 1 and horizon"),
-        (0 < action_steps <= horizon - observation_steps + 1, "n_action_steps does not fit after the observation prefix"),
+        (
+            0 < action_steps <= horizon - observation_steps + 1,
+            "n_action_steps does not fit after the observation prefix",
+        ),
         (kernel > 0 and kernel % 2, "kernel_size must be positive and odd"),
-        (timestep_dim >= 4 and timestep_dim % 2 == 0, "diffusion_step_embed_dim must be an even value of at least 4"),
-        (groups > 0 and not any(value % groups for value in down_dims), "every down dimension must be divisible by n_groups"),
-        (down_dims[0] % 8 == 0, "the first down dimension must be divisible by LeRobot's final 8 groups"),
+        (
+            timestep_dim >= 4 and timestep_dim % 2 == 0,
+            "diffusion_step_embed_dim must be an even value of at least 4",
+        ),
+        (
+            groups > 0 and not any(value % groups for value in down_dims),
+            "every down dimension must be divisible by n_groups",
+        ),
+        (
+            down_dims[0] % 8 == 0,
+            "the first down dimension must be divisible by LeRobot's final 8 groups",
+        ),
         (train_timesteps > 0, "num_train_timesteps must be positive"),
     )
     for valid, message in checks:
@@ -245,11 +294,15 @@ class _TensorMapper:
         if tensor is None:
             raise ValueError(f"checkpoint is missing required tensor {source!r}")
         if tuple(tensor.shape) != tuple(shape):
-            raise ValueError(f"tensor {source!r} has shape {tuple(tensor.shape)}, expected {tuple(shape)}")
+            raise ValueError(
+                f"tensor {source!r} has shape {tuple(tensor.shape)}, expected {tuple(shape)}"
+            )
         self.output[destination] = tensor
 
     def conv(self, destination, source, out_channels, in_channels, size):
-        self.put(f"{destination}.w", f"{source}.weight", (out_channels, in_channels, size))
+        self.put(
+            f"{destination}.w", f"{source}.weight", (out_channels, in_channels, size)
+        )
         self.put(f"{destination}.b", f"{source}.bias", (out_channels,))
 
     def linear(self, destination, source, out_features, in_features):
@@ -260,21 +313,54 @@ class _TensorMapper:
         self.put(f"{destination}.w", f"{source}.weight", (channels,))
         self.put(f"{destination}.b", f"{source}.bias", (channels,))
 
-    def residual(self, destination, source, in_channels, out_channels, kernel, film_width):
-        self.conv(f"{destination}.c1", f"{source}.conv1.block.0", out_channels, in_channels, kernel)
+    def residual(
+        self, destination, source, in_channels, out_channels, kernel, film_width
+    ):
+        self.conv(
+            f"{destination}.c1",
+            f"{source}.conv1.block.0",
+            out_channels,
+            in_channels,
+            kernel,
+        )
         self.norm(f"{destination}.n1", f"{source}.conv1.block.1", out_channels)
-        self.linear(f"{destination}.film", f"{source}.cond_encoder.1", 2 * out_channels, film_width)
-        self.conv(f"{destination}.c2", f"{source}.conv2.block.0", out_channels, out_channels, kernel)
+        self.linear(
+            f"{destination}.film",
+            f"{source}.cond_encoder.1",
+            2 * out_channels,
+            film_width,
+        )
+        self.conv(
+            f"{destination}.c2",
+            f"{source}.conv2.block.0",
+            out_channels,
+            out_channels,
+            kernel,
+        )
         self.norm(f"{destination}.n2", f"{source}.conv2.block.1", out_channels)
         if in_channels != out_channels:
-            self.conv(f"{destination}.res", f"{source}.residual_conv", out_channels, in_channels, 1)
+            self.conv(
+                f"{destination}.res",
+                f"{source}.residual_conv",
+                out_channels,
+                in_channels,
+                1,
+            )
 
 
 def diffusion(sd, config, processor_stats=None):
     """LeRobot ConditionalUnet1D -> short FlowEdge `dp.*` tensor names."""
     (
-        down_dims, action_dim, horizon, action_steps, observation_steps, kernel,
-        groups, timestep_dim, train_timesteps, clip_range,
+        down_dims,
+        action_dim,
+        horizon,
+        action_steps,
+        observation_steps,
+        kernel,
+        groups,
+        timestep_dim,
+        train_timesteps,
+        clip_range,
     ) = _diffusion_parameters(config, processor_stats)
 
     root = "diffusion.unet"
@@ -286,7 +372,9 @@ def diffusion(sd, config, processor_stats=None):
         _config_error("U-Net FiLM width does not contain an observation condition")
 
     mapper = _TensorMapper(sd)
-    _map_diffusion(mapper, root, down_dims, action_dim, kernel, timestep_dim, condition_dim)
+    _map_diffusion(
+        mapper, root, down_dims, action_dim, kernel, timestep_dim, condition_dim
+    )
     _map_action_statistics(mapper, processor_stats, action_dim)
     out = mapper.output
     action_min, action_max = out["dp.action_min"], out["dp.action_max"]
@@ -296,38 +384,103 @@ def diffusion(sd, config, processor_stats=None):
         _config_error("action normalization max must be strictly greater than min")
     out["dp.dims"] = torch.tensor(down_dims, dtype=torch.float32)
     out["dp.meta"] = torch.tensor(
-        [1, action_dim, horizon, action_steps, observation_steps, condition_dim, len(down_dims),
-         kernel, groups, timestep_dim, train_timesteps, 0, 0, int(bool(config.get("clip_sample", True))),
-         clip_range, 0], dtype=torch.float32,
+        [
+            1,
+            action_dim,
+            horizon,
+            action_steps,
+            observation_steps,
+            condition_dim,
+            len(down_dims),
+            kernel,
+            groups,
+            timestep_dim,
+            train_timesteps,
+            0,
+            0,
+            int(bool(config.get("clip_sample", True))),
+            clip_range,
+            0,
+        ],
+        dtype=torch.float32,
     )
     return out
 
 
-def _map_diffusion(mapper, root, down_dims, action_dim, kernel, timestep_dim, condition_dim):
-    mapper.linear("dp.te1", f"{root}.diffusion_step_encoder.1", timestep_dim * 4, timestep_dim)
-    mapper.linear("dp.te2", f"{root}.diffusion_step_encoder.3", timestep_dim, timestep_dim * 4)
+def _map_diffusion(
+    mapper, root, down_dims, action_dim, kernel, timestep_dim, condition_dim
+):
+    mapper.linear(
+        "dp.te1", f"{root}.diffusion_step_encoder.1", timestep_dim * 4, timestep_dim
+    )
+    mapper.linear(
+        "dp.te2", f"{root}.diffusion_step_encoder.3", timestep_dim, timestep_dim * 4
+    )
 
     for stage, out_channels in enumerate(down_dims):
         in_channels = action_dim if stage == 0 else down_dims[stage - 1]
-        mapper.residual(f"dp.d{stage}.r0", f"{root}.down_modules.{stage}.0", in_channels, out_channels, kernel, timestep_dim + condition_dim)
-        mapper.residual(f"dp.d{stage}.r1", f"{root}.down_modules.{stage}.1", out_channels, out_channels, kernel, timestep_dim + condition_dim)
+        mapper.residual(
+            f"dp.d{stage}.r0",
+            f"{root}.down_modules.{stage}.0",
+            in_channels,
+            out_channels,
+            kernel,
+            timestep_dim + condition_dim,
+        )
+        mapper.residual(
+            f"dp.d{stage}.r1",
+            f"{root}.down_modules.{stage}.1",
+            out_channels,
+            out_channels,
+            kernel,
+            timestep_dim + condition_dim,
+        )
         if stage + 1 < len(down_dims):
-            mapper.conv(f"dp.d{stage}.ds", f"{root}.down_modules.{stage}.2", out_channels, out_channels, 3)
+            mapper.conv(
+                f"dp.d{stage}.ds",
+                f"{root}.down_modules.{stage}.2",
+                out_channels,
+                out_channels,
+                3,
+            )
 
     largest = down_dims[-1]
     for block in range(2):
-        mapper.residual(f"dp.m{block}", f"{root}.mid_modules.{block}", largest, largest, kernel, timestep_dim + condition_dim)
+        mapper.residual(
+            f"dp.m{block}",
+            f"{root}.mid_modules.{block}",
+            largest,
+            largest,
+            kernel,
+            timestep_dim + condition_dim,
+        )
 
     for stage in range(len(down_dims) - 1):
         high = down_dims[-1 - stage]
         low = down_dims[-2 - stage]
-        mapper.residual(f"dp.u{stage}.r0", f"{root}.up_modules.{stage}.0", 2 * high, low, kernel, timestep_dim + condition_dim)
-        mapper.residual(f"dp.u{stage}.r1", f"{root}.up_modules.{stage}.1", low, low, kernel, timestep_dim + condition_dim)
+        mapper.residual(
+            f"dp.u{stage}.r0",
+            f"{root}.up_modules.{stage}.0",
+            2 * high,
+            low,
+            kernel,
+            timestep_dim + condition_dim,
+        )
+        mapper.residual(
+            f"dp.u{stage}.r1",
+            f"{root}.up_modules.{stage}.1",
+            low,
+            low,
+            kernel,
+            timestep_dim + condition_dim,
+        )
         # LeRobot uses equal input/output widths here, so its ConvTranspose1d
         # storage [in,out,k] is also [low,low,4].
         mapper.conv(f"dp.u{stage}.us", f"{root}.up_modules.{stage}.2", low, low, 4)
 
-    mapper.conv("dp.f.c", f"{root}.final_conv.0.block.0", down_dims[0], down_dims[0], kernel)
+    mapper.conv(
+        "dp.f.c", f"{root}.final_conv.0.block.0", down_dims[0], down_dims[0], kernel
+    )
     mapper.norm("dp.f.n", f"{root}.final_conv.0.block.1", down_dims[0])
     mapper.conv("dp.f.o", f"{root}.final_conv.1", action_dim, down_dims[0], 1)
 
@@ -335,7 +488,9 @@ def _map_diffusion(mapper, root, down_dims, action_dim, kernel, timestep_dim, co
 def _map_action_statistics(mapper, processor_stats, action_dim):
     if processor_stats:
         action_min, action_max = processor_stats[1:]
-        if tuple(action_min.shape) != (action_dim,) or tuple(action_max.shape) != (action_dim,):
+        if tuple(action_min.shape) != (action_dim,) or tuple(action_max.shape) != (
+            action_dim,
+        ):
             raise ValueError(
                 "processor action statistics must have shape "
                 f"({action_dim},), got {tuple(action_min.shape)} and {tuple(action_max.shape)}"
@@ -373,13 +528,17 @@ def _require(sd, names, component):
 
 
 def _arguments():
-    ap = argparse.ArgumentParser(description="Convert a torch/HF checkpoint to FlowEdge .safetensors")
+    ap = argparse.ArgumentParser(
+        description="Convert a torch/HF checkpoint to FlowEdge .safetensors"
+    )
     ap.add_argument("source")
     ap.add_argument("out")
     ap.add_argument("--arch", choices=sorted(ARCH), default="mamba")
     ap.add_argument("--component", choices=("all", "backbone", "head"), default="all")
     ap.add_argument("--dtype", choices=("f32", "bf16"), default="f32")
-    ap.add_argument("--config", help="Diffusion Policy config.json (auto-detected beside source)")
+    ap.add_argument(
+        "--config", help="Diffusion Policy config.json (auto-detected beside source)"
+    )
     ap.add_argument(
         "--processor",
         help="LeRobot policy_postprocessor.json (auto-detected for a source directory)",
@@ -400,16 +559,24 @@ def _diffusion_inputs(args, source, default_config):
     if processor_path is None and source.is_dir() and candidate.is_file():
         processor_path = candidate
     try:
-        return config, _processor_action_stats(processor_path) if processor_path else None
+        return config, _processor_action_stats(
+            processor_path
+        ) if processor_path else None
     except (TypeError, ValueError) as exc:
         sys.exit(f"error: {exc}")
 
 
 def _component(state_dict, component):
     prefixes = {"backbone": ("backbone.",), "head": ("flow.", "dp.")}
-    return state_dict if component == "all" else {
-        key: value for key, value in state_dict.items() if key.startswith(prefixes[component])
-    }
+    return (
+        state_dict
+        if component == "all"
+        else {
+            key: value
+            for key, value in state_dict.items()
+            if key.startswith(prefixes[component])
+        }
+    )
 
 
 def main():
@@ -444,12 +611,24 @@ def main():
 
     if args.arch == "mamba" and args.component != "head":
         _require(sd, REQUIRED_BACKBONE, "backbone")
-    if args.arch == "diffusion" or args.component == "head" or any(key.startswith("flow.") for key in sd):
+    if (
+        args.arch == "diffusion"
+        or args.component == "head"
+        or any(key.startswith("flow.") for key in sd)
+    ):
         required = REQUIRED_DIFFUSION if args.arch == "diffusion" else REQUIRED_FLOW
         _require(sd, required, f"{args.arch} head")
 
     metadata = {}
     if args.arch == "diffusion":
+        digest = hashlib.sha256()
+        with model_source.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        metadata["flowedge.source_sha256"] = digest.hexdigest()
+        metadata["flowedge.source_config_sha256"] = hashlib.sha256(
+            _canonical_json(config).encode("utf-8")
+        ).hexdigest()
         film_width = int(sd["dp.d0.r0.film.w"].shape[1])
         timestep_dim = int(config["diffusion_step_embed_dim"])
         condition_dim = film_width - timestep_dim
@@ -457,12 +636,18 @@ def main():
             _deployment_profile(config, sd, condition_dim)
         )
     save_file(sd, args.out, metadata=metadata)
-    layer_ids = [int(key.split(".")[2]) for key in sd if key.startswith("backbone.layers.")]
+    layer_ids = [
+        int(key.split(".")[2]) for key in sd if key.startswith("backbone.layers.")
+    ]
     layers = 1 + max(layer_ids) if layer_ids else 0
-    head = "diffusion" if any(k.startswith("dp.") for k in sd) else (
-        "flow" if any(k.startswith("flow.") for k in sd) else "none"
+    head = (
+        "diffusion"
+        if any(k.startswith("dp.") for k in sd)
+        else ("flow" if any(k.startswith("flow.") for k in sd) else "none")
     )
-    print(f"wrote {args.out}: {len(sd)} tensors, {layers} layers, head={head}, dtype={args.dtype}")
+    print(
+        f"wrote {args.out}: {len(sd)} tensors, {layers} layers, head={head}, dtype={args.dtype}"
+    )
 
 
 if __name__ == "__main__":

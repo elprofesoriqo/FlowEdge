@@ -67,6 +67,9 @@ def _measurement(value: Any, name: str) -> dict[str, Any]:
         _text(measurement.get("reason"), f"{name}.reason")
         return {"status": status, "reason": measurement["reason"]}
     for field in ("startup_ms", "rss_mb", "throughput_hz"):
+        if field == "rss_mb" and measurement.get(field) is None:
+            _text(measurement.get("rss_reason"), f"{name}.rss_reason")
+            continue
         _number(
             measurement.get(field), f"{name}.{field}", positive=field == "throughput_hz"
         )
@@ -75,6 +78,9 @@ def _measurement(value: Any, name: str) -> dict[str, Any]:
     allocations = _mapping(measurement.get("allocations"), f"{name}.allocations")
     for field in ("setup", "hot_path"):
         value = allocations.get(field)
+        if value is None:
+            _text(allocations.get("reason"), f"{name}.allocations.reason")
+            continue
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ArtifactError(
                 f"{name}.allocations.{field} must be a non-negative integer"
@@ -129,6 +135,8 @@ def validate(document: Any) -> dict[str, Any]:
 
 
 def _display(value: Any, suffix: str = "") -> str:
+    if value is None:
+        return "not measured"
     return f"{value:.3f}{suffix}" if isinstance(value, float) else f"{value}{suffix}"
 
 
@@ -226,7 +234,7 @@ def render(document: dict[str, Any]) -> str:
             f"{_triplet(measurement, 'encoder_ms')} | {_triplet(measurement, 'policy_ms')} | "
             f"{_triplet(measurement, 'end_to_end_ms')} | "
             f"{_display(measurement['throughput_hz'], ' Hz')} | {_display(measurement['rss_mb'], ' MiB')} | "
-            f"{allocations['setup']} / {allocations['hot_path']} |"
+            f"{_display(allocations['setup'])} / {_display(allocations['hot_path'])} |"
         )
     rows += _comparison(measurements)
     rows += [
@@ -244,7 +252,7 @@ def render(document: dict[str, Any]) -> str:
         "",
         "- Repeat on the target CPU, OS, compiler, thread count, power mode, and checkpoint before making a deployment decision.",
         "- RSS includes process/runtime state and is not a per-inference allocation measurement.",
-        "- Setup allocations may be non-zero; the FlowEdge hot-path count is expected to remain zero after setup.",
+        "- The zero-allocation contract applies to supported native paths; unknown full-policy counts remain unmeasured.",
     ]
     for limitation in document.get("limitations", []):
         rows.append(f"- {limitation}")

@@ -31,9 +31,15 @@ $env:FLOWEDGE_MODEL="models/mamba_flow.safetensors"
 .\.venv\Scripts\python.exe tools\benchmark\torch_ref.py bench models/mamba_flow.safetensors 1
 ```
 
-### Euler action head
+### Synthetic Euler flow head
 
 Same deterministic 4-layer head, Euler 10 steps, and 20,000 iterations.
+
+This benchmark constructs generated MLP weights independently of the smoke checkpoint.
+It measures only `FlowHead::sample`, excluding encoder, backbone, IPC, and controller
+delivery. The README's historical "end-to-end action latency" label was incorrect.
+See [policy evaluation](guides/policy-evaluation) for complete visual-policy replay and
+PushT evaluation with separate Python allocation and timing contracts.
 
 | Platform | FlowEdge mean | PyTorch mean | Speedup | FlowEdge p99 | PyTorch p99 | Speedup |
 |---|---:|---:|---:|---:|---:|---:|
@@ -55,6 +61,20 @@ Windows PowerShell:
 ```
 
 ## Diffusion Policy
+
+### Matched visual-policy replay
+
+The {download}`captured CPU replay artifact <../bench/artifacts/diffusion-pusht-cpu-replay.md>`
+and its [raw samples](../bench/artifacts/diffusion-pusht-cpu-replay.json) use the pinned
+trained checkpoint, source RGB encoder/normalization, a two-observation PushT history,
+and matched noise with ten DDIM steps. On this Windows/Clang host, the 20-sample run
+measured roughly 25.97 s FlowEdge versus 3.12 s LeRobot median preprocessing-to-chunk
+latency. FlowEdge is slower on this workload; the synthetic MLP speedup does not apply.
+Maximum absolute action error was 7.63e-5 in dataset units. The small run characterizes
+this fixture, not stable p99, general task success, or robot suitability. See the artifact
+for raw timings, shared-process memory accounting, versions, and unmeasured allocations.
+
+### Earlier component measurements
 
 Measured 2026-09-09 on the same Intel i7-9750H WSL2 host with GCC 13.3,
 Release builds, and the pinned `lerobot/diffusion_pusht` revision

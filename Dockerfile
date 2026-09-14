@@ -81,6 +81,9 @@ RUN cmake -S . -B "$FLOWEDGE_BUILD_DIR" -G Ninja \
     && FLOWEDGE_BUILD_DIR="$FLOWEDGE_BUILD_DIR" ./scripts/job_demo.sh models/mamba_flow.safetensors
 
 RUN python3 -m pip install --break-system-packages . \
-    && python3 -c "import flowedge; print('import OK:', flowedge.Engine)"
+    && python3 -c "import flowedge; print('import OK:', flowedge.Engine)" \
+    && python3 -m pip install --break-system-packages --no-deps -e integrations/lerobot \
+    && python3 -m unittest discover -s integrations/lerobot/tests -v \
+    && python3 -m unittest discover -s test -p benchmark_artifact_test.py -v
 
 CMD ["ctest", "--test-dir", "/workspace/build", "--output-on-failure"]

@@ -33,8 +33,8 @@
     "build_type": "Release"
   },
   "commands": {
-    "flowedge": "FLOWEDGE_THREADS=1 ./build/flowedge_diffusion_latency_bench model.flowedge.safetensors 10 1000",
-    "lerobot": "python -m flowedge_lerobot.benchmark --checkpoint model --steps 10 --iterations 1000"
+    "flowedge": "python -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 100 --output bench-results/policy.json",
+    "lerobot": "python -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 100 --output bench-results/policy.json"
   },
   "measurements": {
     "flowedge": {

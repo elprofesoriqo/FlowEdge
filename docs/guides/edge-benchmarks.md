@@ -38,11 +38,15 @@ the reason. The report will keep the missing comparison visible.
 | `end_to_end_ms` | Encoder + policy + adapter boundary | Use for control-loop budgeting |
 | `throughput_hz` | Completed end-to-end iterations per second | Include thread count and batch size in `contract`/`limitations` |
 | `rss_mb` | Peak or sampled process resident set size | Name the measurement tool and timing in `limitations` |
-| `allocations` | Setup and hot-path allocation counts | FlowEdge hot path must remain zero after setup |
+| `allocations` | Setup and hot-path allocation counts | Native contract remains zero; uninstrumented Python/full-policy counts are null with a reason |
 
 The artifact also requires model and processor revisions, a checkpoint SHA-256, canonical
 observation schema hash, normalization/action units, hardware/compiler/build details, and the
 exact commands. `tools/benchmark/benchmark_artifact.py` rejects missing fields or non-monotonic quantiles.
+
+Use the [policy evaluation runner](policy-evaluation) to capture both implementations
+automatically. It reports shared process RSS explicitly; unavailable RSS is null with
+`rss_reason`. The template remains an example, not a measurement.
 
 ## Interpreting a report
 

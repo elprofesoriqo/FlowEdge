@@ -50,6 +50,20 @@ class BenchmarkArtifactTest(unittest.TestCase):
         with self.assertRaises(benchmark_artifact.ArtifactError):
             benchmark_artifact.validate(document)
 
+    def test_unknown_allocations_need_a_reason_and_are_not_rendered_as_zero(self):
+        document = measured()
+        document["measurements"]["flowedge"]["allocations"] = {
+            "setup": None,
+            "hot_path": None,
+        }
+        with self.assertRaises(benchmark_artifact.ArtifactError):
+            benchmark_artifact.validate(document)
+        document["measurements"]["flowedge"]["allocations"]["reason"] = (
+            "not instrumented"
+        )
+        report = benchmark_artifact.render(benchmark_artifact.validate(document))
+        self.assertIn("not measured / not measured", report)
+
     def test_missing_reference_is_allowed_but_marked(self):
         document = measured()
         document["measurements"]["lerobot"] = None

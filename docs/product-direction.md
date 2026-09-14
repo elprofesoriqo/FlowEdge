@@ -23,7 +23,12 @@ runtime.
 | Trace and state capsule | Reproduce actions and migrate compatible state | [Relay proposal](ecosystem/relay-proposal) |
 | LeRobot adapter | Run a converted Diffusion Policy through a bounded rollout seam | [LeRobot](guides/lerobot) |
 
-## Next customer sequence
+## Active development sequence
+
+The [roadmap](roadmap) is the source of truth: validate the LeRobot visual-policy
+boundary, establish matched replay and task evaluation, implement one exact SmolVLA
+path on Tenstorrent, then evaluate DeadlineFlow. The partner milestones below support
+that sequence; upstream acceptance and hardware access are external dependencies.
 
 ```{mermaid}
 flowchart LR

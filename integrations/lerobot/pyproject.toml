@@ -17,6 +17,11 @@ dependencies = [
 
 [project.scripts]
 flowedge-lerobot-rollout = "flowedge_lerobot.cli:main"
+flowedge-lerobot-benchmark = "flowedge_lerobot.benchmark:main"
+flowedge-lerobot-evaluate = "flowedge_lerobot.evaluate:main"
+
+[project.optional-dependencies]
+evaluation = ["gym-pusht==0.1.5", "pymunk>=6.6,<7"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

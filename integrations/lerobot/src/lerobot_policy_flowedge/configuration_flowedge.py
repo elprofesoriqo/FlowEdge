@@ -10,7 +10,12 @@ from lerobot.optim.optimizers import AdamWConfig
 @dataclass
 class FlowEdgeConfig(PreTrainedConfig):
     checkpoint_path: str = ""
-    action_steps: int = 1
+    action_steps: int | None = None
+    input_mode: str = "encoded"
+    source_checkpoint_path: str = ""
+    seed: int = 0
+    inference_steps: int = 10
+    scheduler: str = "ddim"
 
     def get_optimizer_preset(self) -> AdamWConfig:
         raise RuntimeError(
@@ -21,6 +26,20 @@ class FlowEdgeConfig(PreTrainedConfig):
         return None
 
     def validate_features(self) -> None:
+        if self.input_mode not in {"encoded", "visual"}:
+            raise ValueError("input_mode must be encoded or visual")
+        if self.input_mode == "visual" and not self.source_checkpoint_path:
+            raise ValueError("visual input requires source_checkpoint_path")
+        if self.input_mode == "encoded" and self.image_features:
+            raise ValueError("encoded input does not accept images; use visual input")
+        if self.action_steps is not None and self.action_steps <= 0:
+            raise ValueError("action_steps must be positive")
+        if (
+            self.seed < 0
+            or self.inference_steps <= 0
+            or self.scheduler not in {"ddim", "ddpm"}
+        ):
+            raise ValueError("invalid seed, inference_steps, or scheduler")
         if self.robot_state_feature is None or self.action_feature is None:
             raise ValueError(
                 "FlowEdge plugin requires observation.state input and action output features"
@@ -36,7 +55,7 @@ class FlowEdgeConfig(PreTrainedConfig):
 
     @property
     def action_delta_indices(self):
-        return list(range(self.action_steps))
+        return None if self.action_steps is None else list(range(self.action_steps))
 
     @property
     def reward_delta_indices(self):

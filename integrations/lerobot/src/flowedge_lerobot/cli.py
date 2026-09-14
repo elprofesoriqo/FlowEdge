@@ -136,6 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     policy = FlowEdgeDiffusionPolicy.from_checkpoint(
         args.checkpoint, threads=args.threads
     )
+    startup_ms = (time.perf_counter() - started) * 1_000
     result = run_simulator(
         policy,
         steps=args.steps,
@@ -148,7 +149,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     report.update(
         platform=platform.platform(),
         machine=platform.machine(),
-        startup_ms=(time.perf_counter() - started) * 1_000,
+        startup_ms=startup_ms,
+        evaluation_kind="synthetic_integration_smoke",
         peak_rss_bytes=_peak_rss_bytes(),
     )
     print(json.dumps(report, sort_keys=True))
