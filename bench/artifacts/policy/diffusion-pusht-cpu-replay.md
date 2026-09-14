@@ -16,10 +16,12 @@
 | Run shape | batch 1; 10 inference steps |
 | Host | `Jankowski`; Windows-10-10.0.26200-SP0; Intel64 Family 6 Model 158 Stepping 13, GenuineIntel; 1 threads |
 | Build | `Clang 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)`; Release |
+| Comparison | FlowEdge native runtime vs LeRobot policy executed with PyTorch |
+| Reference framework | `PyTorch` |
 
 ## Measurements
 
-Encoder and policy are reported separately. End-to-end includes both and is the number to use for control-loop budgeting.
+Encoder and policy are reported separately. End-to-end includes both and is the number to use for control-loop budgeting. The reference row is the same LeRobot policy executed through PyTorch.
 
 | Backend | Startup | Encoder p50 / p95 / p99 | Policy p50 / p95 / p99 | E2E p50 / p95 / p99 | Throughput | RSS | Setup / hot allocations |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -37,15 +39,15 @@ Encoder and policy are reported separately. End-to-end includes both and is the 
 ## Commands
 
 ```text
-FlowEdge: C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/diffusion-pusht-cpu-replay.json
-LeRobot:  C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/diffusion-pusht-cpu-replay.json
+FlowEdge: C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/policy/diffusion-pusht-cpu-replay.json
+LeRobot:  C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/policy/diffusion-pusht-cpu-replay.json
 ```
 
 ## Limits
 
 - Repeat on the target CPU, OS, compiler, thread count, power mode, and checkpoint before making a deployment decision.
 - RSS includes process/runtime state and is not a per-inference allocation measurement.
-- Setup allocations may be non-zero; the FlowEdge hot-path count is expected to remain zero after setup.
+- The zero-allocation contract applies to supported native paths; unknown full-policy counts remain unmeasured.
 - CPU full-policy replay of one fixed PushT observation history; not closed-loop task success.
 - End-to-end includes preprocessing, encoder, history and sampling; excludes camera capture, IPC and robot delivery.
 - RSS is shared process high-water memory with both implementations resident, not per-backend memory.
