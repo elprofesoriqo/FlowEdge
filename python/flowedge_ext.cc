@@ -33,15 +33,19 @@ public:
     const int flags = PyBUF_FORMAT | PyBUF_C_CONTIGUOUS | (writable ? PyBUF_WRITABLE : 0);
     if (PyObject_GetBuffer(object.ptr(), &view_, flags) != 0)
       throw py::error_already_set{};
-    const bool format_matches = view_.format != nullptr &&
-                                (std::is_same_v<T, float> ? std::strcmp(view_.format, "f") == 0
-                                                          : (std::strcmp(view_.format, "i") == 0 ||
-                                                             std::strcmp(view_.format, "l") == 0));
+    const bool format_matches =
+        view_.format != nullptr &&
+        (std::is_same_v<T, float> ? std::strcmp(view_.format, "f") == 0
+         : std::is_same_v<T, std::uint8_t>
+             ? (std::strcmp(view_.format, "B") == 0 || std::strcmp(view_.format, "b") == 0)
+             : (std::strcmp(view_.format, "i") == 0 || std::strcmp(view_.format, "l") == 0));
     if (view_.itemsize != static_cast<Py_ssize_t>(sizeof(T)) || !format_matches) {
       PyBuffer_Release(&view_);
       view_.obj = nullptr;
       throw std::runtime_error(std::is_same_v<T, float> ? "expected a C-contiguous float32 buffer"
-                                                        : "expected a C-contiguous int32 buffer");
+                               : std::is_same_v<T, std::uint8_t>
+                                   ? "expected a C-contiguous uint8 buffer"
+                                   : "expected a C-contiguous int32 buffer");
     }
   }
 
@@ -67,6 +71,7 @@ private:
 
 using FloatBuffer = TypedBuffer<float>;
 using Int32Buffer = TypedBuffer<std::int32_t>;
+using UInt8Buffer = TypedBuffer<std::uint8_t>;
 
 py::object float_array(py::handle numpy, std::size_t size)
 {
@@ -185,7 +190,7 @@ public:
   }
 
   // External VLM/proprioception encoder embeddings -> hidden states.
-  py::object run_embeddings(py::handle embeddings_object)
+  py::object run_embeddings(py::handle embeddings_object, py::object attention_mask)
   {
     py::object embeddings_array = contiguous_array(numpy_, embeddings_object, "float32");
     const FloatBuffer embeddings{embeddings_array};
@@ -194,15 +199,47 @@ public:
       throw std::runtime_error("embeddings must contain one or more complete d_model rows");
     py::object out = float_matrix(numpy_, embeddings.size() / width, width);
     FloatBuffer output{out, true};
-    run_embeddings_native(embeddings, output);
+    if (attention_mask.is_none())
+      run_embeddings_native(embeddings, output);
+    else {
+      py::object mask_array = contiguous_array(numpy_, attention_mask, "uint8");
+      const UInt8Buffer mask{mask_array};
+      run_embeddings_masked_native(embeddings, mask, output);
+    }
     return out;
   }
 
-  void run_embeddings_into(py::handle embeddings_object, py::handle output_object)
+  void run_embeddings_into(py::handle embeddings_object, py::handle output_object,
+                           py::object attention_mask)
   {
     const FloatBuffer embeddings{embeddings_object};
     FloatBuffer output{output_object, true};
-    run_embeddings_native(embeddings, output);
+    if (attention_mask.is_none())
+      run_embeddings_native(embeddings, output);
+    else {
+      py::object mask_array = contiguous_array(numpy_, attention_mask, "uint8");
+      const UInt8Buffer mask{mask_array};
+      run_embeddings_masked_native(embeddings, mask, output);
+    }
+  }
+
+  void run_embeddings_masked_native(const FloatBuffer& embeddings, const UInt8Buffer& mask,
+                                    FloatBuffer& output)
+  {
+    const std::size_t width = d_model();
+    if (width == 0uz || embeddings.size() == 0uz || embeddings.size() % width != 0uz ||
+        mask.size() != embeddings.size() / width || output.size() != embeddings.size())
+      throw std::runtime_error(
+          "embedding, attention_mask, and output shapes must be [seq_len, d_model], [seq_len], "
+          "and [seq_len, d_model]");
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_run_embeddings_masked(engine_, embeddings.data(), mask.data(),
+                                           embeddings.size() / width, output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
   }
 
   py::object step(std::int32_t token)
@@ -448,7 +485,7 @@ private:
     {
       py::gil_scoped_release release;
       rc = fe_engine_run_embeddings(engine_, embeddings.data(), embeddings.size() / width,
-                                     output.mutable_data());
+                                    output.mutable_data());
     }
     if (rc != 0)
       throw std::runtime_error(fe_engine_last_error());
@@ -580,9 +617,10 @@ PYBIND11_MODULE(flowedge, m)
       .def_property_readonly("diffusion_metadata", &Engine::diffusion_metadata)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("run_into", &Engine::run_into, py::arg("tokens"), py::arg("output"))
-      .def("run_embeddings", &Engine::run_embeddings, py::arg("embeddings"))
+      .def("run_embeddings", &Engine::run_embeddings, py::arg("embeddings"),
+           py::arg("attention_mask") = py::none())
       .def("run_embeddings_into", &Engine::run_embeddings_into, py::arg("embeddings"),
-           py::arg("output"))
+           py::arg("output"), py::arg("attention_mask") = py::none())
       .def("step", &Engine::step, py::arg("token"))
       .def("step_into", &Engine::step_into, py::arg("token"), py::arg("output"))
       .def("reset", &Engine::reset)

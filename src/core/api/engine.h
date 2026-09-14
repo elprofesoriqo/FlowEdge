@@ -128,6 +128,16 @@ int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, size_t 
                              float* out);
 
 /**
+ * @brief Process caller-supplied embeddings with a batch-one prefix attention mask.
+ *
+ * `attention_mask` contains one byte per row: leading 1 values are attended and
+ * trailing 0 values are padding. The mask is the condition-sequence boundary
+ * for VLA adapters; it does not implement a SmolVLA action expert.
+ */
+int fe_engine_run_embeddings_masked(fe_engine* engine, const float* embeddings,
+                                    const uint8_t* attention_mask, size_t seq_len, float* out);
+
+/**
  * @brief Advance the streaming decode state by a single token.
  * @param engine The engine instance.
  * @param token The input token ID.

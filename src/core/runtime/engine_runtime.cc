@@ -578,6 +578,13 @@ int EngineRuntime::run_backbone(const std::int32_t* tokens, std::size_t seq_len,
 int EngineRuntime::run_embeddings(const float* embeddings, std::size_t seq_len, float* out,
                                   const char*& error) noexcept
 {
+  return run_embeddings_masked(embeddings, nullptr, seq_len, out, error);
+}
+
+int EngineRuntime::run_embeddings_masked(const float* embeddings,
+                                         const std::uint8_t* attention_mask, std::size_t seq_len,
+                                         float* out, const char*& error) noexcept
+{
   if (!transformer_.valid()) {
     error = "Model has no Transformer backbone for external embeddings";
     return 4;
@@ -589,13 +596,13 @@ int EngineRuntime::run_embeddings(const float* embeddings, std::size_t seq_len, 
     error = "Embedding sequence length is outside the configured prefill limit";
     return 1;
   }
-  transformer_.reset();
-  for (std::size_t index{}; index < seq_len; ++index) {
-    if (!transformer_.decode_embedding({embeddings + (index * width), width},
-                                       {out + (index * width), width})) {
-      error = "Transformer embedding sequence could not be executed";
-      return 3;
-    }
+  const std::span<const std::uint8_t> mask =
+      attention_mask == nullptr ? std::span<const std::uint8_t>{}
+                                : std::span<const std::uint8_t>{attention_mask, seq_len};
+  if (!transformer_.forward_embeddings({embeddings, seq_len * width}, mask,
+                                       {out, seq_len * width})) {
+    error = "Transformer embedding sequence or attention mask could not be executed";
+    return 3;
   }
   return 0;
 }

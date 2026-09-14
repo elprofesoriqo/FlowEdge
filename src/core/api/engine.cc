@@ -328,6 +328,20 @@ int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, std::si
   return engine->runtime.run_embeddings(embeddings, seq_len, out, last_error());
 }
 
+int fe_engine_run_embeddings_masked(fe_engine* engine, const float* embeddings,
+                                    const std::uint8_t* attention_mask, std::size_t seq_len,
+                                    float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || embeddings == nullptr || attention_mask == nullptr || out == nullptr ||
+      seq_len == 0uz) {
+    last_error() = "Invalid arguments to fe_engine_run_embeddings_masked";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.run_embeddings_masked(embeddings, attention_mask, seq_len, out,
+                                               last_error());
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif

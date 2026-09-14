@@ -35,6 +35,10 @@ TEST(CAbiContract, NullHandlesReportInvalidArguments)
   EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_run");
   EXPECT_EQ(fe_engine_run_embeddings(nullptr, &value, 1uz, &value), FE_STATUS_INVALID_ARGUMENT);
   EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_run_embeddings");
+  const std::uint8_t mask = 1u;
+  EXPECT_EQ(fe_engine_run_embeddings_masked(nullptr, &value, &mask, 1uz, &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_run_embeddings_masked");
   EXPECT_EQ(fe_engine_step(nullptr, token, &value), FE_STATUS_INVALID_ARGUMENT);
   EXPECT_STREQ(fe_engine_last_error(), "Invalid null arguments to fe_engine_step");
   EXPECT_EQ(fe_engine_flow_advance(nullptr, 1uz, &value, &remaining), FE_STATUS_INVALID_ARGUMENT);

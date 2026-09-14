@@ -77,6 +77,8 @@ public:
   int run(const std::int32_t* tokens, std::size_t seq_len, float* out, const char*& error) noexcept;
   int run_embeddings(const float* embeddings, std::size_t seq_len, float* out,
                      const char*& error) noexcept;
+  int run_embeddings_masked(const float* embeddings, const std::uint8_t* attention_mask,
+                            std::size_t seq_len, float* out, const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
   void reset() noexcept;
   int sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise, std::size_t steps,

@@ -23,9 +23,11 @@ and a matched reference replay are required before this baseline can be called
 deployed.
 
 The C and Python APIs also expose `run_embeddings`, which accepts caller-owned
-`[sequence, d_model]` F32 rows and runs the same reset-and-prefill path. This is
-the intended boundary for a future LeRobot visual/language encoder; it does not
-make the current SmolVLA checkpoint executable.
+`[sequence, d_model]` F32 rows and runs the same reset-and-prefill path. An
+optional batch-one prefix `attention_mask` (`1` values followed by padding `0`
+values) makes the condition-sequence boundary explicit for VLA adapters. This
+is groundwork for SmolVLA; it does not implement cross-attention, the VLM, or
+the current SmolVLA action expert.
 
 The converter is exercised with the downloaded `sshleifer/tiny-gpt2` checkpoint
 at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares a Hugging

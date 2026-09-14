@@ -58,6 +58,20 @@ action = np.empty(e.action_dim, dtype=np.float32)
 e.sample_condition(condition, noise, action, 8, "heun")
 ```
 
+For a generic Transformer checkpoint, the experimental boundary accepts
+caller-owned embedding rows. A batch-one prefix mask may be supplied for padded
+VLA sequences; it must contain
+leading `1` values followed by `0` padding:
+
+```python
+transformer = flowedge.Engine("models/tiny-gpt2.flowedge.safetensors")
+embeddings = external_vlm(observation).astype(np.float32, copy=False)
+mask = np.array([1, 1, 1, 0], dtype=np.uint8)
+hidden = transformer.run_embeddings(embeddings, attention_mask=mask)
+```
+
+This is an embedding boundary, not a native SmolVLA encoder or action expert.
+
 The same solve can be split across scheduler quanta without changing its result:
 
 ```python
