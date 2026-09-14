@@ -40,7 +40,12 @@ endif()
 foreach(ex flow_sample mamba_forward external_flow_sample streaming_snapshot diffusion_sample)
   flowedge_executable(${ex} examples/core/${ex}.cc FlowEdge::Core)
 endforeach()
+# The same checkpoint/input runner supports Transformer and Mamba backbones. Keep
+# the historical mamba_forward target while giving Transformer documentation a
+# model-neutral executable name.
+flowedge_executable(transformer_forward examples/core/mamba_forward.cc FlowEdge::Core)
 flowedge_executable(flowedge-inspect tools/checkpoint_inspect.cc FlowEdge::Core)
+flowedge_executable(flowedge_model_lifecycle_check tools/model_lifecycle_check.cc FlowEdge::Core)
 if(FLOWEDGE_RELAY)
   foreach(ex relay_client_sample cooperative_job_sample routed_job_sample mamba_relay_stream
              action_delivery_sample)
@@ -70,13 +75,6 @@ if(FLOWEDGE_BENCH)
 
   flowedge_executable(flowedge_kernels_bench bench/kernels_bench.cc FlowEdge::Core
                       benchmark::benchmark)
-  flowedge_executable(flowedge_engine_bench bench/engine_bench.cc FlowEdge::Core
-                      benchmark::benchmark)
-  flowedge_executable(flowedge_latency_bench bench/latency_bench.cc FlowEdge::Core)
-  flowedge_executable(flowedge_model_latency_bench bench/model_latency_bench.cc FlowEdge::Core)
-  flowedge_executable(flowedge_diffusion_latency_bench bench/diffusion_latency_bench.cc
-                      FlowEdge::Core)
-
   execute_process(
     COMMAND git rev-parse --short=12 HEAD
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}

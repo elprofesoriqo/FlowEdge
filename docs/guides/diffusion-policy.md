@@ -65,14 +65,11 @@ PYTHONPATH=build python tools/verification/verify_diffusion.py build
 PYTHONPATH=build python tools/verification/verify_diffusion_public.py \
   models/diffusion_pusht/model.safetensors \
   models/diffusion_pusht.flowedge.safetensors --build build
-FLOWEDGE_BENCH_CPU="Ryzen 9 7950X" \
-  ./build/flowedge_diffusion_latency_bench \
-  models/diffusion_pusht.flowedge.safetensors 10 100
 ```
 
-The benchmark reports compiler, build type, threads, steps, and denoiser/full
-DDIM p50/p95/p99 latency. Set `FLOWEDGE_BENCH_CPU` so saved results identify the
-processor.
+The former C++ latency runner generated its own condition and noise, so it was
+removed. Use the matched visual-policy replay in the [performance guide](../performance.md)
+for end-to-end measurements with captured observations and source preprocessing.
 
 ## Limits
 

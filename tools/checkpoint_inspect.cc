@@ -120,9 +120,9 @@ bool has_prefix(std::span<const fe::TensorMetadata> tensors, std::string_view pr
   return false;
 }
 
-std::size_t layer_count(std::span<const fe::TensorMetadata> tensors) noexcept
+std::size_t layer_count(std::span<const fe::TensorMetadata> tensors,
+                        std::string_view prefix) noexcept
 {
-  constexpr std::string_view prefix = "backbone.layers.";
   std::size_t count{0uz};
   for (const auto& tensor : tensors) {
     const std::string_view name = tensor.name_view();
@@ -176,7 +176,7 @@ void inspect_mamba(std::span<const fe::TensorMetadata> tensors, Report& report)
   report.d_inner = a_log->ndim == 2uz ? a_log->shape[0] : 0uz;
   report.d_state = a_log->ndim == 2uz ? a_log->shape[1] : 0uz;
   report.d_conv = conv->ndim == 3uz ? conv->shape[2] : 0uz;
-  report.n_layers = layer_count(tensors);
+  report.n_layers = layer_count(tensors, "backbone.layers.");
   if (!shape_is(norm, {report.d_model}))
     report.errors.emplace_back("backbone.norm_f.weight has an incompatible shape");
   if (report.n_layers == 0uz)
@@ -209,6 +209,37 @@ void inspect_mamba(std::span<const fe::TensorMetadata> tensors, Report& report)
   if (report.d_inner != 0uz && report.d_state != 0uz && report.d_conv != 0uz)
     report.persistent_state_bytes =
         report.n_layers * report.d_inner * (report.d_conv + report.d_state) * sizeof(float);
+}
+
+void inspect_transformer(std::span<const fe::TensorMetadata> tensors, Report& report)
+{
+  const auto* token = find_tensor(tensors, "transformer.embeddings.token.weight");
+  const auto* position = find_tensor(tensors, "transformer.embeddings.position.weight");
+  const auto* norm = find_tensor(tensors, "transformer.norm_f.weight");
+  for (const std::string_view name :
+       {"transformer.config", "transformer.embeddings.token.weight",
+        "transformer.embeddings.position.weight", "transformer.norm_f.weight"})
+    missing_if_absent(tensors, name, report);
+  if (token == nullptr || position == nullptr || norm == nullptr)
+    return;
+  if (token->ndim != 2uz || position->ndim != 2uz) {
+    report.errors.emplace_back("Transformer embeddings must be matrices");
+    return;
+  }
+  report.d_model = token->shape[1];
+  report.n_layers = layer_count(tensors, "transformer.layers.");
+  if (position->shape[1] != report.d_model || !shape_is(norm, {report.d_model}))
+    report.errors.emplace_back("Transformer root tensor shapes are incompatible");
+  if (report.n_layers == 0uz)
+    report.errors.emplace_back("Transformer has no numbered layers");
+  for (std::size_t layer{}; layer < report.n_layers; ++layer) {
+    const std::string prefix = "transformer.layers." + std::to_string(layer) + ".";
+    for (const std::string_view suffix :
+         {"ln_1.weight", "ln_1.bias", "attn.qkv.weight", "attn.qkv.bias", "attn.out_proj.weight",
+          "attn.out_proj.bias", "ln_2.weight", "ln_2.bias", "mlp.fc_in.weight", "mlp.fc_in.bias",
+          "mlp.fc_out.weight", "mlp.fc_out.bias"})
+      missing_if_absent(tensors, prefix + std::string{suffix}, report);
+  }
 }
 
 void inspect_flow(std::span<const fe::TensorMetadata> tensors, Report& report)
@@ -486,27 +517,34 @@ int main(int argc, char** argv)
     if (!tensor.supported())
       report.unsupported.emplace_back(tensor.name_view());
   const bool mamba = has_prefix(tensors, "backbone.");
+  const bool transformer = has_prefix(tensors, "transformer.");
   const bool flow = has_prefix(tensors, "flow.");
   const bool diffusion = has_prefix(tensors, "dp.");
-  report.family = diffusion       ? "diffusion-policy"
-                  : mamba && flow ? "mamba-flow"
-                  : mamba         ? "mamba"
-                  : flow          ? "flow-head"
-                                  : "unknown";
+  report.family = diffusion             ? "diffusion-policy"
+                  : transformer && flow ? "transformer-flow"
+                  : transformer         ? "transformer"
+                  : mamba && flow       ? "mamba-flow"
+                  : mamba               ? "mamba"
+                  : flow                ? "flow-head"
+                                        : "unknown";
   if (mamba)
     inspect_mamba(tensors, report);
+  if (transformer)
+    inspect_transformer(tensors, report);
   if (flow)
     inspect_flow(tensors, report);
   if (diffusion)
     inspect_diffusion(tensors, report);
-  if (!mamba && !flow && !diffusion)
+  if (!mamba && !transformer && !flow && !diffusion)
     report.errors.emplace_back("unknown model family");
-  if (diffusion && (mamba || flow))
+  if (diffusion && (mamba || transformer || flow))
     report.errors.emplace_back(
         "Diffusion Policy tensors cannot be mixed with backbone or flow tensors");
+  if (mamba && transformer)
+    report.errors.emplace_back("Mamba and Transformer tensors cannot be mixed in one checkpoint");
   if (!report.unsupported.empty())
     report.errors.emplace_back("checkpoint contains unsupported tensor dtypes");
-  if (mamba && flow && report.condition_dim != report.d_model)
+  if ((mamba || transformer) && flow && report.condition_dim != report.d_model)
     report.errors.emplace_back("flow condition_dim does not match backbone d_model");
 
   const auto weights = fe::ModelWeights::open(path);
@@ -533,6 +571,12 @@ int main(int argc, char** argv)
         else
           report.errors.emplace_back("Diffusion Policy runtime configuration is unavailable");
       }
+    } else if (transformer && report.arena_bytes != 0uz) {
+      const char* runtime_error = nullptr;
+      fe::EngineRuntime runtime{*weights, report.arena_bytes, 0u, runtime_error};
+      if (!runtime.valid())
+        report.errors.emplace_back(
+            runtime_error != nullptr ? runtime_error : "Transformer runtime initialization failed");
     }
   } else {
     report.errors.emplace_back(weights.error());

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert a torch / HuggingFace checkpoint into FlowEdge .safetensors layout.
 
-    python convert/convert.py <source> <out.safetensors> [--arch mamba|diffusion]
+    python convert/convert.py <source> <out.safetensors> [--arch mamba|transformer|diffusion]
         [--component all|backbone|head] [--dtype f32|bf16]
 
 <source> is a .safetensors, .pt, .pth or .bin (a state_dict).
@@ -44,6 +44,14 @@ REQUIRED_DIFFUSION = [
     "dp.te2.w",
     "dp.f.o.w",
 ]
+REQUIRED_TRANSFORMER = [
+    "transformer.config",
+    "transformer.embeddings.token.weight",
+    "transformer.embeddings.position.weight",
+    "transformer.layers.0.attn.qkv.weight",
+    "transformer.layers.0.mlp.fc_in.weight",
+    "transformer.norm_f.weight",
+]
 
 
 def _load(path):
@@ -65,6 +73,84 @@ def mamba(sd):
         k = k.replace("backbone.embedding.weight", "backbone.embeddings.weight")
         if k.startswith("backbone.") or k.startswith("flow."):
             out[k] = v
+    return out
+
+
+def _transformer_config(config, key):
+    value = config.get(key)
+    if not isinstance(value, int) or value <= 0:
+        raise ValueError(f"unsupported Transformer config: {key} must be a positive integer")
+    return value
+
+
+def transformer(sd, config):
+    """Map a GPT-2 decoder into FlowEdge's fixed causal contract.
+
+    Hugging Face GPT-2 stores Conv1D projections as [in, out]; FlowEdge uses
+    [out, in]. Tokenization, LM-head generation, and other model families are
+    deliberately out of scope.
+    """
+    if config is None:
+        raise ValueError("Transformer conversion requires config.json")
+    if config.get("model_type") != "gpt2":
+        raise ValueError("Transformer conversion currently supports model_type 'gpt2' only")
+    if config.get("activation_function", "gelu_new") not in {"gelu", "gelu_new"}:
+        raise ValueError("Transformer conversion supports GELU/GELU-new MLP activations only")
+
+    vocab = _transformer_config(config, "vocab_size")
+    d_model = _transformer_config(config, "n_embd")
+    n_layers = _transformer_config(config, "n_layer")
+    n_heads = _transformer_config(config, "n_head")
+    max_sequence = _transformer_config(config, "n_positions")
+    if d_model % n_heads:
+        raise ValueError("unsupported Transformer config: n_embd must divide n_head")
+    n_inner = config.get("n_inner") or (4 * d_model)
+    if not isinstance(n_inner, int) or n_inner <= 0:
+        raise ValueError("unsupported Transformer config: n_inner must be a positive integer")
+
+    def get(name, expected_shape):
+        value = sd.get(name)
+        if value is None:
+            raise ValueError(f"checkpoint is missing required tensor {name!r}")
+        if tuple(value.shape) != tuple(expected_shape):
+            raise ValueError(
+                f"tensor {name!r} has shape {tuple(value.shape)}, expected {tuple(expected_shape)}"
+            )
+        return value
+
+    out = {
+        "transformer.config": torch.tensor(
+            [vocab, d_model, n_layers, n_heads, max_sequence, n_inner], dtype=torch.float32
+        ),
+        "transformer.embeddings.token.weight": get("transformer.wte.weight", (vocab, d_model)),
+        "transformer.embeddings.position.weight": get(
+            "transformer.wpe.weight", (max_sequence, d_model)
+        ),
+    }
+    for layer in range(n_layers):
+        source, destination = f"transformer.h.{layer}", f"transformer.layers.{layer}"
+        out[f"{destination}.ln_1.weight"] = get(f"{source}.ln_1.weight", (d_model,))
+        out[f"{destination}.ln_1.bias"] = get(f"{source}.ln_1.bias", (d_model,))
+        out[f"{destination}.attn.qkv.weight"] = get(
+            f"{source}.attn.c_attn.weight", (d_model, 3 * d_model)
+        ).transpose(0, 1).contiguous()
+        out[f"{destination}.attn.qkv.bias"] = get(f"{source}.attn.c_attn.bias", (3 * d_model,))
+        out[f"{destination}.attn.out_proj.weight"] = get(
+            f"{source}.attn.c_proj.weight", (d_model, d_model)
+        ).transpose(0, 1).contiguous()
+        out[f"{destination}.attn.out_proj.bias"] = get(f"{source}.attn.c_proj.bias", (d_model,))
+        out[f"{destination}.ln_2.weight"] = get(f"{source}.ln_2.weight", (d_model,))
+        out[f"{destination}.ln_2.bias"] = get(f"{source}.ln_2.bias", (d_model,))
+        out[f"{destination}.mlp.fc_in.weight"] = get(
+            f"{source}.mlp.c_fc.weight", (d_model, n_inner)
+        ).transpose(0, 1).contiguous()
+        out[f"{destination}.mlp.fc_in.bias"] = get(f"{source}.mlp.c_fc.bias", (n_inner,))
+        out[f"{destination}.mlp.fc_out.weight"] = get(
+            f"{source}.mlp.c_proj.weight", (n_inner, d_model)
+        ).transpose(0, 1).contiguous()
+        out[f"{destination}.mlp.fc_out.bias"] = get(f"{source}.mlp.c_proj.bias", (d_model,))
+    out["transformer.norm_f.weight"] = get("transformer.ln_f.weight", (d_model,))
+    out["transformer.norm_f.bias"] = get("transformer.ln_f.bias", (d_model,))
     return out
 
 
@@ -507,7 +593,7 @@ def _map_action_statistics(mapper, processor_stats, action_dim):
         mapper.put("dp.action_max", max_key, (action_dim,))
 
 
-ARCH = {"mamba": mamba, "diffusion": diffusion}
+ARCH = {"mamba": mamba, "transformer": transformer, "diffusion": diffusion}
 
 
 def _convert_dtype(name, tensor, weight_dtype):
@@ -537,7 +623,8 @@ def _arguments():
     ap.add_argument("--component", choices=("all", "backbone", "head"), default="all")
     ap.add_argument("--dtype", choices=("f32", "bf16"), default="f32")
     ap.add_argument(
-        "--config", help="Diffusion Policy config.json (auto-detected beside source)"
+        "--config",
+        help="architecture config.json (auto-detected beside source; required for Transformer)",
     )
     ap.add_argument(
         "--processor",
@@ -567,7 +654,10 @@ def _diffusion_inputs(args, source, default_config):
 
 
 def _component(state_dict, component):
-    prefixes = {"backbone": ("backbone.",), "head": ("flow.", "dp.")}
+    prefixes = {
+        "backbone": ("backbone.", "transformer."),
+        "head": ("flow.", "dp."),
+    }
     return (
         state_dict
         if component == "all"
@@ -585,6 +675,8 @@ def main():
     source = Path(args.source)
     if source.is_dir():
         model_source = source / "model.safetensors"
+        if not model_source.is_file():
+            model_source = source / "pytorch_model.bin"
         default_config = source / "config.json"
     else:
         model_source = source
@@ -593,11 +685,21 @@ def main():
     processor_stats = None
     if args.arch == "diffusion":
         config, processor_stats = _diffusion_inputs(args, source, default_config)
+    if args.arch == "transformer":
+        if args.component == "head":
+            sys.exit("error: Transformer conversion exports a backbone, not an action head")
+        config_path = Path(args.config) if args.config else default_config
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            sys.exit(f"error: cannot read Transformer config {config_path}: {exc}")
     try:
         loaded = _load(model_source)
         sd = (
             diffusion(loaded, config, processor_stats)
             if args.arch == "diffusion"
+            else transformer(loaded, config)
+            if args.arch == "transformer"
             else mamba(loaded)
         )
     except (KeyError, TypeError, ValueError) as exc:
@@ -611,6 +713,8 @@ def main():
 
     if args.arch == "mamba" and args.component != "head":
         _require(sd, REQUIRED_BACKBONE, "backbone")
+    if args.arch == "transformer":
+        _require(sd, REQUIRED_TRANSFORMER, "Transformer backbone")
     if (
         args.arch == "diffusion"
         or args.component == "head"
@@ -636,9 +740,8 @@ def main():
             _deployment_profile(config, sd, condition_dim)
         )
     save_file(sd, args.out, metadata=metadata)
-    layer_ids = [
-        int(key.split(".")[2]) for key in sd if key.startswith("backbone.layers.")
-    ]
+    layer_prefix = "transformer.layers." if args.arch == "transformer" else "backbone.layers."
+    layer_ids = [int(key.split(".")[2]) for key in sd if key.startswith(layer_prefix)]
     layers = 1 + max(layer_ids) if layer_ids else 0
     head = (
         "diffusion"

@@ -20,7 +20,7 @@ Tenstorrent, then DeadlineFlow experiments. CPU Mamba remains a supported refere
 |---:|---|---|
 | 1 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks, reset tests |
 | 2 | Matched replay and task evaluation | Raw timings, checkpoint/processor hashes, PushT episode outcomes |
-| 3 | Exact SmolVLA reference contract | Pinned checkpoint, token/mask/state interfaces, trajectory fixtures |
+| 3 | Exact SmolVLA reference contract | Pinned real-checkpoint preflight; converter, source-encoder parity, and complete action-expert execution still required |
 | 4 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers, complete Euler integration |
 | 5 | Accelerator optimization | Profile-driven layouts, traces or kernels; reproducible hardware records |
 | 6 | DeadlineFlow research evaluation | Fixed/adaptive baselines, quality/deadline curves, underruns, ablations |
@@ -40,7 +40,7 @@ sequence. Release correctness remains mandatory throughout.
 | Track | Planned |
 |---|---|
 | Heads | ACT, VQ-BeT, π0; Diffusion Policy `diffusion_pusht` is done |
-| Backbone | Transformer and KV cache |
+| Backbone | Transformer policy adapter and source SmolVLA encoder/action-expert parity |
 | Weight traffic | NUMA replication experiments, INT8 |
 | Backends | CUDA, Tenstorrent |
 | Perception | External observation-encoder integration |

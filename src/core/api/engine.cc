@@ -227,11 +227,10 @@ void fe_engine_dims(const fe_engine* engine, std::size_t* d_model, std::size_t* 
 {
   if (engine == nullptr)
     return;
-  const fe::MambaConfig& config = engine->runtime.config();
   if (d_model != nullptr)
-    *d_model = config.d_model;
+    *d_model = engine->runtime.d_model();
   if (n_layers != nullptr)
-    *n_layers = config.n_layers;
+    *n_layers = engine->runtime.n_layers();
 }
 
 unsigned fe_engine_thread_count(const fe_engine* engine)

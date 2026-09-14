@@ -44,7 +44,7 @@ It is not a training framework and not a graph runtime. It is a fixed set of han
 <div class="fe-grid">
   <div class="fe-card">
     <h4>Backbones</h4>
-    <ul><li class="done">Mamba SSM</li><li>Transformer (planned)</li></ul>
+    <ul><li class="done">Mamba SSM</li><li>Experimental Transformer decoder baseline</li></ul>
   </div>
   <div class="fe-card">
     <h4>Heads</h4>
@@ -91,6 +91,7 @@ Overview <self>
 getting-started
 capabilities
 guides/policy-evaluation
+guides/transformer-backbone
 guides/deadline-flow
 tenstorrent-program
 performance

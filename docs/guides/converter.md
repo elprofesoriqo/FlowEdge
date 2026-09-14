@@ -17,6 +17,19 @@ graph LR
 python convert/convert.py <source> models/out.safetensors --arch mamba
 ```
 
+Convert a real GPT-2-style decoder into the experimental fixed-shape Transformer
+baseline:
+
+```bash
+hf download sshleifer/tiny-gpt2 --local-dir models/tiny-gpt2
+python convert/convert.py models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
+  --arch transformer
+```
+
+This maps learned positions, affine LayerNorm, GELU MLPs, and GPT-2 fused QKV
+attention. It does not convert the tokenizer, LM head, visual encoder, or the
+SmolVLA action expert.
+
 Extract only the action head for an external encoder:
 
 ```bash

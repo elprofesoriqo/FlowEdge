@@ -17,7 +17,7 @@ cooperative jobs, replay, and telemetry.
 | Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
 | Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
 | Run managed Mamba streams | `scripts/job_demo.sh` | QoS, lane recovery, trace, metrics |
-| Compare with PyTorch | [Performance](performance) | Matched inputs and exact commands |
+| Evaluate a policy | [Performance](performance) | Captured replay and its explicit scope |
 
 ## Execution map
 
@@ -76,7 +76,7 @@ flowchart LR
 | Area | Status |
 |---|---|
 | External runtime plugins | TensorRT, general PyTorch, llama.cpp/vLLM adapters are planned |
-| Transformer and KV cache | Planned in issue #10 |
+| Transformer and KV cache | Experimental fixed-shape GPT-style CPU baseline and KV cache; real GPT-2 conversion smoke-tested, policy parity remains pending |
 | Diffusion Policy | LeRobot `diffusion_pusht` head is available; DiT and π0 remain planned |
 | CUDA, Metal, Vulkan, TTNN | Planned backends |
 | ROS 2 and Zenoh | Optional Relay adapters after the production model service |

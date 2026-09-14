@@ -25,7 +25,7 @@ if os.name == "nt":
 
 PREFIX = np.array(
     [1, 2, 3, 4], dtype=np.int32
-)  # must match tools/benchmark/torch_ref.py TOKENS
+)  # Reference prefix for the Mamba ULP gate; not a latency workload.
 NFE = 10
 EPS_REL = 2e-3  # per-dim relative-error gate
 EPS_ULP = 4096  # per-dim float32 ULP gate

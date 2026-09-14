@@ -1,64 +1,8 @@
 # Performance
 
-Intel i7-9750H (6C/12T), Release. Comparisons use one CPU thread and PyTorch 2.13 CPU. Lower latency
-is better.
-
-## FlowEdge vs PyTorch
-
-Measured 2026-08-31.
-
-### Backbone forward
-
-Same smoke checkpoint and token input `[1, 2, 3, 4]`.
-
-| Platform | FlowEdge | PyTorch | Speedup |
-|---|---:|---:|---:|
-| Windows | 0.091 ms | 1.650 ms | 18.1x |
-| Linux | 0.071 ms | 0.990 ms | 13.9x |
-
-Linux:
-
-```bash
-FLOWEDGE_MODEL=models/mamba_flow.safetensors ./build/flowedge_engine_bench --benchmark_min_time=0.2s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
-python3 tools/benchmark/torch_ref.py bench models/mamba_flow.safetensors 1
-```
-
-Windows PowerShell:
-
-```powershell
-$env:FLOWEDGE_MODEL="models/mamba_flow.safetensors"
-.\build\flowedge_engine_bench.exe --benchmark_min_time=0.2s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
-.\.venv\Scripts\python.exe tools\benchmark\torch_ref.py bench models/mamba_flow.safetensors 1
-```
-
-### Synthetic Euler flow head
-
-Same deterministic 4-layer head, Euler 10 steps, and 20,000 iterations.
-
-This benchmark constructs generated MLP weights independently of the smoke checkpoint.
-It measures only `FlowHead::sample`, excluding encoder, backbone, IPC, and controller
-delivery. The README's historical "end-to-end action latency" label was incorrect.
-See [policy evaluation](guides/policy-evaluation) for complete visual-policy replay and
-PushT evaluation with separate Python allocation and timing contracts.
-
-| Platform | FlowEdge mean | PyTorch mean | Speedup | FlowEdge p99 | PyTorch p99 | Speedup |
-|---|---:|---:|---:|---:|---:|---:|
-| Windows | 375.73 us | 1,384.08 us | 3.68x | 579.40 us | 2,277.40 us | 3.93x |
-| Linux | 395.18 us | 939.67 us | 2.38x | 649.80 us | 1,694.64 us | 2.61x |
-
-Linux:
-
-```bash
-./build/flowedge_latency_bench euler 20000
-python3 tools/benchmark/torch_ref.py latency euler 20000
-```
-
-Windows PowerShell:
-
-```powershell
-.\build\flowedge_latency_bench.exe euler 20000
-.\.venv\Scripts\python.exe tools\benchmark\torch_ref.py latency euler 20000
-```
+Intel i7-9750H (6C/12T), Release. Lower latency is better. Generated
+checkpoints and fixed-token C++ benchmark fixtures are deliberately excluded
+from this page: they do not establish robot-policy latency or control quality.
 
 ## Diffusion Policy
 
@@ -69,12 +13,13 @@ and its [raw samples](../bench/artifacts/diffusion-pusht-cpu-replay.json) use th
 trained checkpoint, source RGB encoder/normalization, a two-observation PushT history,
 and matched noise with ten DDIM steps. On this Windows/Clang host, the 20-sample run
 measured roughly 25.97 s FlowEdge versus 3.12 s LeRobot median preprocessing-to-chunk
-latency. FlowEdge is slower on this workload; the synthetic MLP speedup does not apply.
+latency. FlowEdge is slower on this workload. The removed generated-weight flow-head
+fixture is not evidence about this policy.
 Maximum absolute action error was 7.63e-5 in dataset units. The small run characterizes
 this fixture, not stable p99, general task success, or robot suitability. See the artifact
 for raw timings, shared-process memory accounting, versions, and unmeasured allocations.
 
-### Earlier component measurements
+### Kernel diagnostics
 
 Measured 2026-09-09 on the same Intel i7-9750H WSL2 host with GCC 13.3,
 Release builds, and the pinned `lerobot/diffusion_pusht` revision
@@ -101,20 +46,17 @@ and 41.3 ms respectively. The benchmark host and commands are:
 ```bash
 cmake -S . -B build-diffusion-perf -DCMAKE_BUILD_TYPE=Release \
   -DFLOWEDGE_BACKEND=cpu -DFLOWEDGE_BENCH=ON
-cmake --build build-diffusion-perf --target flowedge_kernels_bench flowedge_diffusion_latency_bench -j2
+cmake --build build-diffusion-perf --target flowedge_kernels_bench -j2
 ./build-diffusion-perf/flowedge_kernels_bench \
   --benchmark_filter='BM_diffusion_' --benchmark_min_time=0.2s \
   --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
-FLOWEDGE_THREADS=4 FLOWEDGE_BENCH_CPU='Intel-i7-9750H-WSL2' \
-  ./build-diffusion-perf/flowedge_diffusion_latency_bench \
-  /tmp/diffusion_pusht.flowedge.safetensors 10 3
 ```
 
-For the public checkpoint, one denoiser was 365.4 ms p50 and a 10-step DDIM
-sample was 3.765 s p50 with four workers. Caller-thread-only measurements were
-1.041 s and 1.023 s respectively. These are reference measurements, not a
-real-time guarantee; the next performance milestone is ISA-specialized
-convolution or a packed-im2col path.
+The former C++ diffusion-latency runner embedded zero conditions and generated
+noise, so it was removed rather than presented as policy evidence. The matched
+visual-policy replay above is the sole public end-to-end diffusion measurement.
+These component figures are not a real-time guarantee; the next performance
+milestone is ISA-specialized convolution or a packed-im2col path.
 
 ### Allocation-conscious inference paths
 

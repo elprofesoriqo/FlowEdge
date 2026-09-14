@@ -1,0 +1,19 @@
+{
+  "absolute_error": 2.1482849121845504e-07,
+  "converted_sha256": "6a672c92e9a2b34d78e82c36dc6fc4da964d81550a59357828de6a60ed8f8796",
+  "flowedge_first_hidden": 0.982286,
+  "model": "sshleifer/tiny-gpt2",
+  "prefix": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "reference_first_hidden": 0.9822862148284912,
+  "revision": "5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be",
+  "schema_version": 1,
+  "scope": "real GPT-2 conversion and fixed-prefix runtime smoke check; not policy inference",
+  "source_sha256": "b706b24034032bdfe765ded5ab6403d201d295a995b790cb24c74becca5c04e6",
+  "status": "passed",
+  "tolerance": 5e-06
+}
