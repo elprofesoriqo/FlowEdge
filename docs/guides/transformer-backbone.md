@@ -36,7 +36,7 @@ Face hidden states against native full-prefix and streaming execution on prefix
 python tools/verification/verify_transformer_reference.py \
   models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
   --binary build/transformer_forward \
-  --output bench/artifacts/tiny-gpt2-transformer-reference.json
+  --output bench/artifacts/transformer/tiny-gpt2-transformer-reference.json
 ```
 
 This validates real checkpoint conversion, full-prefix execution, and streaming
@@ -48,7 +48,7 @@ Python module must be built with `FLOWEDGE_PYTHON=ON`):
 ```bash
 python tools/verification/verify_transformer_embeddings.py \
   models/tiny-gpt2.flowedge.safetensors --module-path build \
-  --output bench/artifacts/tiny-gpt2-transformer-embeddings.json
+  --output bench/artifacts/transformer/tiny-gpt2-transformer-embeddings.json
 ```
 
 Check that the real checkpoint's streaming path performs no heap allocation
@@ -69,7 +69,7 @@ layout of the pinned `lerobot/smolvla_base` checkpoint before conversion:
 ```bash
 python tools/smolvla_preflight.py models/smolvla_base/model.safetensors \
   --config models/smolvla_base/config.json --hash \
-  --output bench/artifacts/smolvla-base-preflight.json
+  --output bench/artifacts/smolvla/smolvla-base-preflight.json
 ```
 
 The resulting manifest establishes the real-source contract only. It records
@@ -81,7 +81,7 @@ policy-construction record:
 
 ```bash
 python tools/verification/verify_smolvla_source.py models/smolvla_base \
-  --output bench/artifacts/smolvla-base-upstream-load.json
+  --output bench/artifacts/smolvla/smolvla-base-upstream-load.json
 ```
 
 This proves only that the pinned upstream `SmolVLAPolicy` can construct from
@@ -127,5 +127,5 @@ For a portable evidence artifact, run the verifier against the same binary:
 python tools/verification/verify_smolvla_inspection.py \
   models/smolvla_base/model.safetensors \
   --binary build/flowedge-inspect \
-  --output bench/artifacts/smolvla-base-inspection.json
+  --output bench/artifacts/smolvla/smolvla-base-inspection.json
 ```

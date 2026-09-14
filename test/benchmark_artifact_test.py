@@ -9,7 +9,7 @@ from pathlib import Path
 from tools.benchmark import benchmark_artifact
 
 ROOT = Path(__file__).parents[1]
-TEMPLATE = ROOT / "bench" / "artifacts" / "lerobot-vs-flowedge.template.json"
+TEMPLATE = ROOT / "bench" / "artifacts" / "policy" / "lerobot-vs-flowedge.template.json"
 
 
 def measured():

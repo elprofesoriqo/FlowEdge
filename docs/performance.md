@@ -8,8 +8,8 @@ from this page: they do not establish robot-policy latency or control quality.
 
 ### Matched visual-policy replay
 
-The {download}`captured CPU replay artifact <../bench/artifacts/diffusion-pusht-cpu-replay.md>`
-and its [raw samples](../bench/artifacts/diffusion-pusht-cpu-replay.json) use the pinned
+The {download}`captured CPU replay artifact <../bench/artifacts/policy/diffusion-pusht-cpu-replay.md>`
+and its [raw samples](../bench/artifacts/policy/diffusion-pusht-cpu-replay.json) use the pinned
 trained checkpoint, source RGB encoder/normalization, a two-observation PushT history,
 and matched noise with ten DDIM steps. On this Windows/Clang host, the 20-sample run
 measured roughly 25.97 s FlowEdge versus 3.12 s LeRobot median preprocessing-to-chunk
@@ -260,7 +260,7 @@ These results are references, not deployment guarantees.
 ## Size and initialization budgets
 
 The complete verification script also reports the checked-in budgets in
-`bench/budgets.json`:
+`bench/config/budgets.json`:
 
 ```bash
 FLOWEDGE_BUILD_DIR=build-all ./scripts/verify_all.sh models/mamba_flow.safetensors

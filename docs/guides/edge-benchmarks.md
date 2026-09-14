@@ -18,10 +18,10 @@ flowchart LR
 ## Capture
 
 ```bash
-cp bench/artifacts/lerobot-vs-flowedge.template.json bench/artifacts/run.json
+cp bench/artifacts/policy/lerobot-vs-flowedge.template.json bench/artifacts/policy/run.json
 # Fill run.json with the checkpoint hash, processor stats, host, commands, and both measurements.
-python tools/benchmark/benchmark_artifact.py bench/artifacts/run.json \
-  --report bench/artifacts/run.md
+python tools/benchmark/benchmark_artifact.py bench/artifacts/policy/run.json \
+  --report bench/artifacts/policy/run.md
 ```
 
 The template is intentionally `not_measured`; it cannot be published as a result until both
