@@ -70,7 +70,18 @@ mask = np.array([1, 1, 1, 0], dtype=np.uint8)
 hidden = transformer.run_embeddings(embeddings, attention_mask=mask)
 ```
 
-This is an embedding boundary, not a native SmolVLA encoder or action expert.
+This is an embedding boundary, not a native SmolVLA encoder or full action expert.
+
+The pinned SmolVLA checkpoint also exposes the first native suffix-projection
+boundary. It uses the real `action_in_proj`, sinusoidal timestep embedding,
+and time MLP; the VLM prefix and interleaved attention remain external:
+
+```python
+smolvla = flowedge.Engine("models/smolvla_base/model.safetensors")
+noisy_actions = np.zeros((50, 32), dtype=np.float32)
+suffix = smolvla.smolvla_embed_suffix(noisy_actions, timestep=1.0)
+assert suffix.shape == (50, 720)
+```
 
 The same solve can be split across scheduler quanta without changing its result:
 

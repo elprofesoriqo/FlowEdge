@@ -75,8 +75,24 @@ python tools/smolvla_preflight.py models/smolvla_base/model.safetensors \
 ```
 
 The resulting manifest establishes the real-source contract only. It records
-`supported_by_flowedge: false`; conversion, source-encoder parity, a complete
-Euler action-expert path, and matched task evaluation remain required.
+`supported_by_flowedge: false`; the native path is intentionally partial until
+the source encoder, interleaved attention, complete Euler action-expert path,
+and matched task evaluation are available.
+
+The first native action-expert boundary is now implemented for the real
+checkpoint: action projection, the exact SmolVLA sine/cosine timestep embedding,
+the time MLP, and checkpoint-derived dimensions. Verify it against PyTorch with:
+
+```bash
+python tools/verification/verify_smolvla_action_expert.py \
+  models/smolvla_base/model.safetensors \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/smolvla-action-expert-suffix.json
+```
+
+This artifact is projection parity only. It does not execute the VLM image or
+language encoder, the interleaved self/cross-attention layers, or a policy
+rollout.
 
 With the upstream VLM weights available locally, capture a separate source
 policy-construction record:
@@ -91,7 +107,7 @@ the local checkpoint. It is not FlowEdge inference or an action-quality result.
 
 ## SmolVLA source-parity capture contract
 
-Before implementing the action expert, export a source action chunk from a
+Before implementing the complete action expert, export a source action chunk from a
 real observation captured through the upstream LeRobot processor. The `.npz`
 capture must contain batch-one, pre-processor tensors:
 
@@ -120,8 +136,9 @@ build/flowedge-inspect models/smolvla_base/model.safetensors --json
 ```
 
 The report identifies `family: "smolvla"` and explains that the LeRobot
-preprocessing boundary, VLM encoder, and action expert are not implemented.
-This is a schema/provenance check, not a claim of native SmolVLA support.
+preprocessing boundary, VLM encoder, and interleaved attention path are not
+implemented. This is a schema/provenance check, not a claim of native full
+SmolVLA support.
 
 For a portable evidence artifact, run the verifier against the same binary:
 

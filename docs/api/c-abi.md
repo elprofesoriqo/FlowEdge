@@ -98,6 +98,9 @@ Rules:
   designed for a concurrent scheduler thread.
 - Prefill and token-conditioned sampling accept 1 to 512 tokens per call; streaming `step` has no
   growing sequence buffer.
+- `fe_engine_smolvla_embed_suffix` accepts one padded action chunk and returns the real
+  SmolVLA action/time suffix embedding. It is a projection-parity boundary only; it does not run
+  image/language preprocessing, the VLM, or the interleaved expert attention.
 
 ## Link with CMake
 

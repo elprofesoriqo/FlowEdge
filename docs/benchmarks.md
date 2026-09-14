@@ -20,7 +20,7 @@ flowchart LR
 | Transformer | `tools/verification/verify_transformer_reference.py` | Real Hugging Face checkpoint against native full-prefix and streaming execution | max error and parity |
 | Diffusion policy | `tools/benchmark/run_policy_report.py` | Same observations, processor, noise, and DDIM schedule through FlowEdge and LeRobot/PyTorch | encoder/policy/end-to-end p50/p95/p99, throughput, RSS, action error |
 | Closed loop | `flowedge_lerobot.evaluate` | Bounded PushT episodes | task result; not a timing proof |
-| SmolVLA | `tools/smolvla_preflight.py`, `flowedge-inspect` | Checkpoint layout and unsupported operators | inspection/preflight artifact; no native inference claim |
+| SmolVLA | `tools/smolvla_preflight.py`, `verify_smolvla_action_expert.py`, `flowedge-inspect` | Real checkpoint schema plus action/time suffix projection parity | preflight + PyTorch max-error artifact; no full-policy inference claim |
 
 ## Canonical policy report
 
