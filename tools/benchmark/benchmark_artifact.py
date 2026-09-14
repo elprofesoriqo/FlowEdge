@@ -123,6 +123,11 @@ def validate(document: Any) -> dict[str, Any]:
     commands = root["commands"]
     for field in BACKENDS:
         _text(commands.get(field), f"commands.{field}")
+    comparison = root.get("comparison")
+    if comparison is not None:
+        comparison = _mapping(comparison, "comparison")
+        for field in ("candidate", "reference", "reference_framework"):
+            _text(comparison.get(field), f"comparison.{field}")
     measurements = _mapping(root.get("measurements"), "measurements")
     for backend in BACKENDS:
         _measurement(measurements.get(backend), f"measurements.{backend}")
