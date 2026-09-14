@@ -265,23 +265,25 @@ void inspect_smolvla(std::span<const fe::TensorMetadata> tensors, Report& report
        })
     missing_if_absent(tensors, name, report);
 
-  if (action_in != nullptr && action_in->ndim == 2uz)
-    report.d_model = action_in->shape[0];
-  if (time_in != nullptr && time_in->ndim == 2uz)
-    report.d_inner = time_in->shape[1];
+  if (action_in != nullptr && action_in->ndim == 2uz) {
+    report.d_inner = action_in->shape[0];
+    report.action_dim = action_in->shape[1];
+  }
+  if (state != nullptr && state->ndim == 2uz)
+    report.d_model = state->shape[0];
   report.n_layers = layer_count(tensors, "model.vlm_with_expert.lm_expert.layers.");
 
-  if (action_in != nullptr && !shape_is(action_in, {report.d_model, 32uz}))
+  if (action_in != nullptr && !shape_is(action_in, {report.d_inner, 32uz}))
     report.errors.emplace_back("SmolVLA action input projection has an incompatible shape");
-  if (action_out != nullptr && !shape_is(action_out, {32uz, report.d_model}))
+  if (action_out != nullptr && !shape_is(action_out, {32uz, report.d_inner}))
     report.errors.emplace_back("SmolVLA action output projection has an incompatible shape");
-  if (time_in != nullptr && !shape_is(time_in, {report.d_model, 2uz * report.d_model}))
+  if (time_in != nullptr && !shape_is(time_in, {report.d_inner, 2uz * report.d_inner}))
     report.errors.emplace_back("SmolVLA time input projection has an incompatible shape");
-  if (time_out != nullptr && !shape_is(time_out, {report.d_model, report.d_model}))
+  if (time_out != nullptr && !shape_is(time_out, {report.d_inner, report.d_inner}))
     report.errors.emplace_back("SmolVLA time output projection has an incompatible shape");
   if (state != nullptr && !shape_is(state, {960uz, 32uz}))
     report.errors.emplace_back("SmolVLA state projection has an incompatible shape");
-  if (expert_norm != nullptr && !shape_is(expert_norm, {report.d_model}))
+  if (expert_norm != nullptr && !shape_is(expert_norm, {report.d_inner}))
     report.errors.emplace_back("SmolVLA expert norm has an incompatible shape");
   if (report.n_layers == 0uz)
     report.errors.emplace_back("SmolVLA action expert has no numbered layers");
@@ -303,10 +305,12 @@ void inspect_smolvla(std::span<const fe::TensorMetadata> tensors, Report& report
       missing_if_absent(tensors, prefix + std::string{suffix}, report);
   }
 
-  // The checkpoint is intentionally recognized but not admitted to the native
-  // runtime: preprocessing, the VLM encoder, and the action expert are not yet
-  // implemented by FlowEdge.
-  report.errors.emplace_back("SmolVLA source encoder and action expert are not implemented");
+  // The checkpoint is recognized but full-policy admission remains closed:
+  // FlowEdge currently implements only the action/time suffix projection
+  // boundary. Preprocessing, the VLM encoder, and interleaved expert attention
+  // are still external.
+  report.errors.emplace_back(
+      "SmolVLA full VLM encoder and interleaved action-expert attention are not implemented");
   report.errors.emplace_back(
       "SmolVLA requires the LeRobot image/language preprocessing and observation-history boundary");
 }
