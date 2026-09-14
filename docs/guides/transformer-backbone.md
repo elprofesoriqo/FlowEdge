@@ -106,3 +106,12 @@ build/flowedge-inspect models/smolvla_base/model.safetensors --json
 The report identifies `family: "smolvla"` and explains that the LeRobot
 preprocessing boundary, VLM encoder, and action expert are not implemented.
 This is a schema/provenance check, not a claim of native SmolVLA support.
+
+For a portable evidence artifact, run the verifier against the same binary:
+
+```bash
+python tools/verification/verify_smolvla_inspection.py \
+  models/smolvla_base/model.safetensors \
+  --binary build/flowedge-inspect \
+  --output bench/artifacts/smolvla-base-inspection.json
+```
