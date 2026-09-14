@@ -124,7 +124,8 @@ int fe_engine_run(fe_engine* engine, const int32_t* tokens, size_t seq_len, floa
  * is supported only by the generic Transformer backbone; Mamba and action-only
  * checkpoints return FE_STATUS_UNSUPPORTED_MODEL.
  */
-int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, size_t seq_len, float* out);
+int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, size_t seq_len,
+                             float* out);
 
 /**
  * @brief Advance the streaming decode state by a single token.
