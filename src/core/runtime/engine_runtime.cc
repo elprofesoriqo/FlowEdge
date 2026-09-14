@@ -66,7 +66,19 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
   const std::size_t diffusion_workspace = DiffusionHead::required_workspace_floats(tensors);
   const std::size_t diffusion_persistent = DiffusionHead::required_persistent_floats(tensors);
   const bool has_diffusion = diffusion_workspace != 0uz && diffusion_persistent != 0uz;
-  if (!has_backbone && !has_transformer && !has_flow && !has_diffusion)
+  const auto smol_shape = [tensors](std::string_view name) noexcept {
+    const TensorView* const tensor = find_tensor(tensors, name);
+    return tensor != nullptr ? tensor->shape : std::array<std::size_t, 4>{};
+  };
+  const auto smol_action_in = smol_shape("model.action_in_proj.weight");
+  const auto smol_state = smol_shape("model.state_proj.weight");
+  const std::size_t smol_expert_width = smol_action_in[0];
+  const std::size_t smol_action_dim = smol_action_in[1];
+  const std::size_t smol_vlm_width = smol_state[0];
+  const bool has_smolvla = smol_expert_width != 0uz && smol_expert_width <= 4096uz &&
+                           smol_action_dim != 0uz && smol_action_dim <= 256uz &&
+                           smol_vlm_width != 0uz && smol_vlm_width <= 4096uz;
+  if (!has_backbone && !has_transformer && !has_flow && !has_diffusion && !has_smolvla)
     return 0uz;
 
   const std::size_t per_token =
@@ -87,7 +99,8 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
       (kThreadRingSlots * sizeof(Task)) + (kThreadRingSlots * sizeof(std::size_t)) +
       (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
       ((flow_floats + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
-      persistent_state + transformer_persistent + transformer_scratch + 4096uz;
+      persistent_state + transformer_persistent + transformer_scratch +
+      (has_smolvla ? (5uz * 512uz * smol_expert_width) : 0uz) * sizeof(float) + 4096uz;
   return (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
@@ -107,6 +120,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     : weights_{std::move(weights)}, slab_{slab_bytes},
       arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
       model_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
+      smolvla_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       transformer_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       flow_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       diffusion_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_}
@@ -124,6 +138,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
                            : model_.valid() && flow_.valid()       ? FE_ARCH_MAMBA_FLOW
                            : model_.valid()                        ? FE_ARCH_MAMBA
                            : flow_.valid()                         ? FE_ARCH_FLOW_HEAD
+                           : smolvla_.valid()                      ? FE_ARCH_SMOLVLA_ACTION_EXPERT
                                                                    : FE_ARCH_UNKNOWN;
   if (model_.valid()) {
     const MambaConfig& config = model_.config();
@@ -146,6 +161,13 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   if (diffusion_.valid()) {
     identity_.action_dim = diffusion_.config().action_dim;
     identity_.condition_dim = diffusion_.config().condition_dim;
+  }
+  if (smolvla_.valid()) {
+    const SmolVLAActionExpertConfig& config = smolvla_.config();
+    identity_.d_model = config.vlm_width;
+    identity_.n_layers = config.expert_layers;
+    identity_.d_inner = config.expert_width;
+    identity_.action_dim = config.max_action_dim;
   }
 
   if (worker_threads > 0u) {
@@ -170,6 +192,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   }
 
   model_.set_pool(pool_);
+  smolvla_.set_pool(pool_);
   transformer_.set_pool(pool_);
   flow_.set_pool(pool_);
   diffusion_.set_pool(pool_);
@@ -196,7 +219,8 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     error = "Runtime slab cannot hold the diffusion sampler workspace";
     return;
   }
-  ready_ = model_.valid() || transformer_.valid() || flow_.valid() || diffusion_.valid();
+  ready_ = model_.valid() || smolvla_.valid() || transformer_.valid() || flow_.valid() ||
+           diffusion_.valid();
 }
 
 EngineRuntime::~EngineRuntime()
@@ -216,6 +240,7 @@ std::size_t EngineRuntime::d_model() const noexcept
 {
   return transformer_.valid() ? transformer_.config().d_model
          : model_.valid()     ? model_.config().d_model
+         : smolvla_.valid()   ? smolvla_.config().vlm_width
                               : 0uz;
 }
 
@@ -223,6 +248,7 @@ std::size_t EngineRuntime::n_layers() const noexcept
 {
   return transformer_.valid() ? transformer_.config().n_layers
          : model_.valid()     ? model_.config().n_layers
+         : smolvla_.valid()   ? smolvla_.config().expert_layers
                               : 0uz;
 }
 
@@ -260,12 +286,16 @@ std::size_t EngineRuntime::action_dim() const noexcept
 {
   return diffusion_.valid() ? diffusion_.config().action_dim
          : flow_.valid()    ? flow_.config().action_dim
+         : smolvla_.valid() ? smolvla_.config().max_action_dim
                             : 0uz;
 }
 
 std::size_t EngineRuntime::action_horizon() const noexcept
 {
-  return diffusion_.valid() ? diffusion_.config().horizon : (flow_.valid() ? 1uz : 0uz);
+  return diffusion_.valid() ? diffusion_.config().horizon
+         : flow_.valid()    ? 1uz
+         : smolvla_.valid() ? 50uz
+                            : 0uz;
 }
 
 std::size_t EngineRuntime::condition_dim() const noexcept
@@ -602,6 +632,28 @@ int EngineRuntime::run_embeddings_masked(const float* embeddings,
   if (!transformer_.forward_embeddings({embeddings, seq_len * width}, mask,
                                        {out, seq_len * width})) {
     error = "Transformer embedding sequence or attention mask could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_embed_suffix(const float* noisy_actions, std::size_t chunk_size,
+                                        float timestep, float* out, const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action-expert projection boundary";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (chunk_size == 0uz || chunk_size > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim) ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.expert_width)) {
+    error = "SmolVLA chunk size is outside the fixed projection limit";
+    return 1;
+  }
+  if (!smolvla_.embed_suffix({noisy_actions, chunk_size * config.max_action_dim}, timestep,
+                             {out, chunk_size * config.expert_width})) {
+    error = "SmolVLA action suffix embedding could not be executed";
     return 3;
   }
   return 0;

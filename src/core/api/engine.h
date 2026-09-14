@@ -138,6 +138,17 @@ int fe_engine_run_embeddings_masked(fe_engine* engine, const float* embeddings,
                                     const uint8_t* attention_mask, size_t seq_len, float* out);
 
 /**
+ * @brief Build the trained SmolVLA action-expert suffix embedding.
+ *
+ * This is the exact action/time projection boundary for a padded action
+ * chunk. The VLM encoder and interleaved expert attention remain separate.
+ * `noisy_actions` has [chunk_size * max_action_dim] values and `out` has
+ * [chunk_size * expert_width] values; dimensions are read from the checkpoint.
+ */
+int fe_engine_smolvla_embed_suffix(fe_engine* engine, const float* noisy_actions, size_t chunk_size,
+                                   float timestep, float* out);
+
+/**
  * @brief Advance the streaming decode state by a single token.
  * @param engine The engine instance.
  * @param token The input token ID.

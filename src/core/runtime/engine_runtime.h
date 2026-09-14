@@ -6,6 +6,7 @@
 #include "heads/flow/flow.h"
 #include "loader/safetensors.h"
 #include "models/mamba/mamba.h"
+#include "models/smolvla/smolvla_action_expert.h"
 #include "models/transformer/transformer.h"
 #include "protocol/model_identity.h"
 
@@ -79,6 +80,8 @@ public:
                      const char*& error) noexcept;
   int run_embeddings_masked(const float* embeddings, const std::uint8_t* attention_mask,
                             std::size_t seq_len, float* out, const char*& error) noexcept;
+  int smolvla_embed_suffix(const float* noisy_actions, std::size_t chunk_size, float timestep,
+                           float* out, const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
   void reset() noexcept;
   int sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise, std::size_t steps,
@@ -114,6 +117,7 @@ private:
   std::vector<std::byte> slab_;
   Arena arena_;
   Mamba model_;
+  SmolVLAActionExpert smolvla_;
   Transformer transformer_;
   FlowHead flow_;
   DiffusionHead diffusion_;

@@ -223,6 +223,32 @@ public:
     }
   }
 
+  py::object smolvla_embed_suffix(py::handle noisy_actions_object, float timestep)
+  {
+    py::object actions_array = contiguous_array(numpy_, noisy_actions_object, "float32");
+    const FloatBuffer actions{actions_array};
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    if (metadata.architecture != FE_ARCH_SMOLVLA_ACTION_EXPERT || metadata.action_dim == 0uz ||
+        metadata.d_inner == 0uz || actions.size() == 0uz ||
+        actions.size() % metadata.action_dim != 0uz)
+      throw std::runtime_error(
+          "expected a SmolVLA checkpoint and [chunk_size, max_action_dim] float32 actions");
+    const std::size_t chunk_size = actions.size() / metadata.action_dim;
+    py::object out = float_matrix(numpy_, chunk_size, metadata.d_inner);
+    FloatBuffer output{out, true};
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_smolvla_embed_suffix(engine_, actions.data(), chunk_size, timestep,
+                                          output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return out;
+  }
+
   void run_embeddings_masked_native(const FloatBuffer& embeddings, const UInt8Buffer& mask,
                                     FloatBuffer& output)
   {
@@ -621,6 +647,9 @@ PYBIND11_MODULE(flowedge, m)
            py::arg("attention_mask") = py::none())
       .def("run_embeddings_into", &Engine::run_embeddings_into, py::arg("embeddings"),
            py::arg("output"), py::arg("attention_mask") = py::none())
+      .def("smolvla_embed_suffix", &Engine::smolvla_embed_suffix,
+           "embed a padded SmolVLA action chunk before the external expert", py::arg("actions"),
+           py::arg("timestep"))
       .def("step", &Engine::step, py::arg("token"))
       .def("step_into", &Engine::step_into, py::arg("token"), py::arg("output"))
       .def("reset", &Engine::reset)

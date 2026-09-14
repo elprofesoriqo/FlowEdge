@@ -342,6 +342,19 @@ int fe_engine_run_embeddings_masked(fe_engine* engine, const float* embeddings,
                                                last_error());
 }
 
+int fe_engine_smolvla_embed_suffix(fe_engine* engine, const float* noisy_actions,
+                                   std::size_t chunk_size, float timestep, float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || noisy_actions == nullptr || out == nullptr || chunk_size == 0uz ||
+      !std::isfinite(timestep)) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_embed_suffix";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_embed_suffix(noisy_actions, chunk_size, timestep, out,
+                                              last_error());
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif
