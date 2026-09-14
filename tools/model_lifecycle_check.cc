@@ -70,14 +70,19 @@ void operator delete[](void* memory, std::size_t) noexcept
 int main(int argc, char** argv)
 {
   if (argc < 3) {
-    std::cerr << "usage: " << argv[0] << " MODEL TOKEN [TOKEN ...] [--cycles N]\n";
+    std::cerr << "usage: " << argv[0] << " MODEL [--stream] TOKEN [TOKEN ...] [--cycles N]\n";
     return 2;
   }
   std::size_t cycles{3uz};
+  bool stream{};
   std::vector<std::int32_t> tokens;
   tokens.reserve(static_cast<std::size_t>(argc - 2));
   for (int index{2}; index < argc; ++index) {
     const std::string_view argument{argv[index]};
+    if (argument == "--stream") {
+      stream = true;
+      continue;
+    }
     if (argument == "--cycles") {
       if (++index == argc || !parse_size(argv[index], cycles) || cycles == 0uz) {
         std::cerr << "error: --cycles requires a positive integer\n";
@@ -120,9 +125,16 @@ int main(int argc, char** argv)
       std::cerr << "error: lifecycle check requires a backbone checkpoint\n";
       return 1;
     }
-    std::vector<float> output(tokens.size() * d_model);
+    std::vector<float> output(stream ? d_model : tokens.size() * d_model);
     const std::size_t hot_before = g_allocations.load(std::memory_order_relaxed);
-    if (fe_engine_run(engine.get(), tokens.data(), tokens.size(), output.data()) != 0) {
+    if (stream) {
+      for (const std::int32_t token : tokens) {
+        if (fe_engine_step(engine.get(), token, output.data()) != 0) {
+          std::cerr << "error: " << fe_engine_last_error() << '\n';
+          return 1;
+        }
+      }
+    } else if (fe_engine_run(engine.get(), tokens.data(), tokens.size(), output.data()) != 0) {
       std::cerr << "error: " << fe_engine_last_error() << '\n';
       return 1;
     }
@@ -132,7 +144,8 @@ int main(int argc, char** argv)
       return 1;
     }
   }
-  std::cout << "{\"schema_version\":1,\"cycles\":" << cycles
-            << ",\"setup_allocations\":" << *setup_allocations << ",\"hot_path_allocations\":0}\n";
+  std::cout << "{\"schema_version\":1,\"mode\":\"" << (stream ? "stream" : "prefill")
+            << "\",\"cycles\":" << cycles << ",\"setup_allocations\":" << *setup_allocations
+            << ",\"hot_path_allocations\":0}\n";
   return 0;
 }

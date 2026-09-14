@@ -37,6 +37,14 @@ python tools/verification/verify_transformer_reference.py \
 This validates real checkpoint conversion, full-prefix execution, and streaming
 KV-cache parity only; it is not an action-policy, latency, or SmolVLA result.
 
+Check that the real checkpoint's streaming path performs no heap allocation
+after initialization:
+
+```bash
+build/flowedge_model_lifecycle_check models/tiny-gpt2.flowedge.safetensors \
+  --stream 1 2 3 4 --cycles 3
+```
+
 ## SmolVLA preflight
 
 SmolVLA is architecturally different from the baseline: it has a visual-language
