@@ -1,9 +1,11 @@
 #include "models/smolvla/smolvla_action_expert.h"
 
 #include "kernels/kernels.h"
+#include "kernels/span_ops.h"
 #include "loader/weight_ops.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -43,15 +45,77 @@ namespace {
   return find_tensor(tensors, name);
 }
 
-[[nodiscard]] bool layer_present(std::span<const TensorView> tensors, std::size_t layer,
-                                 std::size_t expert_width, std::size_t vlm_width) noexcept
+[[nodiscard]] float bf16_to_float(std::uint16_t value) noexcept
 {
-  const TensorView* const norm = layer_tensor(tensors, layer, "input_layernorm.weight");
-  const TensorView* const q = layer_tensor(tensors, layer, "self_attn.q_proj.weight");
-  const TensorView* const mlp = layer_tensor(tensors, layer, "mlp.gate_proj.weight");
-  return vector_weight(norm, expert_width) && matrix_weight(q, vlm_width, expert_width) &&
-         mlp != nullptr && mlp->ndim == 2uz && mlp->shape[1] == expert_width &&
-         mlp->shape[0] > expert_width && (mlp->is_f32() || mlp->is_bf16());
+  return std::bit_cast<float>(static_cast<std::uint32_t>(value) << 16u);
+}
+
+[[nodiscard]] bool copy_weight_vector(const TensorView* source,
+                                      std::span<float> destination) noexcept
+{
+  if (!vector_weight(source, destination.size()))
+    return false;
+  if (source->is_f32()) {
+    std::copy_n(source->as_f32(), destination.size(), destination.data());
+    return true;
+  }
+  const std::uint16_t* const values = source->as_bf16();
+  for (std::size_t i{}; i < destination.size(); ++i)
+    destination[i] = bf16_to_float(values[i]);
+  return true;
+}
+
+void round_to_bf16(std::span<float> values) noexcept
+{
+  for (float& value : values) {
+    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+    const std::uint32_t bias = 0x7FFFu + ((bits >> 16u) & 1u);
+    value = std::bit_cast<float>((bits + bias) & 0xFFFF0000u);
+  }
+}
+
+// The upstream Gemma expert normalizes in float32 with rms_norm_eps=1e-6,
+// then casts the result to BF16 for its projections.  The generic kernel has
+// a different fixed epsilon, so keep this small, allocation-free operation
+// local to the checkpoint-specific execution path.
+void smolvla_rmsnorm(std::span<const float> input, std::span<const float> weight,
+                     std::span<float> output, std::size_t rows, std::size_t width) noexcept
+{
+  constexpr float kEpsilon = 1e-6F;
+  for (std::size_t row{}; row < rows; ++row) {
+    const float* const source = input.data() + (row * width);
+    float* const destination = output.data() + (row * width);
+    float squared_sum{};
+    for (std::size_t channel{}; channel < width; ++channel)
+      squared_sum += source[channel] * source[channel];
+    const float scale = 1.0F / std::sqrt((squared_sum / static_cast<float>(width)) + kEpsilon);
+    for (std::size_t channel{}; channel < width; ++channel)
+      destination[channel] = source[channel] * scale * weight[channel];
+  }
+}
+
+void apply_rope(std::span<float> values, std::size_t rows, std::size_t heads,
+                std::size_t head_width, std::size_t position_base) noexcept
+{
+  constexpr float kLogWavelength = 9.210340371976184F; // log(10,000)
+  const std::size_t half = head_width / 2uz;
+  for (std::size_t row{}; row < rows; ++row) {
+    const float position = static_cast<float>(position_base + row);
+    for (std::size_t head{}; head < heads; ++head) {
+      float* const data = values.data() + ((row * heads + head) * head_width);
+      for (std::size_t channel{}; channel < half; ++channel) {
+        const float exponent =
+            (2.0F * static_cast<float>(channel)) / static_cast<float>(head_width);
+        const float angle = position / std::exp(kLogWavelength * exponent);
+        const float sine = std::sin(angle);
+        const float cosine = std::cos(angle);
+        const float first = data[channel];
+        const float second = data[half + channel];
+        data[channel] = (first * cosine) - (second * sine);
+        data[half + channel] = (second * cosine) + (first * sine);
+      }
+    }
+  }
 }
 
 } // namespace
@@ -94,12 +158,91 @@ SmolVLAActionExpert::SmolVLAActionExpert(std::span<const TensorView> weights, Ar
       !vector_f32(time_out_bias, cfg_.expert_width) || !vector_f32(state_bias, cfg_.vlm_width))
     return;
 
-  for (std::size_t layer{};
-       layer < kMaxExpertLayers && layer_present(weights, layer, cfg_.expert_width, cfg_.vlm_width);
-       ++layer)
+  const TensorView* const final_norm =
+      find_tensor(weights, "model.vlm_with_expert.lm_expert.norm.weight");
+  const TensorView* const first_q = layer_tensor(weights, 0uz, "self_attn.q_proj.weight");
+  const TensorView* const first_k = layer_tensor(weights, 0uz, "self_attn.k_proj.weight");
+  const TensorView* const first_gate = layer_tensor(weights, 0uz, "mlp.gate_proj.weight");
+  if (first_q == nullptr || first_k == nullptr || first_gate == nullptr || first_q->ndim != 2uz ||
+      first_k->ndim != 2uz || first_gate->ndim != 2uz)
+    return;
+
+  cfg_.attention_width = first_q->shape[0];
+  cfg_.key_value_width = first_k->shape[0];
+  cfg_.mlp_width = first_gate->shape[0];
+  // SmolVLA's Gemma expert has 12 query and 4 KV heads of width 80. These
+  // dimensions are encoded by the pinned checkpoint and kept explicit rather
+  // than guessing an ambiguous head decomposition from matrix shapes.
+  constexpr std::size_t kHeadWidth = 80uz;
+  if (cfg_.attention_width != 960uz || cfg_.key_value_width != 320uz || cfg_.mlp_width != 2048uz ||
+      (cfg_.attention_width % kHeadWidth) != 0uz || (cfg_.key_value_width % kHeadWidth) != 0uz ||
+      (cfg_.attention_width / cfg_.key_value_width) != 3uz ||
+      !vector_weight(final_norm, cfg_.expert_width))
+    return;
+
+  std::array<Layer, kMaxExpertLayers> loaded_layers{};
+  for (std::size_t layer{}; layer < kMaxExpertLayers; ++layer) {
+    const TensorView* const input_norm = layer_tensor(weights, layer, "input_layernorm.weight");
+    const TensorView* const post_norm =
+        layer_tensor(weights, layer, "post_attention_layernorm.weight");
+    const TensorView* const q = layer_tensor(weights, layer, "self_attn.q_proj.weight");
+    const TensorView* const k = layer_tensor(weights, layer, "self_attn.k_proj.weight");
+    const TensorView* const v = layer_tensor(weights, layer, "self_attn.v_proj.weight");
+    const TensorView* const o = layer_tensor(weights, layer, "self_attn.o_proj.weight");
+    const TensorView* const gate = layer_tensor(weights, layer, "mlp.gate_proj.weight");
+    const TensorView* const up = layer_tensor(weights, layer, "mlp.up_proj.weight");
+    const TensorView* const down = layer_tensor(weights, layer, "mlp.down_proj.weight");
+    if (input_norm == nullptr && post_norm == nullptr && q == nullptr && k == nullptr &&
+        v == nullptr && o == nullptr && gate == nullptr && up == nullptr && down == nullptr)
+      break;
+    const bool cross_attention = (layer % 2uz) != 0uz;
+    const std::size_t kv_input = cross_attention ? cfg_.key_value_width : cfg_.expert_width;
+    if (!vector_weight(input_norm, cfg_.expert_width) ||
+        !vector_weight(post_norm, cfg_.expert_width) ||
+        !matrix_weight(q, cfg_.attention_width, cfg_.expert_width) ||
+        !matrix_weight(k, cfg_.key_value_width, kv_input) ||
+        !matrix_weight(v, cfg_.key_value_width, kv_input) ||
+        !matrix_weight(o, cfg_.expert_width, cfg_.attention_width) ||
+        !matrix_weight(gate, cfg_.mlp_width, cfg_.expert_width) ||
+        !matrix_weight(up, cfg_.mlp_width, cfg_.expert_width) ||
+        !matrix_weight(down, cfg_.expert_width, cfg_.mlp_width))
+      return;
+    loaded_layers[cfg_.expert_layers] = {
+        .q_proj = weight(q),
+        .k_proj = weight(k),
+        .v_proj = weight(v),
+        .o_proj = weight(o),
+        .gate_proj = weight(gate),
+        .up_proj = weight(up),
+        .down_proj = weight(down),
+        .cross_attention = cross_attention,
+    };
     ++cfg_.expert_layers;
+  }
   if (cfg_.expert_layers == 0uz)
     return;
+
+  std::byte* const persistent_mark = arena_->mark();
+  for (std::size_t layer{}; layer < cfg_.expert_layers; ++layer) {
+    const TensorView* const input_norm = layer_tensor(weights, layer, "input_layernorm.weight");
+    const TensorView* const post_norm =
+        layer_tensor(weights, layer, "post_attention_layernorm.weight");
+    float* const input = arena_->alloc_array<float, kSimdAlign>(cfg_.expert_width);
+    float* const post = arena_->alloc_array<float, kSimdAlign>(cfg_.expert_width);
+    if (input == nullptr || post == nullptr ||
+        !copy_weight_vector(input_norm, {input, cfg_.expert_width}) ||
+        !copy_weight_vector(post_norm, {post, cfg_.expert_width})) {
+      arena_->reset_to(persistent_mark);
+      return;
+    }
+    loaded_layers[layer].input_norm = input;
+    loaded_layers[layer].post_attention_norm = post;
+  }
+  float* const final = arena_->alloc_array<float, kSimdAlign>(cfg_.expert_width);
+  if (final == nullptr || !copy_weight_vector(final_norm, {final, cfg_.expert_width})) {
+    arena_->reset_to(persistent_mark);
+    return;
+  }
 
   state_proj_ = weight(state);
   state_bias_ = state_bias->as_f32();
@@ -111,6 +254,8 @@ SmolVLAActionExpert::SmolVLAActionExpert(std::span<const TensorView> weights, Ar
   time_mlp_in_bias_ = time_in_bias->as_f32();
   time_mlp_out_ = weight(time_out);
   time_mlp_out_bias_ = time_out_bias->as_f32();
+  layers_ = loaded_layers;
+  final_norm_ = final;
   valid_ = true;
 }
 
@@ -186,6 +331,191 @@ bool SmolVLAActionExpert::project_actions(std::span<const float> hidden,
   for (std::size_t row{}; row < rows; ++row)
     for (std::size_t i{}; i < cfg_.max_action_dim; ++i)
       output[(row * cfg_.max_action_dim) + i] += action_out_bias_[i];
+  return true;
+}
+
+bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
+                                             std::span<const float> prefix_keys,
+                                             std::span<const float> prefix_values,
+                                             std::span<const std::uint8_t> prefix_mask,
+                                             std::span<float> output) noexcept
+{
+  if (!valid_ || suffix.empty() || suffix.size() % cfg_.expert_width != 0uz ||
+      output.size() != suffix.size() || prefix_mask.empty() || prefix_mask.size() > 512uz)
+    return false;
+  const std::size_t chunk_size = suffix.size() / cfg_.expert_width;
+  const std::size_t prefix_size = prefix_mask.size();
+  if (chunk_size > 512uz ||
+      prefix_size > (std::numeric_limits<std::size_t>::max() / cfg_.expert_layers) ||
+      prefix_size * cfg_.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / cfg_.key_value_width))
+    return false;
+  const std::size_t cache_values = cfg_.expert_layers * prefix_size * cfg_.key_value_width;
+  if (prefix_keys.size() != cache_values || prefix_values.size() != cache_values)
+    return false;
+  std::size_t valid_prefix{};
+  bool padding_started{};
+  for (const std::uint8_t value : prefix_mask) {
+    if (value > 1u)
+      return false;
+    if (value == 0u) {
+      padding_started = true;
+      continue;
+    }
+    if (padding_started)
+      return false;
+    ++valid_prefix;
+  }
+  if (valid_prefix == 0uz)
+    return false;
+
+  copy_span(suffix, output);
+  constexpr std::size_t kHeadWidth = 80uz;
+  const std::size_t query_heads = cfg_.attention_width / kHeadWidth;
+  const std::size_t key_value_heads = cfg_.key_value_width / kHeadWidth;
+  const std::size_t groups = query_heads / key_value_heads;
+  for (std::size_t layer_index{}; layer_index < cfg_.expert_layers; ++layer_index) {
+    const Layer& layer = layers_[layer_index];
+    std::byte* const mark = arena_->mark();
+    const std::span<float> normed = scratch(chunk_size * cfg_.expert_width);
+    const std::span<float> query = scratch(chunk_size * cfg_.attention_width);
+    const std::size_t key_rows = layer.cross_attention ? prefix_size : chunk_size;
+    const std::span<float> keys = scratch(key_rows * cfg_.key_value_width);
+    const std::span<float> values = scratch(key_rows * cfg_.key_value_width);
+    const std::span<float> attended = scratch(chunk_size * cfg_.attention_width);
+    const std::span<float> projected = scratch(chunk_size * cfg_.expert_width);
+    const std::span<float> gate = scratch(chunk_size * cfg_.mlp_width);
+    const std::span<float> up = scratch(chunk_size * cfg_.mlp_width);
+    const std::span<float> scores = scratch(prefix_size + chunk_size);
+    if (normed.empty() || query.empty() || keys.empty() || values.empty() || attended.empty() ||
+        projected.empty() || gate.empty() || up.empty() || scores.empty()) {
+      arena_->reset_to(mark);
+      return false;
+    }
+
+    smolvla_rmsnorm(output, {layer.input_norm, cfg_.expert_width}, normed, chunk_size,
+                    cfg_.expert_width);
+    round_to_bf16(normed);
+    matmul_weight(normed, layer.q_proj, query, chunk_size, cfg_.expert_width, cfg_.attention_width,
+                  pool_);
+    round_to_bf16(query);
+    if (layer.cross_attention) {
+      const std::size_t offset = layer_index * prefix_size * cfg_.key_value_width;
+      matmul_weight(prefix_keys.subspan(offset, prefix_size * cfg_.key_value_width), layer.k_proj,
+                    keys, prefix_size, cfg_.key_value_width, cfg_.key_value_width, pool_);
+      matmul_weight(prefix_values.subspan(offset, prefix_size * cfg_.key_value_width), layer.v_proj,
+                    values, prefix_size, cfg_.key_value_width, cfg_.key_value_width, pool_);
+      round_to_bf16(keys);
+      round_to_bf16(values);
+      apply_rope(query, chunk_size, query_heads, kHeadWidth, 0uz);
+    } else {
+      matmul_weight(normed, layer.k_proj, keys, chunk_size, cfg_.expert_width, cfg_.key_value_width,
+                    pool_);
+      matmul_weight(normed, layer.v_proj, values, chunk_size, cfg_.expert_width,
+                    cfg_.key_value_width, pool_);
+      round_to_bf16(keys);
+      round_to_bf16(values);
+      apply_rope(query, chunk_size, query_heads, kHeadWidth, valid_prefix);
+      apply_rope(keys, chunk_size, key_value_heads, kHeadWidth, valid_prefix);
+    }
+    round_to_bf16(query);
+    if (!layer.cross_attention)
+      round_to_bf16(keys);
+
+    for (std::size_t row{}; row < chunk_size; ++row) {
+      for (std::size_t head{}; head < query_heads; ++head) {
+        const std::size_t kv_head = head / groups;
+        const float* const q = query.data() + ((row * query_heads + head) * kHeadWidth);
+        const std::size_t attended_offset = (row * cfg_.attention_width) + (head * kHeadWidth);
+        const std::size_t score_count =
+            layer.cross_attention ? prefix_size : prefix_size + row + 1uz;
+        for (std::size_t token{}; token < prefix_size; ++token) {
+          if (prefix_mask[token] == 0u) {
+            scores[token] = -std::numeric_limits<float>::infinity();
+            continue;
+          }
+          const float* const key =
+              layer.cross_attention
+                  ? keys.data() + ((token * key_value_heads + kv_head) * kHeadWidth)
+                  : prefix_keys.data() +
+                        (((layer_index * prefix_size + token) * key_value_heads + kv_head) *
+                         kHeadWidth);
+          float dot{};
+          for (std::size_t channel{}; channel < kHeadWidth; ++channel)
+            dot += q[channel] * key[channel];
+          scores[token] = dot / std::sqrt(static_cast<float>(kHeadWidth));
+        }
+        if (!layer.cross_attention) {
+          for (std::size_t token{}; token <= row; ++token) {
+            const float* const key =
+                keys.data() + ((token * key_value_heads + kv_head) * kHeadWidth);
+            float dot{};
+            for (std::size_t channel{}; channel < kHeadWidth; ++channel)
+              dot += q[channel] * key[channel];
+            scores[prefix_size + token] = dot / std::sqrt(static_cast<float>(kHeadWidth));
+          }
+        }
+        std::span<float> probabilities = scores.first(score_count);
+        softmax(probabilities);
+        round_to_bf16(probabilities);
+        for (std::size_t channel{}; channel < kHeadWidth; ++channel) {
+          float sum{};
+          for (std::size_t token{}; token < prefix_size; ++token) {
+            if (prefix_mask[token] == 0u)
+              continue;
+            const float* const value =
+                layer.cross_attention
+                    ? values.data() + ((token * key_value_heads + kv_head) * kHeadWidth)
+                    : prefix_values.data() +
+                          (((layer_index * prefix_size + token) * key_value_heads + kv_head) *
+                           kHeadWidth);
+            sum += probabilities[token] * value[channel];
+          }
+          if (!layer.cross_attention)
+            for (std::size_t token{}; token <= row; ++token)
+              sum += probabilities[prefix_size + token] *
+                     values[(token * cfg_.key_value_width) + (kv_head * kHeadWidth) + channel];
+          attended[attended_offset + channel] = sum;
+        }
+      }
+    }
+    round_to_bf16(attended);
+    matmul_weight(attended, layer.o_proj, projected, chunk_size, cfg_.attention_width,
+                  cfg_.expert_width, pool_);
+    round_to_bf16(projected);
+    for (std::size_t i{}; i < output.size(); ++i)
+      output[i] += projected[i];
+    round_to_bf16(output);
+
+    smolvla_rmsnorm(output, {layer.post_attention_norm, cfg_.expert_width}, normed, chunk_size,
+                    cfg_.expert_width);
+    round_to_bf16(normed);
+    matmul_weight(normed, layer.gate_proj, gate, chunk_size, cfg_.expert_width, cfg_.mlp_width,
+                  pool_);
+    matmul_weight(normed, layer.up_proj, up, chunk_size, cfg_.expert_width, cfg_.mlp_width, pool_);
+    round_to_bf16(gate);
+    round_to_bf16(up);
+    gate_silu(up, gate, gate);
+    round_to_bf16(gate);
+    matmul_weight(gate, layer.down_proj, projected, chunk_size, cfg_.mlp_width, cfg_.expert_width,
+                  pool_);
+    round_to_bf16(projected);
+    for (std::size_t i{}; i < output.size(); ++i)
+      output[i] += projected[i];
+    round_to_bf16(output);
+    arena_->reset_to(mark);
+  }
+  std::byte* const mark = arena_->mark();
+  const std::span<float> normalized = scratch(output.size());
+  if (normalized.empty()) {
+    arena_->reset_to(mark);
+    return false;
+  }
+  smolvla_rmsnorm(output, {final_norm_, cfg_.expert_width}, normalized, chunk_size,
+                  cfg_.expert_width);
+  round_to_bf16(normalized);
+  copy_span(normalized, output);
+  arena_->reset_to(mark);
   return true;
 }
 

@@ -100,7 +100,10 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
       (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
       ((flow_floats + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
       persistent_state + transformer_persistent + transformer_scratch +
-      (has_smolvla ? (5uz * 512uz * smol_expert_width) : 0uz) * sizeof(float) + 4096uz;
+      // The captured-VLM SmolVLA path needs the action-expert projections,
+      // attention buffers, and two SwiGLU intermediates concurrently. Keep a
+      // conservative fixed upper bound for its documented 512-token inputs.
+      (has_smolvla ? (16uz * 512uz * smol_expert_width) : 0uz) * sizeof(float) + 4096uz;
   return (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 

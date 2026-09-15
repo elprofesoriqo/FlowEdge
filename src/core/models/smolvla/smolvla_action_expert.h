@@ -3,17 +3,19 @@
 #include "arena/arena.h"
 #include "loader/safetensors.h"
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 
 namespace fe {
 
 class ThreadPool;
 
-// The projection boundary shared by the trained SmolVLA flow expert.  The
-// VLM encoder and the interleaved attention layers are deliberately outside
-// this class for now; callers provide the VLM prefix and consume the suffix
-// embeddings through a stable, allocation-free interface.
+// Native execution boundary for the trained SmolVLA flow expert.  Image,
+// language, and VLM-prefix encoding stay outside this class; callers provide
+// a captured VLM K/V cache and this class executes the action suffix without
+// allocating in its hot path.
 struct SmolVLAActionExpertConfig
 {
   std::size_t max_state_dim{};
@@ -21,6 +23,9 @@ struct SmolVLAActionExpertConfig
   std::size_t vlm_width{};
   std::size_t expert_width{};
   std::size_t expert_layers{};
+  std::size_t attention_width{};
+  std::size_t key_value_width{};
+  std::size_t mlp_width{};
 };
 
 class SmolVLAActionExpert
@@ -45,6 +50,17 @@ public:
   [[nodiscard]] bool project_actions(std::span<const float> hidden,
                                      std::span<float> output) noexcept;
 
+  // Execute all interleaved expert layers for one action chunk. The caller
+  // supplies the VLM's per-layer, RoPE-applied K/V cache in layer-major F32
+  // layout [expert_layers, prefix_length, key_value_width] and one validity
+  // byte per prefix token. This deliberately keeps image/language encoding
+  // outside Core while making captured-encoder parity possible.
+  [[nodiscard]] bool run_with_prefix_kv(std::span<const float> suffix,
+                                        std::span<const float> prefix_keys,
+                                        std::span<const float> prefix_values,
+                                        std::span<const std::uint8_t> prefix_mask,
+                                        std::span<float> output) noexcept;
+
 private:
   [[nodiscard]] std::span<float> scratch(std::size_t count) noexcept
   {
@@ -52,7 +68,21 @@ private:
   }
 
   static constexpr std::size_t kMaxExpertLayers = 48uz;
+  struct Layer
+  {
+    const float* input_norm{};
+    const float* post_attention_norm{};
+    WeightView q_proj{};
+    WeightView k_proj{};
+    WeightView v_proj{};
+    WeightView o_proj{};
+    WeightView gate_proj{};
+    WeightView up_proj{};
+    WeightView down_proj{};
+    bool cross_attention{};
+  };
   SmolVLAActionExpertConfig cfg_{};
+  std::array<Layer, kMaxExpertLayers> layers_{};
   WeightView state_proj_{};
   const float* state_bias_{};
   WeightView action_in_proj_{};
@@ -63,6 +93,7 @@ private:
   const float* time_mlp_in_bias_{};
   WeightView time_mlp_out_{};
   const float* time_mlp_out_bias_{};
+  const float* final_norm_{};
   Arena* arena_{};
   ThreadPool* pool_{};
   bool valid_{};
