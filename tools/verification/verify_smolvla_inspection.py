@@ -52,7 +52,7 @@ def main() -> int:
         compatibility = report["compatibility"]
         errors = compatibility["errors"]
         required_errors = {
-            "SmolVLA full VLM encoder and interleaved action-expert attention are not implemented",
+            "SmolVLA full VLM encoder is not implemented; the action expert requires an external VLM K/V cache",
             "SmolVLA requires the LeRobot image/language preprocessing and observation-history boundary",
         }
         if model["family"] != "smolvla":
@@ -91,8 +91,8 @@ def main() -> int:
         "status": "passed",
         "scope": (
             "real SmolVLA safetensors schema recognition and explicit full-policy boundary; "
-            "suffix projection parity is covered separately; no action generation, latency, "
-            "or policy-quality evaluation"
+            "suffix projection parity is covered separately; cached-VLM action-expert replay, "
+            "latency, and policy-quality evaluation are not covered"
         ),
     }
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"

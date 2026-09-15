@@ -3,7 +3,7 @@
 
 This deliberately reads only the safetensors header.  It is a provenance and
 layout gate, not a converter and not an inference benchmark: FlowEdge does not
-yet execute the upstream VLM encoder or SmolVLA action expert.
+yet execute the upstream VLM encoder or an end-to-end SmolVLA policy.
 """
 
 from __future__ import annotations

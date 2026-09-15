@@ -70,18 +70,28 @@ mask = np.array([1, 1, 1, 0], dtype=np.uint8)
 hidden = transformer.run_embeddings(embeddings, attention_mask=mask)
 ```
 
-This is an embedding boundary, not a native SmolVLA encoder or full action expert.
+This is an embedding boundary, not a native SmolVLA encoder.
 
-The pinned SmolVLA checkpoint also exposes the first native suffix-projection
-boundary. It uses the real `action_in_proj`, sinusoidal timestep embedding,
-and time MLP; the VLM prefix and interleaved attention remain external:
+The pinned SmolVLA checkpoint exposes the native action expert when the caller
+supplies a captured VLM K/V cache. Its three allocation-free primitives are
+suffix embedding, expert execution, and action projection:
 
 ```python
 smolvla = flowedge.Engine("models/smolvla_base/model.safetensors")
 noisy_actions = np.zeros((50, 32), dtype=np.float32)
 suffix = smolvla.smolvla_embed_suffix(noisy_actions, timestep=1.0)
 assert suffix.shape == (50, 720)
+
+# Cache layout: [16 expert layers, prefix length, 320 VLM K/V values].
+# Keys have already received the VLM RoPE transform; the mask is leading ones
+# then optional trailing zero padding.
+hidden = smolvla.smolvla_run_expert(suffix, prefix_keys, prefix_values, prefix_mask)
+velocity_padded = smolvla.smolvla_project_actions(hidden)
 ```
+
+This does not run LeRobot observation preprocessing, image/language encoding,
+or build the VLM cache. A real captured-cache replay artifact is still required
+before making a native SmolVLA inference or control-quality claim.
 
 The same solve can be split across scheduler quanta without changing its result:
 

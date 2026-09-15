@@ -99,8 +99,11 @@ Rules:
 - Prefill and token-conditioned sampling accept 1 to 512 tokens per call; streaming `step` has no
   growing sequence buffer.
 - `fe_engine_smolvla_embed_suffix` accepts one padded action chunk and returns the real
-  SmolVLA action/time suffix embedding. It is a projection-parity boundary only; it does not run
-  image/language preprocessing, the VLM, or the interleaved expert attention.
+  SmolVLA action/time suffix embedding. `fe_engine_smolvla_run_expert` executes the trained
+  expert from a caller-supplied, RoPE-applied VLM K/V cache, and
+  `fe_engine_smolvla_project_actions` produces padded action coordinates. These calls do not run
+  image/language preprocessing or the VLM encoder, so a complete policy still needs an external
+  cache producer and real-capture parity evidence.
 
 ## Link with CMake
 

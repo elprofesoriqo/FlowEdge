@@ -9,7 +9,7 @@ enough.
 | Custom encoder + FlowEdge MLP flow head | Direct | Train/export `flow.*`; feed one F32 condition vector | Production-ready integration path |
 | Mamba-1 language/control checkpoints | Strong backbone fit | LM projection, sampling, tokenizer adapter, checkpoint mapping | Small, useful port |
 | Mamba-3 SISO/MIMO | Strong architectural fit, incompatible recurrence | Complex/angle state, trapezoidal update, K/V state, grouped heads, LM head | Deferred behind SmolVLA/Tenstorrent |
-| SmolVLA | Objective fits; architecture does not | Transformer flow expert with self/cross attention over VLM tokens | Port after condition-sequence ABI |
+| SmolVLA | Partial external-cache path | Transformer flow expert with self/cross attention over VLM tokens | Validate captured VLM-cache replay, then port encoder |
 | pi0 / pi0.5 | Objective fits; architecture does not | PaliGemma/VLM token interface and coupled flow action expert | Adapter first, exact port later |
 | GR00T N1.5 | Objective fits; architecture does not | DiT action model cross-attending to Eagle VLM embeddings | External runtime first |
 | pi0-FAST | Does not use the flow path | FAST action tokenizer and autoregressive transformer decoder | Defer unless token actions become a core goal |

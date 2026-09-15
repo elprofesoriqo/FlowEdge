@@ -662,4 +662,55 @@ int EngineRuntime::smolvla_embed_suffix(const float* noisy_actions, std::size_t 
   return 0;
 }
 
+int EngineRuntime::smolvla_run_expert(const float* suffix, std::size_t chunk_size,
+                                      const float* prefix_keys, const float* prefix_values,
+                                      const std::uint8_t* prefix_mask, std::size_t prefix_length,
+                                      float* out, const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (chunk_size == 0uz || chunk_size > 512uz || prefix_length == 0uz || prefix_length > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.expert_width) ||
+      prefix_length > (std::numeric_limits<std::size_t>::max() / config.expert_layers) ||
+      prefix_length * config.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / config.key_value_width)) {
+    error = "SmolVLA expert chunk or prefix length is outside the fixed execution limit";
+    return 1;
+  }
+  const std::size_t suffix_values = chunk_size * config.expert_width;
+  const std::size_t cache_values = prefix_length * config.expert_layers * config.key_value_width;
+  if (!smolvla_.run_with_prefix_kv({suffix, suffix_values}, {prefix_keys, cache_values},
+                                   {prefix_values, cache_values}, {prefix_mask, prefix_length},
+                                   {out, suffix_values})) {
+    error = "SmolVLA cached-VLM action expert could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_project_actions(const float* hidden, std::size_t chunk_size, float* out,
+                                           const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (chunk_size == 0uz || chunk_size > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.expert_width) ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim)) {
+    error = "SmolVLA action chunk size is outside the fixed projection limit";
+    return 1;
+  }
+  if (!smolvla_.project_actions({hidden, chunk_size * config.expert_width},
+                                {out, chunk_size * config.max_action_dim})) {
+    error = "SmolVLA action projection could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
 } // namespace fe
