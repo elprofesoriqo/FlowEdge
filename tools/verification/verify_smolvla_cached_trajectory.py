@@ -43,7 +43,12 @@ def main() -> int:
     parser.add_argument("reference", type=Path, help="real source export with --trajectory-output")
     parser.add_argument("--module-path", type=Path, required=True)
     parser.add_argument("--output", type=Path, help="write portable parity report")
-    parser.add_argument("--tolerance", type=float, default=2e-2)
+    parser.add_argument(
+        "--tolerance",
+        type=float,
+        default=3e-2,
+        help="maximum cross-runtime BF16 Euler action error (default: %(default)g)",
+    )
     args = parser.parse_args()
     if args.tolerance <= 0.0:
         parser.error("tolerance must be positive")

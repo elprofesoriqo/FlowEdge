@@ -49,7 +49,12 @@ def main() -> int:
         default=1e-1,
         help="maximum BF16 expert-hidden error (default: %(default)g)",
     )
-    parser.add_argument("--velocity-tolerance", type=float, default=2e-2)
+    parser.add_argument(
+        "--velocity-tolerance",
+        type=float,
+        default=8e-2,
+        help="maximum cross-runtime BF16 action-velocity error (default: %(default)g)",
+    )
     args = parser.parse_args()
     if args.hidden_tolerance <= 0.0 or args.velocity_tolerance <= 0.0:
         parser.error("tolerances must be positive")

@@ -90,7 +90,14 @@ void smolvla_rmsnorm(std::span<const float> input, std::span<const float> weight
       squared_sum += source[channel] * source[channel];
     const float scale = 1.0F / std::sqrt((squared_sum / static_cast<float>(width)) + kEpsilon);
     for (std::size_t channel{}; channel < width; ++channel)
-      destination[channel] = source[channel] * scale * weight[channel];
+      destination[channel] = source[channel] * scale;
+    // LlamaRMSNorm upcasts for the reduction, casts the normalized activation
+    // back to BF16, then multiplies by the BF16 learned weight. Combining the
+    // two products in F32 changes the BF16 rounding path across deep experts.
+    round_to_bf16({destination, width});
+    for (std::size_t channel{}; channel < width; ++channel)
+      destination[channel] *= weight[channel];
+    round_to_bf16({destination, width});
   }
 }
 
