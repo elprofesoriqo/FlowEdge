@@ -186,6 +186,18 @@ int fe_engine_smolvla_denoise(fe_engine* engine, const float* noisy_actions, siz
                               const uint8_t* prefix_mask, size_t prefix_length, float* out);
 
 /**
+ * @brief Sample a SmolVLA action chunk with the source deterministic Euler schedule.
+ *
+ * `initial_noise` and `out` have [chunk_size * max_action_dim] values. `steps`
+ * is bounded to [1, 100]. `out` may exactly alias `initial_noise`; other
+ * overlap is unsupported. The VLM cache contract is the same as
+ * `fe_engine_smolvla_run_expert`.
+ */
+int fe_engine_smolvla_sample(fe_engine* engine, const float* initial_noise, size_t chunk_size,
+                             size_t steps, const float* prefix_keys, const float* prefix_values,
+                             const uint8_t* prefix_mask, size_t prefix_length, float* out);
+
+/**
  * @brief Advance the streaming decode state by a single token.
  * @param engine The engine instance.
  * @param token The input token ID.

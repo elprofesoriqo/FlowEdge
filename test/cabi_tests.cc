@@ -52,6 +52,10 @@ TEST(CAbiContract, NullHandlesReportInvalidArguments)
                                       &value),
             FE_STATUS_INVALID_ARGUMENT);
   EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_denoise");
+  EXPECT_EQ(fe_engine_smolvla_sample(nullptr, &value, 1uz, 10uz, &value, &value, &mask, 1uz,
+                                     &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_sample");
   EXPECT_EQ(fe_engine_step(nullptr, token, &value), FE_STATUS_INVALID_ARGUMENT);
   EXPECT_STREQ(fe_engine_last_error(), "Invalid null arguments to fe_engine_step");
   EXPECT_EQ(fe_engine_flow_advance(nullptr, 1uz, &value, &remaining), FE_STATUS_INVALID_ARGUMENT);

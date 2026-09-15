@@ -70,6 +70,16 @@ public:
                                             std::span<const std::uint8_t> prefix_mask,
                                             std::span<float> output) noexcept;
 
+  // Integrate the action expert's deterministic flow ODE with the source
+  // SmolVLA Euler schedule: t = 1 - step / steps and dt = -1 / steps.
+  // `output` may alias `initial_noise`; other overlap is unsupported.
+  [[nodiscard]] bool sample_euler_with_prefix_kv(std::span<const float> initial_noise,
+                                                 std::size_t steps,
+                                                 std::span<const float> prefix_keys,
+                                                 std::span<const float> prefix_values,
+                                                 std::span<const std::uint8_t> prefix_mask,
+                                                 std::span<float> output) noexcept;
+
 private:
   [[nodiscard]] std::span<float> scratch(std::size_t count) noexcept
   {
@@ -77,6 +87,7 @@ private:
   }
 
   static constexpr std::size_t kMaxExpertLayers = 48uz;
+  static constexpr std::size_t kMaxEulerSteps = 100uz;
   struct Layer
   {
     const float* input_norm{};

@@ -92,11 +92,16 @@ velocity_padded = smolvla.smolvla_project_actions(hidden)
 velocity_padded = smolvla.smolvla_denoise(
     noisy_actions, 1.0, prefix_keys, prefix_values, prefix_mask
 )
+
+# Source SmolVLA's deterministic 10-step Euler loop, seeded by the caller.
+actions_padded = smolvla.smolvla_sample(
+    initial_noise, prefix_keys, prefix_values, prefix_mask, steps=10
+)
 ```
 
 This does not run LeRobot observation preprocessing, image/language encoding,
-or build the VLM cache. A real captured-cache replay artifact is still required
-before making a native SmolVLA inference or control-quality claim.
+or build the VLM cache. A real captured-cache *trajectory* replay artifact is
+still required before making a native SmolVLA inference or control-quality claim.
 
 The same solve can be split across scheduler quanta without changing its result:
 

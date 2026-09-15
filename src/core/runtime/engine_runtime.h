@@ -91,6 +91,10 @@ public:
                       const float* prefix_keys, const float* prefix_values,
                       const std::uint8_t* prefix_mask, std::size_t prefix_length, float* out,
                       const char*& error) noexcept;
+  int smolvla_sample(const float* initial_noise, std::size_t chunk_size, std::size_t steps,
+                     const float* prefix_keys, const float* prefix_values,
+                     const std::uint8_t* prefix_mask, std::size_t prefix_length, float* out,
+                     const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
   void reset() noexcept;
   int sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise, std::size_t steps,

@@ -106,6 +106,9 @@ Rules:
   cache producer and real-capture parity evidence.
 - `fe_engine_smolvla_denoise` composes those three operations in the native runtime for one flow
   step and writes caller-owned padded action velocity storage without allocating in the hot path.
+- `fe_engine_smolvla_sample` applies the source deterministic Euler schedule from caller-supplied
+  noise and the same captured VLM cache. It supports 1--100 steps and permits exact in-place
+  noise/output storage. It still does not construct that cache or execute the VLM.
 
 ## Link with CMake
 

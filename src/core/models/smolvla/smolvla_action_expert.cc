@@ -546,4 +546,38 @@ bool SmolVLAActionExpert::denoise_with_prefix_kv(std::span<const float> noisy_ac
   return true;
 }
 
+bool SmolVLAActionExpert::sample_euler_with_prefix_kv(std::span<const float> initial_noise,
+                                                      std::size_t steps,
+                                                      std::span<const float> prefix_keys,
+                                                      std::span<const float> prefix_values,
+                                                      std::span<const std::uint8_t> prefix_mask,
+                                                      std::span<float> output) noexcept
+{
+  if (!valid_ || steps == 0uz || steps > kMaxEulerSteps || initial_noise.empty() ||
+      initial_noise.size() % cfg_.max_action_dim != 0uz || output.size() != initial_noise.size())
+    return false;
+  if (initial_noise.data() != output.data())
+    std::copy(initial_noise.begin(), initial_noise.end(), output.begin());
+
+  std::byte* const mark = arena_->mark();
+  const std::span<float> velocity = scratch(output.size());
+  if (velocity.empty()) {
+    arena_->reset_to(mark);
+    return false;
+  }
+  const float dt = -1.0F / static_cast<float>(steps);
+  for (std::size_t step{}; step < steps; ++step) {
+    const float timestep = 1.0F + static_cast<float>(step) * dt;
+    if (!denoise_with_prefix_kv(output, timestep, prefix_keys, prefix_values, prefix_mask,
+                                velocity)) {
+      arena_->reset_to(mark);
+      return false;
+    }
+    for (std::size_t index{}; index < output.size(); ++index)
+      output[index] += dt * velocity[index];
+  }
+  arena_->reset_to(mark);
+  return true;
+}
+
 } // namespace fe

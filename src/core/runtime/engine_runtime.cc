@@ -744,4 +744,36 @@ int EngineRuntime::smolvla_denoise(const float* noisy_actions, std::size_t chunk
   return 0;
 }
 
+int EngineRuntime::smolvla_sample(const float* initial_noise, std::size_t chunk_size,
+                                  std::size_t steps, const float* prefix_keys,
+                                  const float* prefix_values, const std::uint8_t* prefix_mask,
+                                  std::size_t prefix_length, float* out,
+                                  const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (steps == 0uz || steps > 100uz || chunk_size == 0uz || chunk_size > 512uz ||
+      prefix_length == 0uz || prefix_length > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim) ||
+      prefix_length > (std::numeric_limits<std::size_t>::max() / config.expert_layers) ||
+      prefix_length * config.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / config.key_value_width)) {
+    error = "SmolVLA Euler sample dimensions or step count are outside the fixed execution limit";
+    return 1;
+  }
+  const std::size_t action_values = chunk_size * config.max_action_dim;
+  const std::size_t cache_values = prefix_length * config.expert_layers * config.key_value_width;
+  if (!smolvla_.sample_euler_with_prefix_kv({initial_noise, action_values}, steps,
+                                            {prefix_keys, cache_values},
+                                            {prefix_values, cache_values},
+                                            {prefix_mask, prefix_length}, {out, action_values})) {
+    error = "SmolVLA cached-VLM Euler sample could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
 } // namespace fe
