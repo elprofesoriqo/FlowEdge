@@ -39,5 +39,6 @@
   "schema_version": 1,
   "scope": "recorded LeRobot observation mapped to configured source camera keys; no image synthesis, camera duplication, or model-quality claim",
   "status": "passed",
-  "task": "Pick up the 5 blocks in sequence (red, yellow, wood, green, blue), then place each block separately into its designated target position.\n"
+  "task": "Pick up the 5 blocks in sequence (red, yellow, wood, green, blue), then place each block separately into its designated target position.\n",
+  "video_frame_index": 0
 }

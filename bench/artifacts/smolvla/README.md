@@ -8,7 +8,7 @@
 | `*.cached-expert.json`, `*.cached-trajectory.json` | FlowEdge replay reports for the cached expert boundary. |
 
 The capture manifest pins the source dataset revision, license, parquet/video
-digests, task, frame, and noise seed. It maps the recorded top and wrist
+digests, task, parquet and video frame indices, and noise seed. It maps the recorded top and wrist
 cameras to two configured source keys without synthesizing, resizing, or
 duplicating pixels.
 

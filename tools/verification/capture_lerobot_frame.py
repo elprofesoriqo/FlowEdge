@@ -55,7 +55,12 @@ def main() -> int:
         "--frame-index",
         type=int,
         required=True,
-        help="unique LeRobot data index and zero-based ordinal in each supplied camera file",
+        help="unique LeRobot data index in the supplied parquet shard",
+    )
+    parser.add_argument(
+        "--video-frame-index",
+        type=int,
+        help="zero-based frame ordinal in each supplied camera shard (defaults to --frame-index)",
     )
     parser.add_argument("--task", required=True, help="recorded natural-language task")
     parser.add_argument(
@@ -73,8 +78,11 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="write source capture NPZ")
     parser.add_argument("--manifest", type=Path, required=True, help="write capture provenance JSON")
     args = parser.parse_args()
-    if args.frame_index < 0 or args.noise_seed < 0:
-        parser.error("--frame-index and --noise-seed must be non-negative")
+    if args.frame_index < 0 or args.noise_seed < 0 or (
+        args.video_frame_index is not None and args.video_frame_index < 0
+    ):
+        parser.error("--frame-index, --video-frame-index, and --noise-seed must be non-negative")
+    video_frame_index = args.frame_index if args.video_frame_index is None else args.video_frame_index
 
     try:
         import pyarrow.parquet as pq
@@ -133,7 +141,7 @@ def main() -> int:
             "timestep": np.ones((1,), dtype=np.float32),
         }
         for key, source in cameras.items():
-            capture[key] = decode_rgb_frame(source, args.frame_index)
+            capture[key] = decode_rgb_frame(source, video_frame_index)
 
         args.output.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(args.output, **capture)
@@ -145,6 +153,7 @@ def main() -> int:
             "data_parquet": args.data.name,
             "data_parquet_sha256": digest(args.data),
             "frame_index": args.frame_index,
+            "video_frame_index": video_frame_index,
             "recorded_state_shape": list(state.shape),
             "task": task,
             "camera_sources": {

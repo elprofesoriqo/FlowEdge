@@ -135,6 +135,9 @@ python tools/verification/capture_lerobot_frame.py models/smolvla_base data.parq
   --output real-observation.npz --manifest real-observation.json
 ```
 
+`--frame-index` identifies the parquet row. When a video shard starts at a
+different dataset index, pass its local ordinal with `--video-frame-index`.
+
 ```bash
 python tools/verification/export_smolvla_reference.py \
   models/smolvla_base real-observation.npz \
