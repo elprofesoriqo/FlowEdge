@@ -18,7 +18,14 @@ class SmolVLASourceProviderTests(unittest.TestCase):
 
         class VlmWithExpert:
             def forward(self, **kwargs):
-                del kwargs
+                testcase.assertTrue(
+                    torch.equal(
+                        kwargs["attention_mask"],
+                        torch.tensor(
+                            [[[True, False, True], [False, False, False], [True, False, True]]]
+                        ),
+                    )
+                )
                 cache = {
                     layer: {
                         "key_states": torch.full((1, 3, 5, 64), float(layer)),

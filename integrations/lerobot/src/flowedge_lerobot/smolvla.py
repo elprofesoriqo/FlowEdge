@@ -18,6 +18,18 @@ SMOLVLA_ACTION_EXPERT_ARCHITECTURE = 7
 SMOLVLA_KEY_VALUE_WIDTH = 320
 
 
+def _make_att_2d_masks(pad_masks: Any, att_masks: Any) -> Any:
+    """Build SmolVLA's prefix-LM mask without importing its optional VLM stack."""
+    import torch
+
+    if att_masks.ndim != 2 or pad_masks.ndim != 2:
+        raise ValueError("SmolVLA prefix masks must be rank two")
+    cumulative = torch.cumsum(att_masks, dim=1)
+    causal = cumulative[:, None, :] <= cumulative[:, :, None]
+    valid = pad_masks[:, None, :] & pad_masks[:, :, None]
+    return causal & valid
+
+
 class SmolVLAEngine(Protocol):
     """Native engine operations consumed by the cache-bound adapter."""
 
@@ -277,7 +289,6 @@ class LeRobotSmolVLACacheProvider:
     def __call__(self, batch: dict[str, Any]) -> SmolVLAKVCache:
         """Return one batch-one source VLM cache for a LeRobot-prepared batch."""
         import torch
-        from lerobot.policies.smolvla.modeling_smolvla import make_att_2d_masks
         from lerobot.policies.utils import populate_queues
         from lerobot.utils.constants import (
             ACTION,
@@ -304,7 +315,7 @@ class LeRobotSmolVLACacheProvider:
             prefix_embs, prefix_pad_masks, prefix_att_masks = model.embed_prefix(
                 images, image_masks, lang_tokens, lang_masks, state=state
             )
-            prefix_attention = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+            prefix_attention = _make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
             prefix_positions = torch.cumsum(prefix_pad_masks, dim=1) - 1
             _, cache = model.vlm_with_expert.forward(
                 attention_mask=prefix_attention,
