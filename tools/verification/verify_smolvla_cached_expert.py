@@ -77,7 +77,12 @@ def main() -> int:
         expected_velocity = required(reference, "expected_velocity", np.dtype("float32"), (50, 32))
         suffix = metadata_engine.smolvla_embed_suffix(noisy_actions, float(timestep[0]))
         actual_hidden = metadata_engine.smolvla_run_expert(suffix, prefix_keys, prefix_values, prefix_mask)
-        actual_velocity = metadata_engine.smolvla_project_actions(actual_hidden)
+        split_velocity = metadata_engine.smolvla_project_actions(actual_hidden)
+        actual_velocity = metadata_engine.smolvla_denoise(
+            noisy_actions, float(timestep[0]), prefix_keys, prefix_values, prefix_mask
+        )
+        if not np.array_equal(actual_velocity, split_velocity):
+            raise RuntimeError("fused SmolVLA denoise output differs from the split native boundary")
         if not np.isfinite(actual_hidden).all() or not np.isfinite(actual_velocity).all():
             raise RuntimeError("FlowEdge action expert emitted non-finite values")
         hidden_error = np.abs(actual_hidden - expected_hidden)

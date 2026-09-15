@@ -174,6 +174,18 @@ int fe_engine_smolvla_project_actions(fe_engine* engine, const float* hidden, si
                                       float* out);
 
 /**
+ * @brief Run one complete SmolVLA action-expert denoising step.
+ *
+ * This composes suffix embedding, cached-VLM expert execution, and action
+ * projection without runtime allocation. `noisy_actions` and `out` have
+ * [chunk_size * max_action_dim] values. The external VLM K/V cache follows
+ * the contract of `fe_engine_smolvla_run_expert`.
+ */
+int fe_engine_smolvla_denoise(fe_engine* engine, const float* noisy_actions, size_t chunk_size,
+                              float timestep, const float* prefix_keys, const float* prefix_values,
+                              const uint8_t* prefix_mask, size_t prefix_length, float* out);
+
+/**
  * @brief Advance the streaming decode state by a single token.
  * @param engine The engine instance.
  * @param token The input token ID.

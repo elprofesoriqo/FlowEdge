@@ -87,6 +87,11 @@ assert suffix.shape == (50, 720)
 # then optional trailing zero padding.
 hidden = smolvla.smolvla_run_expert(suffix, prefix_keys, prefix_values, prefix_mask)
 velocity_padded = smolvla.smolvla_project_actions(hidden)
+
+# Prefer this equivalent single call in the control loop.
+velocity_padded = smolvla.smolvla_denoise(
+    noisy_actions, 1.0, prefix_keys, prefix_values, prefix_mask
+)
 ```
 
 This does not run LeRobot observation preprocessing, image/language encoding,

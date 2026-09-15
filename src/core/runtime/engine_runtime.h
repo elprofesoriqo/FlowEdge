@@ -87,6 +87,10 @@ public:
                          std::size_t prefix_length, float* out, const char*& error) noexcept;
   int smolvla_project_actions(const float* hidden, std::size_t chunk_size, float* out,
                               const char*& error) noexcept;
+  int smolvla_denoise(const float* noisy_actions, std::size_t chunk_size, float timestep,
+                      const float* prefix_keys, const float* prefix_values,
+                      const std::uint8_t* prefix_mask, std::size_t prefix_length, float* out,
+                      const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
   void reset() noexcept;
   int sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise, std::size_t steps,

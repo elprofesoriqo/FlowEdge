@@ -713,4 +713,35 @@ int EngineRuntime::smolvla_project_actions(const float* hidden, std::size_t chun
   return 0;
 }
 
+int EngineRuntime::smolvla_denoise(const float* noisy_actions, std::size_t chunk_size,
+                                   float timestep, const float* prefix_keys,
+                                   const float* prefix_values, const std::uint8_t* prefix_mask,
+                                   std::size_t prefix_length, float* out,
+                                   const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (!std::isfinite(timestep) || chunk_size == 0uz || chunk_size > 512uz || prefix_length == 0uz ||
+      prefix_length > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim) ||
+      prefix_length > (std::numeric_limits<std::size_t>::max() / config.expert_layers) ||
+      prefix_length * config.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / config.key_value_width)) {
+    error = "SmolVLA denoise chunk or prefix length is outside the fixed execution limit";
+    return 1;
+  }
+  const std::size_t action_values = chunk_size * config.max_action_dim;
+  const std::size_t cache_values = prefix_length * config.expert_layers * config.key_value_width;
+  if (!smolvla_.denoise_with_prefix_kv({noisy_actions, action_values}, timestep,
+                                       {prefix_keys, cache_values}, {prefix_values, cache_values},
+                                       {prefix_mask, prefix_length}, {out, action_values})) {
+    error = "SmolVLA cached-VLM denoise step could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
 } // namespace fe

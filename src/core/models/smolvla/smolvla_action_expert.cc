@@ -521,4 +521,29 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
   return true;
 }
 
+bool SmolVLAActionExpert::denoise_with_prefix_kv(std::span<const float> noisy_actions,
+                                                 float timestep, std::span<const float> prefix_keys,
+                                                 std::span<const float> prefix_values,
+                                                 std::span<const std::uint8_t> prefix_mask,
+                                                 std::span<float> output) noexcept
+{
+  if (!valid_ || !std::isfinite(timestep) || noisy_actions.empty() ||
+      noisy_actions.size() % cfg_.max_action_dim != 0uz)
+    return false;
+  const std::size_t chunk_size = noisy_actions.size() / cfg_.max_action_dim;
+  if (output.size() != chunk_size * cfg_.max_action_dim)
+    return false;
+  std::byte* const mark = arena_->mark();
+  const std::span<float> suffix = scratch(chunk_size * cfg_.expert_width);
+  const std::span<float> hidden = scratch(chunk_size * cfg_.expert_width);
+  if (suffix.empty() || hidden.empty() || !embed_suffix(noisy_actions, timestep, suffix) ||
+      !run_with_prefix_kv(suffix, prefix_keys, prefix_values, prefix_mask, hidden) ||
+      !project_actions(hidden, output)) {
+    arena_->reset_to(mark);
+    return false;
+  }
+  arena_->reset_to(mark);
+  return true;
+}
+
 } // namespace fe

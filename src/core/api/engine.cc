@@ -382,6 +382,23 @@ int fe_engine_smolvla_project_actions(fe_engine* engine, const float* hidden,
   return engine->runtime.smolvla_project_actions(hidden, chunk_size, out, last_error());
 }
 
+int fe_engine_smolvla_denoise(fe_engine* engine, const float* noisy_actions, std::size_t chunk_size,
+                              float timestep, const float* prefix_keys, const float* prefix_values,
+                              const std::uint8_t* prefix_mask, std::size_t prefix_length,
+                              float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || noisy_actions == nullptr || chunk_size == 0uz ||
+      !std::isfinite(timestep) || prefix_keys == nullptr || prefix_values == nullptr ||
+      prefix_mask == nullptr || prefix_length == 0uz || out == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_denoise";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_denoise(noisy_actions, chunk_size, timestep, prefix_keys,
+                                         prefix_values, prefix_mask, prefix_length, out,
+                                         last_error());
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif

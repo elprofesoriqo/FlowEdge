@@ -61,6 +61,15 @@ public:
                                         std::span<const std::uint8_t> prefix_mask,
                                         std::span<float> output) noexcept;
 
+  // Allocation-free complete action-expert velocity for one denoising step.
+  // It composes suffix embedding, cached-VLM attention, and action projection
+  // while retaining the image/language VLM boundary outside Core.
+  [[nodiscard]] bool denoise_with_prefix_kv(std::span<const float> noisy_actions, float timestep,
+                                            std::span<const float> prefix_keys,
+                                            std::span<const float> prefix_values,
+                                            std::span<const std::uint8_t> prefix_mask,
+                                            std::span<float> output) noexcept;
+
 private:
   [[nodiscard]] std::span<float> scratch(std::size_t count) noexcept
   {

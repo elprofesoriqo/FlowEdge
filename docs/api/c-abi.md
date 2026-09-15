@@ -104,6 +104,8 @@ Rules:
   `fe_engine_smolvla_project_actions` produces padded action coordinates. These calls do not run
   image/language preprocessing or the VLM encoder, so a complete policy still needs an external
   cache producer and real-capture parity evidence.
+- `fe_engine_smolvla_denoise` composes those three operations in the native runtime for one flow
+  step and writes caller-owned padded action velocity storage without allocating in the hot path.
 
 ## Link with CMake
 
