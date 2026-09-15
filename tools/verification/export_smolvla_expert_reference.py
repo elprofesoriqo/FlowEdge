@@ -58,8 +58,20 @@ def main() -> int:
     parser.add_argument("capture", type=Path, help="real source-pipeline .npz capture")
     parser.add_argument("--output", type=Path, required=True, help="write expert reference NPZ")
     parser.add_argument("--manifest", type=Path, help="write JSON provenance")
+    parser.add_argument(
+        "--trajectory-output",
+        type=Path,
+        help="also write the real source Euler trajectory from capture noise",
+    )
+    parser.add_argument(
+        "--trajectory-manifest",
+        type=Path,
+        help="write provenance for --trajectory-output",
+    )
     parser.add_argument("--revision", default=DEFAULT_REVISION)
     args = parser.parse_args()
+    if args.trajectory_manifest and not args.trajectory_output:
+        parser.error("--trajectory-manifest requires --trajectory-output")
 
     try:
         import lerobot
@@ -96,12 +108,21 @@ def main() -> int:
             (batch_size, policy.config.chunk_size, policy.config.max_action_dim),
         )
         timestep = required(capture, "timestep", np.dtype("float32"), (batch_size,))
+        initial_noise = None
+        if args.trajectory_output:
+            initial_noise = required(
+                capture,
+                "noise",
+                np.dtype("float32"),
+                (batch_size, policy.config.chunk_size, policy.config.max_action_dim),
+            )
         if (
             not np.isfinite(state).all()
             or not np.isfinite(noisy_actions).all()
             or not np.isfinite(timestep).all()
+            or (initial_noise is not None and not np.isfinite(initial_noise).all())
         ):
-            raise ValueError("capture state, noisy_actions, and timestep must be finite")
+            raise ValueError("capture state, noise, noisy_actions, and timestep must be finite")
         if not np.isin(language_mask, (0, 1)).all():
             raise ValueError("capture language attention mask must contain only 0 or 1")
         batch = {
@@ -164,6 +185,21 @@ def main() -> int:
             )
             source_hidden = outputs[1][:, -policy.config.chunk_size :].to(dtype=torch.float32)
             source_velocity = model.action_out_proj(source_hidden)
+            source_actions = None
+            if initial_noise is not None:
+                source_actions = torch.from_numpy(initial_noise).to(device)
+                steps = policy.config.num_steps
+                dt = -1.0 / steps
+                for step in range(steps):
+                    timestep_value = 1.0 + step * dt
+                    source_actions = source_actions + dt * model.denoise_step(
+                        prefix_pad_masks=prefix_pad_masks,
+                        past_key_values=cache,
+                        x_t=source_actions,
+                        timestep=torch.tensor(timestep_value, dtype=torch.float32, device=device).expand(
+                            batch_size
+                        ),
+                    )
 
         prefix_keys = []
         prefix_values = []
@@ -208,6 +244,18 @@ def main() -> int:
             raise RuntimeError("source action-expert output has an unexpected shape")
         args.output.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(args.output, **output)
+        trajectory = None
+        if source_actions is not None:
+            trajectory = {
+                "initial_noise": initial_noise[0],
+                "prefix_keys": output["prefix_keys"],
+                "prefix_values": output["prefix_values"],
+                "prefix_mask": output["prefix_mask"],
+                "steps": np.asarray([policy.config.num_steps], dtype=np.int64),
+                "expected_actions": cpu_f32(source_actions, torch)[0],
+            }
+            args.trajectory_output.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(args.trajectory_output, **trajectory)
         report = {
             "schema_version": 1,
             "model": "lerobot/smolvla_base",
@@ -239,6 +287,32 @@ def main() -> int:
     if args.manifest:
         args.manifest.parent.mkdir(parents=True, exist_ok=True)
         args.manifest.write_text(text, encoding="utf-8")
+    if trajectory is not None:
+        trajectory_report = {
+            "schema_version": 1,
+            "model": "lerobot/smolvla_base",
+            "revision": args.revision,
+            "source_capture_sha256": digest(args.capture),
+            "source_initial_noise_sha256": array_digest(trajectory["initial_noise"]),
+            "source_prefix_keys_sha256": array_digest(trajectory["prefix_keys"]),
+            "source_prefix_values_sha256": array_digest(trajectory["prefix_values"]),
+            "source_actions_sha256": array_digest(trajectory["expected_actions"]),
+            "prefix_length": int(prefix_length),
+            "steps": int(policy.config.num_steps),
+            "trajectory_shape": list(trajectory["expected_actions"].shape),
+            "lerobot_version": lerobot.__version__,
+            "transformers_version": transformers.__version__,
+            "status": "passed",
+            "scope": (
+                "upstream SmolVLA complete deterministic Euler trajectory from a supplied real "
+                "observation and noise; not FlowEdge parity, latency, or policy-quality evidence"
+            ),
+        }
+        trajectory_text = json.dumps(trajectory_report, indent=2, sort_keys=True) + "\n"
+        if args.trajectory_manifest:
+            args.trajectory_manifest.parent.mkdir(parents=True, exist_ok=True)
+            args.trajectory_manifest.write_text(trajectory_text, encoding="utf-8")
+        print(trajectory_text, end="")
     print(text, end="")
     return 0
 

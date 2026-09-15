@@ -152,8 +152,31 @@ python tools/verification/verify_smolvla_cached_expert.py \
 ```
 
 The report is the required evidence for the cached-VLM action-expert path. It
-does not validate preprocessing, VLM encoding, a ten-step flow solve, timing,
-or control quality.
+does not validate preprocessing, VLM encoding, the full ten-step flow solve,
+timing, or control quality.
+
+### Cached-VLM Euler trajectory replay
+
+The native `smolvla_sample` call implements the source's deterministic Euler
+schedule (`t = 1 - step / N`, `x += -v / N`) from caller-owned noise. Add the
+same real `noise` input used by the upstream action call to produce a complete
+trajectory target from the cached VLM prefix:
+
+```bash
+python tools/verification/export_smolvla_expert_reference.py \
+  models/smolvla_base real-observation.npz \
+  --output smolvla-expert-reference.npz \
+  --trajectory-output smolvla-trajectory-reference.npz
+
+python tools/verification/verify_smolvla_cached_trajectory.py \
+  models/smolvla_base/model.safetensors smolvla-trajectory-reference.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/smolvla-cached-trajectory.json
+```
+
+This establishes only expert-side Euler replay from an externally generated
+cache. It remains short of native full-policy inference until the observation
+processor and VLM prefix/cache producer have matched source parity.
 
 The native inspector recognizes this real checkpoint schema but fails closed:
 
