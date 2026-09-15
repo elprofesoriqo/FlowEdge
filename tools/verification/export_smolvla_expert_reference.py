@@ -15,6 +15,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 
 DEFAULT_REVISION = "c83c3163b8ca9b7e67c509fffd9121e66cb96205"
 EXPECTED_EXPERT_LAYERS = 16
@@ -46,6 +48,34 @@ def required(capture, name: str, dtype, shape: tuple[int, ...]):
     if tuple(value.shape) != shape:
         raise ValueError(f"capture {name!r} must have shape {shape}, got {tuple(value.shape)}")
     return value
+
+
+def present_images(capture, image_features, batch_size: int):
+    """Validate source images that are actually present in a real observation."""
+    images = {}
+    for key, feature in image_features.items():
+        if key not in capture:
+            continue
+        image = capture[key]
+        channels = feature.shape[0]
+        if (
+            image.dtype != np.dtype("float32")
+            or image.ndim != 4
+            or image.shape[0] != batch_size
+            or image.shape[1] != channels
+            or image.shape[2] <= 0
+            or image.shape[3] <= 0
+        ):
+            raise ValueError(
+                f"capture {key!r} must be float32 [batch, {channels}, height, width], got "
+                f"{image.dtype}/{tuple(image.shape)}"
+            )
+        if not np.isfinite(image).all() or image.min() < 0.0 or image.max() > 1.0:
+            raise ValueError(f"capture {key!r} must be finite RGB in [0, 1]")
+        images[key] = image
+    if not images:
+        raise ValueError("capture must contain at least one configured observation image")
+    return images
 
 
 def cpu_f32(tensor, torch):
@@ -86,7 +116,7 @@ def main() -> int:
         model = policy.model
         device = next(policy.parameters()).device
         batch_size = 1
-        state_dim = policy.config.state_feature.shape[0]
+        state_dim = policy.config.robot_state_feature.shape[0]
         capture = np.load(args.capture, allow_pickle=False)
         state = required(capture, "observation.state", np.dtype("float32"), (batch_size, state_dim))
         tokens = required(
@@ -130,11 +160,7 @@ def main() -> int:
             "observation.language.tokens": torch.from_numpy(tokens).to(device),
             "observation.language.attention_mask": torch.from_numpy(language_mask).to(device),
         }
-        for key, feature in policy.config.image_features.items():
-            channels, height, width = feature.shape
-            image = required(capture, key, np.dtype("float32"), (batch_size, channels, height, width))
-            if not np.isfinite(image).all() or image.min() < 0.0 or image.max() > 1.0:
-                raise ValueError(f"capture {key!r} must be finite RGB in [0, 1]")
+        for key, image in present_images(capture, policy.config.image_features, batch_size).items():
             batch[key] = torch.from_numpy(image).to(device)
 
         with torch.no_grad():
@@ -222,13 +248,11 @@ def main() -> int:
             prefix_keys.append(keys.reshape(prefix_length, EXPECTED_KEY_VALUE_WIDTH))
             prefix_values.append(values.reshape(prefix_length, EXPECTED_KEY_VALUE_WIDTH))
 
+        # SmolVLA right-pads language before appending state, so the prefix mask can
+        # be sparse.  Preserve its exact source layout for the cached expert.
         prefix_mask = cpu_f32(prefix_pad_masks, torch).astype(np.uint8, copy=False)[0]
-        expected_mask = np.r_[
-            np.ones(prefix_mask.sum(), dtype=np.uint8),
-            np.zeros(prefix_length - prefix_mask.sum(), dtype=np.uint8),
-        ]
-        if not np.array_equal(prefix_mask, expected_mask):
-            raise RuntimeError("source prefix mask is not leading valid tokens followed by padding")
+        if not np.isin(prefix_mask, (0, 1)).all() or not prefix_mask.any():
+            raise RuntimeError("source prefix mask must contain binary validity with one valid token")
         output = {
             "noisy_actions": noisy_actions[0],
             "timestep": timestep,
