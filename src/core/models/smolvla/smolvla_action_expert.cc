@@ -74,14 +74,14 @@ void round_to_bf16(std::span<float> values) noexcept
   }
 }
 
-// The upstream Gemma expert normalizes in float32 with rms_norm_eps=1e-6,
+// The upstream SmolLM expert normalizes in float32 with rms_norm_eps=1e-5,
 // then casts the result to BF16 for its projections.  The generic kernel has
 // a different fixed epsilon, so keep this small, allocation-free operation
 // local to the checkpoint-specific execution path.
 void smolvla_rmsnorm(std::span<const float> input, std::span<const float> weight,
                      std::span<float> output, std::size_t rows, std::size_t width) noexcept
 {
-  constexpr float kEpsilon = 1e-6F;
+  constexpr float kEpsilon = 1e-5F;
   for (std::size_t row{}; row < rows; ++row) {
     const float* const source = input.data() + (row * width);
     float* const destination = output.data() + (row * width);
