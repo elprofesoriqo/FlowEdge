@@ -111,14 +111,29 @@ real observation captured through the upstream LeRobot processor. The `.npz`
 capture must contain batch-one, pre-processor tensors:
 
 - `observation.state`: F32 `[1, 6]`;
-- `observation.images.camera1`, `camera2`, and `camera3`: F32 `[1, 3, 256, 256]`
-  RGB values in `[0, 1]`;
+- one or more configured `observation.images.*` fields: F32 `[1, 3, height, width]`
+  RGB values in `[0, 1]`. Keep each real camera at the resolution emitted by
+  the source pipeline; SmolVLA performs its own resize-with-padding. Do not
+  duplicate a view to fill an absent camera;
 - `observation.language.tokens`: I64 `[1, 48]`; `observation.language.attention_mask`:
   boolean `[1, 48]`, emitted by LeRobot's tokenizer.
 - `noise`: F32 `[1, 50, 32]`, captured once and reused by every implementation.
 
 For cached-expert replay, add `noisy_actions` (F32 `[1, 50, 32]`) and
 `timestep` (F32 `[1]`); they identify one actual source denoising step.
+
+For a recorded LeRobot v3 parquet/video sample, create this capture without
+resizing or duplicating camera pixels. Map only the cameras actually present
+in the record to the checkpoint's configured keys:
+
+```bash
+python tools/verification/capture_lerobot_frame.py models/smolvla_base data.parquet \
+  --frame-index 0 --task "Recorded task" --noise-seed 17 \
+  --camera observation.images.camera1=top.mp4 \
+  --camera observation.images.camera2=wrist.mp4 \
+  --dataset-id namespace/dataset --dataset-revision COMMIT --dataset-license SPDX \
+  --output real-observation.npz --manifest real-observation.json
+```
 
 ```bash
 python tools/verification/export_smolvla_reference.py \
@@ -143,7 +158,9 @@ The source cache is `[1, prefix, 5, 64]` per layer and is transported to
 FlowEdge as `[16, prefix, 320]`. Its validity mask may be sparse: LeRobot
 right-pads language tokens before appending the valid state token. The replay
 verifier therefore compares BF16 hidden states with a `0.1` maximum-error
-default and keeps the action-velocity threshold at `0.02`.
+default, action velocity with `0.08`, and the ten-step Euler result with
+`0.03`. These are explicit cross-runtime BF16 envelopes, not accuracy or
+task-quality thresholds.
 
 ```bash
 python tools/verification/export_smolvla_expert_reference.py \
