@@ -405,8 +405,6 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
                     keys, prefix_size, cfg_.key_value_width, cfg_.key_value_width, pool_);
       matmul_weight(prefix_values.subspan(offset, prefix_size * cfg_.key_value_width), layer.v_proj,
                     values, prefix_size, cfg_.key_value_width, cfg_.key_value_width, pool_);
-      round_to_bf16(keys);
-      round_to_bf16(values);
       apply_rope(query, chunk_size, query_heads, kHeadWidth, 0uz);
     } else {
       matmul_weight(normed, layer.k_proj, keys, chunk_size, cfg_.expert_width, cfg_.key_value_width,
@@ -457,7 +455,11 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
         }
         std::span<float> probabilities = scores.first(score_count);
         softmax(probabilities);
-        round_to_bf16(probabilities);
+        // Cross-attention K/V projections are F32 in the pinned checkpoint,
+        // so the upstream implementation keeps its attention probabilities
+        // and values in F32. Self-attention consumes BF16 VLM/expert values.
+        if (!layer.cross_attention)
+          round_to_bf16(probabilities);
         for (std::size_t channel{}; channel < kHeadWidth; ++channel) {
           float sum{};
           for (std::size_t token{}; token < prefix_size; ++token) {
