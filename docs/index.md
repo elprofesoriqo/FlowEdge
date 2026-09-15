@@ -36,7 +36,7 @@ It is not a training framework and not a graph runtime. It is a fixed set of han
 | `convert/` and `tools/` | Checkpoint conversion and inspection |
 | `examples/` | Small C++ and Python entry-point samples |
 | `scripts/` | Build, test, verification, and maintainer benchmarks |
-| `bench/` | Focused Google Benchmark targets, enabled with `FLOWEDGE_BENCH=ON` |
+| `bench/` | Categorized kernel/runtime sources and evidence artifacts; see [benchmark map](benchmarks) |
 | `cmake/` | Installed-package export template; generated `CMakeFiles/` is ignored |
 
 ## Implementation status
@@ -95,6 +95,7 @@ guides/transformer-backbone
 guides/deadline-flow
 tenstorrent-program
 performance
+benchmarks
 ```
 
 ```{toctree}

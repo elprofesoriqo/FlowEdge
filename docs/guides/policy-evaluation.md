@@ -44,14 +44,14 @@ Unsupported source layouts fail during setup; this is not a universal LeRobot ad
 ## Matched replay
 
 ```bash
-python -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors \
+python tools/benchmark/run_policy_report.py models/diffusion_pusht.flowedge.safetensors \
   --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
-  --steps 10 --iterations 100 --warmup 5 --threads 1 --output bench-results/policy.json
-python tools/benchmark/benchmark_artifact.py bench-results/policy.json --report bench-results/policy.md
+  --steps 10 --iterations 100 --warmup 5 --threads 1 \
+  --output bench/artifacts/policy/diffusion-pusht-report.json
 ```
 
 The runner alternates execution order and checks actions against the upstream LeRobot
-U-Net and diffusers DDIM scheduler. It saves raw timings, source/converted/config hashes,
+PyTorch U-Net and diffusers DDIM scheduler. It saves raw timings, source/converted/config hashes,
 processor statistics, versions, and replay observations. End-to-end means preprocessing
 through executable action chunk; capture, IPC, and robot delivery are excluded. RSS is
 shared process high-water memory, not per-backend usage. Uninstrumented allocations are

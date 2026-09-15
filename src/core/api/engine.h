@@ -118,6 +118,16 @@ void fe_engine_dims(const fe_engine* engine, size_t* d_model, size_t* n_layers);
 int fe_engine_run(fe_engine* engine, const int32_t* tokens, size_t seq_len, float* out);
 
 /**
+ * @brief Process a sequence of caller-supplied Transformer embeddings.
+ *
+ * The input and output buffers have size [seq_len * d_model]. This boundary
+ * is supported only by the generic Transformer backbone; Mamba and action-only
+ * checkpoints return FE_STATUS_UNSUPPORTED_MODEL.
+ */
+int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, size_t seq_len,
+                             float* out);
+
+/**
  * @brief Advance the streaming decode state by a single token.
  * @param engine The engine instance.
  * @param token The input token ID.

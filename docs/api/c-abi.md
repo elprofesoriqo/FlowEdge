@@ -21,6 +21,7 @@ int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
 int fe_engine_deployment_profile(const fe_engine*, fe_deployment_profile*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
+int fe_engine_run_embeddings(fe_engine*, const float* embeddings, size_t n, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
                      const float* noise, size_t steps, int method, float* action);
 int fe_engine_sample_condition(fe_engine*, const float* condition,

@@ -80,8 +80,14 @@
     "build_type": "Release"
   },
   "commands": {
-    "flowedge": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/diffusion-pusht-cpu-replay.json",
-    "lerobot": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/diffusion-pusht-cpu-replay.json"
+    "flowedge": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/policy/diffusion-pusht-cpu-replay.json",
+    "lerobot": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/policy/diffusion-pusht-cpu-replay.json"
+  },
+  "comparison": {
+    "candidate": "FlowEdge native runtime",
+    "reference": "LeRobot policy executed with PyTorch",
+    "reference_framework": "PyTorch",
+    "scope": "matched observation encoder, history, noise, and DDIM schedule"
   },
   "measurements": {
     "flowedge": {

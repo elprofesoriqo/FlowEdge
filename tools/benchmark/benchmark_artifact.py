@@ -123,6 +123,11 @@ def validate(document: Any) -> dict[str, Any]:
     commands = root["commands"]
     for field in BACKENDS:
         _text(commands.get(field), f"commands.{field}")
+    comparison = root.get("comparison")
+    if comparison is not None:
+        comparison = _mapping(comparison, "comparison")
+        for field in ("candidate", "reference", "reference_framework"):
+            _text(comparison.get(field), f"comparison.{field}")
     measurements = _mapping(root.get("measurements"), "measurements")
     for backend in BACKENDS:
         _measurement(measurements.get(backend), f"measurements.{backend}")
@@ -193,6 +198,7 @@ def render(document: dict[str, Any]) -> str:
         document["hardware"],
         document["commands"],
     )
+    comparison = document.get("comparison", {})
     rows = [
         "# LeRobot / FlowEdge edge benchmark",
         "",
@@ -212,10 +218,12 @@ def render(document: dict[str, Any]) -> str:
         f"| Run shape | batch {contract['batch_size']}; {contract['inference_steps']} inference steps |",
         f"| Host | `{hardware['host']}`; {hardware['os']}; {hardware['cpu']}; {hardware['threads']} threads |",
         f"| Build | `{hardware['compiler']}`; {hardware['build_type']} |",
+        f"| Comparison | {comparison.get('candidate', 'FlowEdge')} vs {comparison.get('reference', 'LeRobot reference')} |",
+        f"| Reference framework | `{comparison.get('reference_framework', 'unspecified')}` |",
         "",
         "## Measurements",
         "",
-        "Encoder and policy are reported separately. End-to-end includes both and is the number to use for control-loop budgeting.",
+        "Encoder and policy are reported separately. End-to-end includes both and is the number to use for control-loop budgeting. The reference row is the same LeRobot policy executed through PyTorch.",
         "",
         "| Backend | Startup | Encoder p50 / p95 / p99 | Policy p50 / p95 / p99 | E2E p50 / p95 / p99 | Throughput | RSS | Setup / hot allocations |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",

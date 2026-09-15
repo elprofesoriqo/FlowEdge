@@ -9,7 +9,7 @@ from pathlib import Path
 from tools.benchmark import benchmark_artifact
 
 ROOT = Path(__file__).parents[1]
-TEMPLATE = ROOT / "bench" / "artifacts" / "lerobot-vs-flowedge.template.json"
+TEMPLATE = ROOT / "bench" / "artifacts" / "policy" / "lerobot-vs-flowedge.template.json"
 
 
 def measured():
@@ -38,11 +38,18 @@ class BenchmarkArtifactTest(unittest.TestCase):
         self.assertNotIn("x |", report)
 
     def test_measured_report_separates_encoder_and_policy(self):
-        report = benchmark_artifact.render(benchmark_artifact.validate(measured()))
+        document = measured()
+        document["comparison"] = {
+            "candidate": "FlowEdge native runtime",
+            "reference": "LeRobot policy executed with PyTorch",
+            "reference_framework": "PyTorch",
+        }
+        report = benchmark_artifact.render(benchmark_artifact.validate(document))
         self.assertIn("Encoder p50 / p95 / p99", report)
         self.assertIn("Policy p50 / p95 / p99", report)
         self.assertIn("Relative comparison", report)
         self.assertIn("13 / 0", report)
+        self.assertIn("Reference framework | `PyTorch`", report)
 
     def test_quantiles_must_be_monotonic(self):
         document = measured()

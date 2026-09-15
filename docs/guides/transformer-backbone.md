@@ -22,19 +22,42 @@ C++ checkpoint fixture is used as release evidence; an actual converted policy
 and a matched reference replay are required before this baseline can be called
 deployed.
 
+The C and Python APIs also expose `run_embeddings`, which accepts caller-owned
+`[sequence, d_model]` F32 rows and runs the same reset-and-prefill path. This is
+the intended boundary for a future LeRobot visual/language encoder; it does not
+make the current SmolVLA checkpoint executable.
+
 The converter is exercised with the downloaded `sshleifer/tiny-gpt2` checkpoint
 at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares a Hugging
-Face hidden value against the native executable on prefix `[1,2,3,4]`:
+Face hidden states against native full-prefix and streaming execution on prefix
+`[1,2,3,4]`:
 
 ```bash
 python tools/verification/verify_transformer_reference.py \
   models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
   --binary build/transformer_forward \
-  --output bench/artifacts/tiny-gpt2-transformer-reference.json
+  --output bench/artifacts/transformer/tiny-gpt2-transformer-reference.json
 ```
 
-This validates a real checkpoint conversion and fixed-prefix execution only;
-it is not an action-policy, latency, or SmolVLA result.
+This validates real checkpoint conversion, full-prefix execution, and streaming
+KV-cache parity only; it is not an action-policy, latency, or SmolVLA result.
+
+Verify the external-embedding boundary against the same real checkpoint (the
+Python module must be built with `FLOWEDGE_PYTHON=ON`):
+
+```bash
+python tools/verification/verify_transformer_embeddings.py \
+  models/tiny-gpt2.flowedge.safetensors --module-path build \
+  --output bench/artifacts/transformer/tiny-gpt2-transformer-embeddings.json
+```
+
+Check that the real checkpoint's streaming path performs no heap allocation
+after initialization:
+
+```bash
+build/flowedge_model_lifecycle_check models/tiny-gpt2.flowedge.safetensors \
+  --stream 1 2 3 4 --cycles 3
+```
 
 ## SmolVLA preflight
 
@@ -46,7 +69,7 @@ layout of the pinned `lerobot/smolvla_base` checkpoint before conversion:
 ```bash
 python tools/smolvla_preflight.py models/smolvla_base/model.safetensors \
   --config models/smolvla_base/config.json --hash \
-  --output bench/artifacts/smolvla-base-preflight.json
+  --output bench/artifacts/smolvla/smolvla-base-preflight.json
 ```
 
 The resulting manifest establishes the real-source contract only. It records
@@ -58,8 +81,51 @@ policy-construction record:
 
 ```bash
 python tools/verification/verify_smolvla_source.py models/smolvla_base \
-  --output bench/artifacts/smolvla-base-upstream-load.json
+  --output bench/artifacts/smolvla/smolvla-base-upstream-load.json
 ```
 
 This proves only that the pinned upstream `SmolVLAPolicy` can construct from
 the local checkpoint. It is not FlowEdge inference or an action-quality result.
+
+## SmolVLA source-parity capture contract
+
+Before implementing the action expert, export a source action chunk from a
+real observation captured through the upstream LeRobot processor. The `.npz`
+capture must contain batch-one, pre-processor tensors:
+
+- `observation.state`: F32 `[1, 6]`;
+- `observation.images.camera1`, `camera2`, and `camera3`: F32 `[1, 3, 256, 256]`
+  RGB values in `[0, 1]`;
+- `observation.language.tokens` and `observation.language.attention_mask`: I64
+  `[1, 48]`;
+- `noise`: F32 `[1, 50, 32]`, captured once and reused by every implementation.
+
+```bash
+python tools/verification/export_smolvla_reference.py \
+  models/smolvla_base real-observation.npz \
+  --output smolvla-source-action.npz \
+  --manifest smolvla-source-action.json
+```
+
+The exporter does not synthesize defaults and rejects missing, reshaped, or
+non-RGB-range inputs. Its action chunk and JSON digests form the later
+FlowEdge parity target.
+
+The native inspector recognizes this real checkpoint schema but fails closed:
+
+```bash
+build/flowedge-inspect models/smolvla_base/model.safetensors --json
+```
+
+The report identifies `family: "smolvla"` and explains that the LeRobot
+preprocessing boundary, VLM encoder, and action expert are not implemented.
+This is a schema/provenance check, not a claim of native SmolVLA support.
+
+For a portable evidence artifact, run the verifier against the same binary:
+
+```bash
+python tools/verification/verify_smolvla_inspection.py \
+  models/smolvla_base/model.safetensors \
+  --binary build/flowedge-inspect \
+  --output bench/artifacts/smolvla/smolvla-base-inspection.json
+```

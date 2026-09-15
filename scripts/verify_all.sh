@@ -57,7 +57,7 @@ if [[ -n "$PYTHON" ]]; then
   (cd "$ROOT" && "$PYTHON" -m unittest discover -s test -p benchmark_artifact_test.py)
   "$PYTHON" "$ROOT/tools/benchmark/report_budgets.py" \
     --build-dir "$BUILD_DIR" --model "$MODEL" --token 1 --token 2 --token 3 --token 4 \
-    --budget "$ROOT/bench/budgets.json" --report "$BUILD_DIR/budget-report.md"
+    --budget "$ROOT/bench/config/budgets.json" --report "$BUILD_DIR/budget-report.md"
 else
   echo "note: Python unavailable; skipping size/setup budget report"
 fi

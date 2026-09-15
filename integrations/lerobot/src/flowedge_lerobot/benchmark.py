@@ -199,6 +199,12 @@ def main(argv=None):
             "build_type": flowedge.build_type,
         },
         "commands": {"flowedge": command, "lerobot": command},
+        "comparison": {
+            "candidate": "FlowEdge native runtime",
+            "reference": "LeRobot policy executed with PyTorch",
+            "reference_framework": "PyTorch",
+            "scope": "matched observation encoder, history, noise, and DDIM schedule",
+        },
         "measurements": measurements,
         "raw_samples": samples,
         "parity": {"max_abs_error": max_error, "atol": 1e-3, "rtol": 1e-4},

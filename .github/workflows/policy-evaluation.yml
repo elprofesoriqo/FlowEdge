@@ -2,10 +2,37 @@ name: Pinned visual policy evaluation
 on:
   workflow_dispatch:
     inputs:
+      runner:
+        description: GitHub runner label (use self-hosted for accelerator hosts)
+        type: choice
+        options:
+          - ubuntu-latest
+          - self-hosted
+        default: ubuntu-latest
+      model_id:
+        description: Hugging Face policy repository
+        type: string
+        default: lerobot/diffusion_pusht
+      revision:
+        description: Immutable Hugging Face revision
+        type: string
+        default: 84a7c23178445c6bbf7e1a884ff497017910f653
       iterations:
         description: Matched replay samples (small runs do not establish p99)
         type: number
         default: 20
+      warmup:
+        description: Warmup samples excluded from reported quantiles
+        type: number
+        default: 2
+      steps:
+        description: DDIM inference steps
+        type: number
+        default: 10
+      threads:
+        description: PyTorch and FlowEdge CPU thread count
+        type: number
+        default: 1
       max_steps:
         description: Steps per bounded PushT episode
         type: number
@@ -16,11 +43,15 @@ permissions:
 
 jobs:
   evaluate:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     env:
-      REVISION: 84a7c23178445c6bbf7e1a884ff497017910f653
+      MODEL_ID: ${{ inputs.model_id }}
+      REVISION: ${{ inputs.revision }}
       ITERATIONS: ${{ inputs.iterations }}
+      WARMUP: ${{ inputs.warmup }}
+      INFERENCE_STEPS: ${{ inputs.steps }}
+      THREADS: ${{ inputs.threads }}
       MAX_STEPS: ${{ inputs.max_steps }}
       CMAKE_BUILD_PARALLEL_LEVEL: 2
       SDL_VIDEODRIVER: dummy
@@ -36,15 +67,15 @@ jobs:
           python -m unittest discover -s integrations/lerobot/tests -v
       - name: Fetch and convert the trained checkpoint
         run: |
-          hf download lerobot/diffusion_pusht --revision "$REVISION" \
+          hf download "$MODEL_ID" --revision "$REVISION" \
             --include config.json model.safetensors --local-dir models/diffusion_pusht
           python convert/convert.py models/diffusion_pusht models/policy.safetensors --arch diffusion --dtype f32
       - name: Verify complete policy replay and capture measurements
         run: |
-          python -m flowedge_lerobot.benchmark models/policy.safetensors \
-            --source models/diffusion_pusht --revision "$REVISION" --threads 1 \
-            --iterations "$ITERATIONS" --warmup 2 --steps 10 --output bench-results/replay.json
-          python tools/benchmark/benchmark_artifact.py bench-results/replay.json --report bench-results/replay.md
+          python tools/benchmark/run_policy_report.py models/policy.safetensors \
+            --source models/diffusion_pusht --revision "$REVISION" --model-id "$MODEL_ID" \
+            --threads "$THREADS" --iterations "$ITERATIONS" --warmup "$WARMUP" \
+            --steps "$INFERENCE_STEPS" --output bench-results/replay.json
       - name: Run matched bounded PushT episodes
         run: |
           for backend in flowedge lerobot; do

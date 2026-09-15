@@ -75,6 +75,8 @@ public:
   [[nodiscard]] std::size_t decode_state_bytes() const noexcept;
 
   int run(const std::int32_t* tokens, std::size_t seq_len, float* out, const char*& error) noexcept;
+  int run_embeddings(const float* embeddings, std::size_t seq_len, float* out,
+                     const char*& error) noexcept;
   int step(std::int32_t token, float* out, const char*& error) noexcept;
   void reset() noexcept;
   int sample(const std::int32_t* tokens, std::size_t seq_len, const float* noise, std::size_t steps,
