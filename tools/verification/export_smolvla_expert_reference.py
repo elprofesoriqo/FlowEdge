@@ -143,6 +143,10 @@ def main() -> int:
             )
             suffix_length = suffix_pad_masks.shape[1]
             prefix_length = prefix_pad_masks.shape[1]
+            if prefix_length == 0 or prefix_length > 512:
+                raise RuntimeError(
+                    f"source prefix length {prefix_length} exceeds FlowEdge's fixed cached-VLM limit"
+                )
             prefix_pad_2d_masks = prefix_pad_masks[:, None, :].expand(
                 batch_size, suffix_length, prefix_length
             )
