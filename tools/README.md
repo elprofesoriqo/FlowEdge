@@ -14,6 +14,7 @@
 | Check a real captured VLM-cache expert replay | `verification/verify_smolvla_cached_expert.py` |
 | Export or verify a real cached-VLM Euler trajectory | `verification/export_smolvla_expert_reference.py --trajectory-output` and `verification/verify_smolvla_cached_trajectory.py` |
 | Verify source LeRobot preprocessing/VLM-prefix plus native expert action parity | `verification/verify_smolvla_hybrid.py` |
+| Measure matched SmolVLA source and hybrid stages | `benchmark/run_smolvla_hybrid_report.py` |
 | Compare or publish benchmarks | `benchmark/`; use `benchmark/run_policy_report.py` for the canonical PyTorch report |
 | Run model and converter parity checks | `verification/` |
 

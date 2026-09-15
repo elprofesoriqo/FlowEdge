@@ -48,6 +48,22 @@ This is source-pipeline plus native-expert evidence, not native VLM or full
 native SmolVLA deployment evidence. It also does not measure latency or
 control quality.
 
+For stage timing on the same real capture, use the separate benchmark entry
+point. It reports p50/p95/p99 for source PyTorch action generation, source VLM
+prefix/cache production, native action-expert execution, and the combined
+hybrid path:
+
+```bash
+python tools/benchmark/run_smolvla_hybrid_report.py \
+  models/smolvla_base/model.safetensors models/smolvla_base \
+  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
+  --module-path build-research --iterations 20 --warmup 5 \
+  --output bench/artifacts/smolvla/eslab-frame-000000.hybrid-report.json
+```
+
+These are prepared-capture CPU measurements, not full control-loop latency or
+real-time suitability evidence.
+
 ## Development install
 
 From a checkout with the main `flowedge` package installed:
