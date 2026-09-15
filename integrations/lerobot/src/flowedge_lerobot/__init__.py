@@ -5,6 +5,7 @@ from .diffusion import DiffusionActionContract, FlowEdgeDiffusionPolicy
 from .rollout import MAX_ROLLOUT_STEPS, RolloutResult, RolloutRobot, run_rollout
 from .smolvla import (
     FlowEdgeSmolVLACachedExpert,
+    LeRobotSmolVLACacheProvider,
     SmolVLAActionContract,
     SmolVLAKVCache,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "DiffusionActionContract",
     "FlowEdgeDiffusionPolicy",
     "FlowEdgeSmolVLACachedExpert",
+    "LeRobotSmolVLACacheProvider",
     "MAX_ROLLOUT_STEPS",
     "RolloutResult",
     "RolloutRobot",

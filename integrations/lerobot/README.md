@@ -23,9 +23,11 @@ for `input_mode`, source checkpoint setup, matched replay, PushT, and periodic d
 
 ## Experimental SmolVLA cache boundary
 
-`FlowEdgeSmolVLACachedExpert` is a programmatic hybrid adapter, not a registered
-`--policy.type` and not native full SmolVLA. A source-compatible LeRobot VLM must
-first produce its batch-one, RoPE-applied K/V cache; the adapter then runs the
+`FlowEdgeSmolVLACachedExpert` and `LeRobotSmolVLACacheProvider` are programmatic
+hybrid adapters, not a registered `--policy.type` and not native full SmolVLA.
+Install the optional source stack with `pip install -e 'integrations/lerobot[smolvla]'`.
+The provider follows an instantiated source-compatible LeRobot VLM to produce
+its batch-one, RoPE-applied K/V cache; the adapter then runs the
 native FlowEdge Euler action expert, truncates padded action coordinates, and
 queues the requested action chunk. Preprocessing, VLM execution, action
 postprocessing, and cache-transfer timing remain outside this boundary.

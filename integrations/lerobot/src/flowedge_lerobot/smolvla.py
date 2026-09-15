@@ -234,3 +234,111 @@ class FlowEdgeSmolVLACachedExpert:
         """Return a copy of the next sampled action for non-hot-path callers."""
         output = np.empty(self.action_dim, dtype=np.float32)
         return self.take_action_into(output)
+
+
+class LeRobotSmolVLACacheProvider:
+    """Build a FlowEdge cache from an instantiated source ``SmolVLAPolicy``.
+
+    The source policy remains authoritative for feature preprocessing,
+    observation history, image encoding, language tokens, attention masks, and
+    VLM weights. This bridge performs one prefix forward pass and copies its
+    RoPE-applied per-layer K/V tensors to CPU for the cache-bound executor.
+    """
+
+    def __init__(self, source_policy: Any, *, expert_layers: int = 16, key_value_width: int = 320):
+        if expert_layers <= 0 or key_value_width <= 0:
+            raise ValueError("expert_layers and key_value_width must be positive")
+        self._source = source_policy
+        self._expert_layers = expert_layers
+        self._key_value_width = key_value_width
+
+    def reset(self) -> None:
+        """Reset the source policy's observation history before a new episode."""
+        self._source.reset()
+
+    @staticmethod
+    def _cache_tensor(tensor: Any, name: str, expected_width: int) -> np.ndarray:
+        import torch
+
+        if not isinstance(tensor, torch.Tensor):
+            raise ValueError(f"source cache {name} is not a torch tensor")
+        value = tensor.detach().to(device="cpu", dtype=torch.float32).contiguous().numpy()
+        if value.ndim != 4 or value.shape[0] != 1:
+            raise ValueError(f"source cache {name} must have shape [1, prefix, heads, head_dim]")
+        prefix_length = value.shape[1]
+        flattened = value.reshape(prefix_length, -1)
+        if flattened.shape != (prefix_length, expected_width):
+            raise ValueError(
+                f"source cache {name} must flatten to [prefix, {expected_width}], got {flattened.shape}"
+            )
+        return np.ascontiguousarray(flattened, dtype=np.float32)
+
+    def __call__(self, batch: dict[str, Any]) -> SmolVLAKVCache:
+        """Return one batch-one source VLM cache for a LeRobot-prepared batch."""
+        import torch
+        from lerobot.policies.smolvla.modeling_smolvla import make_att_2d_masks
+        from lerobot.policies.utils import populate_queues
+        from lerobot.utils.constants import (
+            ACTION,
+            OBS_LANGUAGE_ATTENTION_MASK,
+            OBS_LANGUAGE_TOKENS,
+        )
+
+        if not isinstance(batch, dict):
+            raise TypeError("SmolVLA cache provider expects a batch dictionary")
+        source_batch = self._source._prepare_batch(dict(batch))
+        self._source._queues = populate_queues(
+            self._source._queues, source_batch, exclude_keys=[ACTION]
+        )
+        images, image_masks = self._source.prepare_images(source_batch)
+        state = self._source.prepare_state(source_batch)
+        lang_tokens = source_batch[OBS_LANGUAGE_TOKENS]
+        lang_masks = source_batch[OBS_LANGUAGE_ATTENTION_MASK]
+        model = self._source.model
+
+        with torch.no_grad():
+            prefix_embs, prefix_pad_masks, prefix_att_masks = model.embed_prefix(
+                images, image_masks, lang_tokens, lang_masks, state=state
+            )
+            prefix_attention = make_att_2d_masks(prefix_pad_masks, prefix_att_masks)
+            prefix_positions = torch.cumsum(prefix_pad_masks, dim=1) - 1
+            _, cache = model.vlm_with_expert.forward(
+                attention_mask=prefix_attention,
+                position_ids=prefix_positions,
+                past_key_values=None,
+                inputs_embeds=[prefix_embs, None],
+                use_cache=True,
+                fill_kv_cache=True,
+            )
+
+        if not isinstance(cache, dict) or len(cache) != self._expert_layers:
+            raise ValueError(
+                f"source VLM cache must contain {self._expert_layers} expert layers"
+            )
+        keys = []
+        values = []
+        for layer in range(self._expert_layers):
+            layer_cache = cache.get(layer)
+            if not isinstance(layer_cache, dict):
+                raise ValueError(f"source VLM cache is missing layer {layer}")
+            keys_tensor = layer_cache.get("key_states")
+            values_tensor = layer_cache.get("value_states")
+            if keys_tensor is None or values_tensor is None:
+                raise ValueError(f"source VLM cache layer {layer} has no key/value tensors")
+            keys.append(
+                self._cache_tensor(keys_tensor, f"layer {layer} keys", self._key_value_width)
+            )
+            values.append(
+                self._cache_tensor(
+                    values_tensor, f"layer {layer} values", self._key_value_width
+                )
+            )
+
+        mask = prefix_pad_masks.detach().to(device="cpu").contiguous().numpy()
+        if mask.ndim != 2 or mask.shape[0] != 1:
+            raise ValueError("source prefix mask must have batch-one shape [1, prefix]")
+        return SmolVLAKVCache(
+            keys=np.ascontiguousarray(np.stack(keys), dtype=np.float32),
+            values=np.ascontiguousarray(np.stack(values), dtype=np.float32),
+            mask=np.ascontiguousarray(mask[0].astype(np.uint8, copy=False)),
+        )
