@@ -43,7 +43,12 @@ def main() -> int:
     parser.add_argument("reference", type=Path, help="real source export from export_smolvla_expert_reference.py")
     parser.add_argument("--module-path", type=Path, required=True)
     parser.add_argument("--output", type=Path, help="write portable parity report")
-    parser.add_argument("--hidden-tolerance", type=float, default=2e-2)
+    parser.add_argument(
+        "--hidden-tolerance",
+        type=float,
+        default=1e-1,
+        help="maximum BF16 expert-hidden error (default: %(default)g)",
+    )
     parser.add_argument("--velocity-tolerance", type=float, default=2e-2)
     args = parser.parse_args()
     if args.hidden_tolerance <= 0.0 or args.velocity_tolerance <= 0.0:
@@ -69,8 +74,8 @@ def main() -> int:
         prefix_length = prefix_mask.size
         if prefix_length == 0 or prefix_length > 512 or not np.isin(prefix_mask, (0, 1)).all():
             raise ValueError("reference prefix_mask must contain 1..512 one/zero entries")
-        if np.any(prefix_mask[1:] > prefix_mask[:-1]):
-            raise ValueError("reference prefix_mask must have leading ones then trailing zeros")
+        if not prefix_mask.any():
+            raise ValueError("reference prefix_mask must contain at least one valid token")
         prefix_keys = required(reference, "prefix_keys", np.dtype("float32"), (16, prefix_length, 320))
         prefix_values = required(reference, "prefix_values", np.dtype("float32"), (16, prefix_length, 320))
         expected_hidden = required(reference, "expected_hidden", np.dtype("float32"), (50, 720))

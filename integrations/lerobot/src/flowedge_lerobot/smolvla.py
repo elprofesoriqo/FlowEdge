@@ -92,11 +92,12 @@ class SmolVLAKVCache:
             or not self.mask.flags.c_contiguous
             or self.mask.ndim != 1
             or not 0 < prefix_length <= 512
-            or self.mask[0] != 1
             or not np.isin(self.mask, (0, 1)).all()
-            or np.any(self.mask[1:] > self.mask[:-1])
+            or not self.mask.any()
         ):
-            raise ValueError("mask must be 1..512 C-contiguous uint8 leading ones then trailing zeros")
+            raise ValueError(
+                "mask must be a 1..512 C-contiguous uint8 binary array with at least one valid token"
+            )
 
 
 class FlowEdgeSmolVLACachedExpert:
@@ -293,7 +294,10 @@ class LeRobotSmolVLACacheProvider:
         images, image_masks = self._source.prepare_images(source_batch)
         state = self._source.prepare_state(source_batch)
         lang_tokens = source_batch[OBS_LANGUAGE_TOKENS]
-        lang_masks = source_batch[OBS_LANGUAGE_ATTENTION_MASK]
+        # LeRobot's TokenizerProcessorStep emits this as bool.  Preserve that
+        # source attention-mask contract even when a capture was deserialized
+        # from an integer representation.
+        lang_masks = source_batch[OBS_LANGUAGE_ATTENTION_MASK].to(dtype=torch.bool)
         model = self._source.model
 
         with torch.no_grad():

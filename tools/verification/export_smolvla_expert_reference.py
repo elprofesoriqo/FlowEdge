@@ -98,7 +98,7 @@ def main() -> int:
         language_mask = required(
             capture,
             "observation.language.attention_mask",
-            np.dtype("int64"),
+            np.dtype("bool"),
             (batch_size, policy.config.tokenizer_max_length),
         )
         noisy_actions = required(
@@ -213,7 +213,7 @@ def main() -> int:
                 raise RuntimeError(f"source VLM cache layer {layer} has no key/value tensors")
             keys = cpu_f32(keys_tensor, torch)
             values = cpu_f32(values_tensor, torch)
-            expected_cache_shape = (batch_size, prefix_length, 4, 80)
+            expected_cache_shape = (batch_size, prefix_length, 5, 64)
             if keys.shape != expected_cache_shape or values.shape != expected_cache_shape:
                 raise RuntimeError(
                     f"source VLM cache layer {layer} has {keys.shape}/{values.shape}, "

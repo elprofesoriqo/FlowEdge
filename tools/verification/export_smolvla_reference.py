@@ -78,7 +78,7 @@ def main() -> int:
         attention_mask = required(
             capture,
             "observation.language.attention_mask",
-            np.dtype("int64"),
+            np.dtype("bool"),
             (batch_size, policy.config.tokenizer_max_length),
         )
         noise = required(

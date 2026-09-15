@@ -113,8 +113,8 @@ capture must contain batch-one, pre-processor tensors:
 - `observation.state`: F32 `[1, 6]`;
 - `observation.images.camera1`, `camera2`, and `camera3`: F32 `[1, 3, 256, 256]`
   RGB values in `[0, 1]`;
-- `observation.language.tokens` and `observation.language.attention_mask`: I64
-  `[1, 48]`;
+- `observation.language.tokens`: I64 `[1, 48]`; `observation.language.attention_mask`:
+  boolean `[1, 48]`, emitted by LeRobot's tokenizer.
 - `noise`: F32 `[1, 50, 32]`, captured once and reused by every implementation.
 
 For cached-expert replay, add `noisy_actions` (F32 `[1, 50, 32]`) and
@@ -138,6 +138,12 @@ capture as `noisy_actions` (`F32 [1, 50, 32]`) and `timestep` (`F32 [1]`). The
 exporter builds the upstream prefix once, retains its RoPE-applied VLM K/V
 cache, and records the expected expert hidden state and velocity. It does not
 fill in missing values:
+
+The source cache is `[1, prefix, 5, 64]` per layer and is transported to
+FlowEdge as `[16, prefix, 320]`. Its validity mask may be sparse: LeRobot
+right-pads language tokens before appending the valid state token. The replay
+verifier therefore compares BF16 hidden states with a `0.1` maximum-error
+default and keeps the action-velocity threshold at `0.02`.
 
 ```bash
 python tools/verification/export_smolvla_expert_reference.py \

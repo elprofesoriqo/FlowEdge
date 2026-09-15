@@ -14,13 +14,15 @@ class SmolVLASourceProviderTests(unittest.TestCase):
     def test_provider_replays_source_prefix_and_flattens_cache(self):
         import torch
 
+        testcase = self
+
         class VlmWithExpert:
             def forward(self, **kwargs):
                 del kwargs
                 cache = {
                     layer: {
-                        "key_states": torch.full((1, 3, 4, 80), float(layer)),
-                        "value_states": torch.full((1, 3, 4, 80), float(layer + 1)),
+                        "key_states": torch.full((1, 3, 5, 64), float(layer)),
+                        "value_states": torch.full((1, 3, 5, 64), float(layer + 1)),
                     }
                     for layer in range(2)
                 }
@@ -30,10 +32,11 @@ class SmolVLASourceProviderTests(unittest.TestCase):
             vlm_with_expert = VlmWithExpert()
 
             def embed_prefix(self, images, image_masks, tokens, masks, state):
+                testcase.assertTrue(masks.dtype is torch.bool)
                 del images, image_masks, tokens, masks, state
                 return (
                     torch.zeros((1, 3, 8)),
-                    torch.ones((1, 3), dtype=torch.bool),
+                    torch.tensor([[True, False, True]]),
                     torch.zeros((1, 3), dtype=torch.bool),
                 )
 
@@ -66,4 +69,4 @@ class SmolVLASourceProviderTests(unittest.TestCase):
         self.assertEqual(result.values.shape, (2, 3, 320))
         np.testing.assert_array_equal(result.keys[1], 1.0)
         np.testing.assert_array_equal(result.values[0], 1.0)
-        np.testing.assert_array_equal(result.mask, [1, 1, 1])
+        np.testing.assert_array_equal(result.mask, [1, 0, 1])

@@ -70,16 +70,24 @@ class SmolVLAAdapterTests(unittest.TestCase):
         np.testing.assert_array_equal(actions, [[0, 1, 2], [4, 5, 6]])
         np.testing.assert_array_equal(engine.calls[0][0], noise)
 
-    def test_cache_and_noise_contracts_reject_invalid_boundaries(self):
+    def test_cache_and_noise_contracts_accept_sparse_source_masks(self):
         policy = FlowEdgeSmolVLACachedExpert(FakeEngine(), action_dim=2)
-        for mask in (np.array([1, 0, 1], dtype=np.uint8), np.zeros(3, dtype=np.uint8)):
+        sparse_cache = SmolVLAKVCache(
+            keys=np.zeros((2, 3, 320), dtype=np.float32),
+            values=np.zeros((2, 3, 320), dtype=np.float32),
+            mask=np.array([1, 0, 1], dtype=np.uint8),
+        )
+        policy.predict_action_chunk(sparse_cache)
+        self.assertEqual(len(policy._engine.calls), 1)
+
+        for mask in (np.zeros(3, dtype=np.uint8), np.array([1, 2, 0], dtype=np.uint8)):
             with self.subTest(mask=mask):
                 invalid_mask = SmolVLAKVCache(
                     keys=np.zeros((2, 3, 320), dtype=np.float32),
                     values=np.zeros((2, 3, 320), dtype=np.float32),
                     mask=mask,
                 )
-                with self.assertRaisesRegex(ValueError, "leading ones"):
+                with self.assertRaisesRegex(ValueError, "binary array"):
                     policy.predict_action_chunk(invalid_mask)
         with self.assertRaisesRegex(ValueError, "full padded action shape"):
             policy.predict_action_chunk(cache(), noise=np.zeros((3, 2), dtype=np.float32))

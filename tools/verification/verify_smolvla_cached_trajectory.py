@@ -72,8 +72,8 @@ def main() -> int:
         prefix_length = prefix_mask.size
         if prefix_length == 0 or prefix_length > 512 or not np.isin(prefix_mask, (0, 1)).all():
             raise ValueError("reference prefix_mask must contain 1..512 one/zero entries")
-        if np.any(prefix_mask[1:] > prefix_mask[:-1]):
-            raise ValueError("reference prefix_mask must have leading ones then trailing zeros")
+        if not prefix_mask.any():
+            raise ValueError("reference prefix_mask must contain at least one valid token")
         prefix_keys = required(reference, "prefix_keys", np.dtype("float32"), (16, prefix_length, 320))
         prefix_values = required(reference, "prefix_values", np.dtype("float32"), (16, prefix_length, 320))
         if not (
