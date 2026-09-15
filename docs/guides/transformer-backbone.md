@@ -23,9 +23,11 @@ and a matched reference replay are required before this baseline can be called
 deployed.
 
 The C and Python APIs also expose `run_embeddings`, which accepts caller-owned
-`[sequence, d_model]` F32 rows and runs the same reset-and-prefill path. This is
-the intended boundary for a future LeRobot visual/language encoder; it does not
-make the current SmolVLA checkpoint executable.
+`[sequence, d_model]` F32 rows and runs the same reset-and-prefill path. An
+optional batch-one prefix `attention_mask` (`1` values followed by padding `0`
+values) makes the condition-sequence boundary explicit for VLA adapters. This
+is groundwork for SmolVLA; it does not implement cross-attention, the VLM, or
+the current SmolVLA action expert.
 
 The converter is exercised with the downloaded `sshleifer/tiny-gpt2` checkpoint
 at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares a Hugging
@@ -73,8 +75,23 @@ python tools/smolvla_preflight.py models/smolvla_base/model.safetensors \
 ```
 
 The resulting manifest establishes the real-source contract only. It records
-`supported_by_flowedge: false`; conversion, source-encoder parity, a complete
-Euler action-expert path, and matched task evaluation remain required.
+`supported_by_flowedge: false`; the native path is intentionally partial until
+the source encoder, captured-VLM expert replay parity, complete Euler action
+integration, and matched task evaluation are available.
+
+The first native action-expert boundary is now implemented for the real
+checkpoint: action projection, the exact SmolVLA sine/cosine timestep embedding,
+the time MLP, and checkpoint-derived dimensions. Verify it against PyTorch with:
+
+```bash
+python tools/verification/verify_smolvla_action_expert.py \
+  models/smolvla_base/model.safetensors \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/smolvla-action-expert-suffix.json
+```
+
+This artifact is projection parity only. It does not execute the VLM image or
+language encoder, cached-VLM self/cross-attention replay, or a policy rollout.
 
 With the upstream VLM weights available locally, capture a separate source
 policy-construction record:
@@ -89,16 +106,37 @@ the local checkpoint. It is not FlowEdge inference or an action-quality result.
 
 ## SmolVLA source-parity capture contract
 
-Before implementing the action expert, export a source action chunk from a
+To validate the captured VLM cache and native action expert, export a source action chunk from a
 real observation captured through the upstream LeRobot processor. The `.npz`
 capture must contain batch-one, pre-processor tensors:
 
 - `observation.state`: F32 `[1, 6]`;
-- `observation.images.camera1`, `camera2`, and `camera3`: F32 `[1, 3, 256, 256]`
-  RGB values in `[0, 1]`;
-- `observation.language.tokens` and `observation.language.attention_mask`: I64
-  `[1, 48]`;
+- one or more configured `observation.images.*` fields: F32 `[1, 3, height, width]`
+  RGB values in `[0, 1]`. Keep each real camera at the resolution emitted by
+  the source pipeline; SmolVLA performs its own resize-with-padding. Do not
+  duplicate a view to fill an absent camera;
+- `observation.language.tokens`: I64 `[1, 48]`; `observation.language.attention_mask`:
+  boolean `[1, 48]`, emitted by LeRobot's tokenizer.
 - `noise`: F32 `[1, 50, 32]`, captured once and reused by every implementation.
+
+For cached-expert replay, add `noisy_actions` (F32 `[1, 50, 32]`) and
+`timestep` (F32 `[1]`); they identify one actual source denoising step.
+
+For a recorded LeRobot v3 parquet/video sample, create this capture without
+resizing or duplicating camera pixels. Map only the cameras actually present
+in the record to the checkpoint's configured keys:
+
+```bash
+python tools/verification/capture_lerobot_frame.py models/smolvla_base data.parquet \
+  --frame-index 0 --task "Recorded task" --noise-seed 17 \
+  --camera observation.images.camera1=top.mp4 \
+  --camera observation.images.camera2=wrist.mp4 \
+  --dataset-id namespace/dataset --dataset-revision COMMIT --dataset-license SPDX \
+  --output real-observation.npz --manifest real-observation.json
+```
+
+`--frame-index` identifies the parquet row. When a video shard starts at a
+different dataset index, pass its local ordinal with `--video-frame-index`.
 
 ```bash
 python tools/verification/export_smolvla_reference.py \
@@ -111,6 +149,75 @@ The exporter does not synthesize defaults and rejects missing, reshaped, or
 non-RGB-range inputs. Its action chunk and JSON digests form the later
 FlowEdge parity target.
 
+### Cached-VLM action-expert replay
+
+For the native expert boundary, preserve one real denoising input in the same
+capture as `noisy_actions` (`F32 [1, 50, 32]`) and `timestep` (`F32 [1]`). The
+exporter builds the upstream prefix once, retains its RoPE-applied VLM K/V
+cache, and records the expected expert hidden state and velocity. It does not
+fill in missing values:
+
+The source cache is `[1, prefix, 5, 64]` per layer and is transported to
+FlowEdge as `[16, prefix, 320]`. Its validity mask may be sparse: LeRobot
+right-pads language tokens before appending the valid state token. The replay
+verifier therefore compares BF16 hidden states with a `0.1` maximum-error
+default, action velocity with `0.08`, and the ten-step Euler result with
+`0.03`. These are explicit cross-runtime BF16 envelopes, not accuracy or
+task-quality thresholds.
+
+```bash
+python tools/verification/export_smolvla_expert_reference.py \
+  models/smolvla_base real-observation.npz \
+  --output smolvla-expert-reference.npz \
+  --manifest smolvla-expert-reference.json
+
+python tools/verification/verify_smolvla_cached_expert.py \
+  models/smolvla_base/model.safetensors smolvla-expert-reference.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/smolvla-cached-expert.json
+```
+
+The report is the required evidence for the cached-VLM action-expert path. It
+does not validate preprocessing, VLM encoding, the full ten-step flow solve,
+timing, or control quality.
+
+### Cached-VLM Euler trajectory replay
+
+The native `smolvla_sample` call implements the source's deterministic Euler
+schedule (`t = 1 - step / N`, `x += -v / N`) from caller-owned noise. Add the
+same real `noise` input used by the upstream action call to produce a complete
+trajectory target from the cached VLM prefix:
+
+```bash
+python tools/verification/export_smolvla_expert_reference.py \
+  models/smolvla_base real-observation.npz \
+  --output smolvla-expert-reference.npz \
+  --trajectory-output smolvla-trajectory-reference.npz
+
+python tools/verification/verify_smolvla_cached_trajectory.py \
+  models/smolvla_base/model.safetensors smolvla-trajectory-reference.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/smolvla-cached-trajectory.json
+```
+
+This establishes expert-side Euler replay from an externally generated cache.
+The source-pipeline boundary can also be exercised end to end through the
+installed LeRobot provider and compared against the source action chunk:
+
+```bash
+python tools/verification/verify_smolvla_hybrid.py \
+  models/smolvla_base/model.safetensors models/smolvla_base \
+  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/eslab-frame-000000.hybrid-action.json
+```
+
+The resulting report covers source LeRobot image/state/language preprocessing,
+the source VLM prefix/cache provider, and the native FlowEdge action expert for
+the full `50 x 6` action chunk. It remains source-owned preprocessing/VLM plus
+native expert execution: this is not native VLM/full-native SmolVLA evidence,
+and it makes no latency, control-quality, or task-success claim.
+
 The native inspector recognizes this real checkpoint schema but fails closed:
 
 ```bash
@@ -118,8 +225,10 @@ build/flowedge-inspect models/smolvla_base/model.safetensors --json
 ```
 
 The report identifies `family: "smolvla"` and explains that the LeRobot
-preprocessing boundary, VLM encoder, and action expert are not implemented.
-This is a schema/provenance check, not a claim of native SmolVLA support.
+preprocessing boundary and VLM encoder are not implemented natively. The
+action expert can consume an external cache, while the hybrid report verifies
+the source provider-to-native-expert seam; neither is a claim of native full
+SmolVLA support.
 
 For a portable evidence artifact, run the verifier against the same binary:
 

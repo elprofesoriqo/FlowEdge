@@ -66,7 +66,19 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
   const std::size_t diffusion_workspace = DiffusionHead::required_workspace_floats(tensors);
   const std::size_t diffusion_persistent = DiffusionHead::required_persistent_floats(tensors);
   const bool has_diffusion = diffusion_workspace != 0uz && diffusion_persistent != 0uz;
-  if (!has_backbone && !has_transformer && !has_flow && !has_diffusion)
+  const auto smol_shape = [tensors](std::string_view name) noexcept {
+    const TensorView* const tensor = find_tensor(tensors, name);
+    return tensor != nullptr ? tensor->shape : std::array<std::size_t, 4>{};
+  };
+  const auto smol_action_in = smol_shape("model.action_in_proj.weight");
+  const auto smol_state = smol_shape("model.state_proj.weight");
+  const std::size_t smol_expert_width = smol_action_in[0];
+  const std::size_t smol_action_dim = smol_action_in[1];
+  const std::size_t smol_vlm_width = smol_state[0];
+  const bool has_smolvla = smol_expert_width != 0uz && smol_expert_width <= 4096uz &&
+                           smol_action_dim != 0uz && smol_action_dim <= 256uz &&
+                           smol_vlm_width != 0uz && smol_vlm_width <= 4096uz;
+  if (!has_backbone && !has_transformer && !has_flow && !has_diffusion && !has_smolvla)
     return 0uz;
 
   const std::size_t per_token =
@@ -87,7 +99,11 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
       (kThreadRingSlots * sizeof(Task)) + (kThreadRingSlots * sizeof(std::size_t)) +
       (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
       ((flow_floats + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
-      persistent_state + transformer_persistent + transformer_scratch + 4096uz;
+      persistent_state + transformer_persistent + transformer_scratch +
+      // The captured-VLM SmolVLA path needs the action-expert projections,
+      // attention buffers, and two SwiGLU intermediates concurrently. Keep a
+      // conservative fixed upper bound for its documented 512-token inputs.
+      (has_smolvla ? (16uz * 512uz * smol_expert_width) : 0uz) * sizeof(float) + 4096uz;
   return (k_max_decode_seq * per_token * sizeof(float)) + runtime;
 }
 
@@ -107,6 +123,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     : weights_{std::move(weights)}, slab_{slab_bytes},
       arena_{std::span<std::byte>{slab_.data(), slab_.size()}},
       model_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
+      smolvla_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       transformer_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       flow_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_},
       diffusion_{weights_ ? weights_->tensors() : std::span<const TensorView>{}, arena_}
@@ -124,6 +141,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
                            : model_.valid() && flow_.valid()       ? FE_ARCH_MAMBA_FLOW
                            : model_.valid()                        ? FE_ARCH_MAMBA
                            : flow_.valid()                         ? FE_ARCH_FLOW_HEAD
+                           : smolvla_.valid()                      ? FE_ARCH_SMOLVLA_ACTION_EXPERT
                                                                    : FE_ARCH_UNKNOWN;
   if (model_.valid()) {
     const MambaConfig& config = model_.config();
@@ -146,6 +164,13 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   if (diffusion_.valid()) {
     identity_.action_dim = diffusion_.config().action_dim;
     identity_.condition_dim = diffusion_.config().condition_dim;
+  }
+  if (smolvla_.valid()) {
+    const SmolVLAActionExpertConfig& config = smolvla_.config();
+    identity_.d_model = config.vlm_width;
+    identity_.n_layers = config.expert_layers;
+    identity_.d_inner = config.expert_width;
+    identity_.action_dim = config.max_action_dim;
   }
 
   if (worker_threads > 0u) {
@@ -170,6 +195,7 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   }
 
   model_.set_pool(pool_);
+  smolvla_.set_pool(pool_);
   transformer_.set_pool(pool_);
   flow_.set_pool(pool_);
   diffusion_.set_pool(pool_);
@@ -196,7 +222,8 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
     error = "Runtime slab cannot hold the diffusion sampler workspace";
     return;
   }
-  ready_ = model_.valid() || transformer_.valid() || flow_.valid() || diffusion_.valid();
+  ready_ = model_.valid() || smolvla_.valid() || transformer_.valid() || flow_.valid() ||
+           diffusion_.valid();
 }
 
 EngineRuntime::~EngineRuntime()
@@ -216,6 +243,7 @@ std::size_t EngineRuntime::d_model() const noexcept
 {
   return transformer_.valid() ? transformer_.config().d_model
          : model_.valid()     ? model_.config().d_model
+         : smolvla_.valid()   ? smolvla_.config().vlm_width
                               : 0uz;
 }
 
@@ -223,6 +251,7 @@ std::size_t EngineRuntime::n_layers() const noexcept
 {
   return transformer_.valid() ? transformer_.config().n_layers
          : model_.valid()     ? model_.config().n_layers
+         : smolvla_.valid()   ? smolvla_.config().expert_layers
                               : 0uz;
 }
 
@@ -260,12 +289,16 @@ std::size_t EngineRuntime::action_dim() const noexcept
 {
   return diffusion_.valid() ? diffusion_.config().action_dim
          : flow_.valid()    ? flow_.config().action_dim
+         : smolvla_.valid() ? smolvla_.config().max_action_dim
                             : 0uz;
 }
 
 std::size_t EngineRuntime::action_horizon() const noexcept
 {
-  return diffusion_.valid() ? diffusion_.config().horizon : (flow_.valid() ? 1uz : 0uz);
+  return diffusion_.valid() ? diffusion_.config().horizon
+         : flow_.valid()    ? 1uz
+         : smolvla_.valid() ? 50uz
+                            : 0uz;
 }
 
 std::size_t EngineRuntime::condition_dim() const noexcept
@@ -578,6 +611,13 @@ int EngineRuntime::run_backbone(const std::int32_t* tokens, std::size_t seq_len,
 int EngineRuntime::run_embeddings(const float* embeddings, std::size_t seq_len, float* out,
                                   const char*& error) noexcept
 {
+  return run_embeddings_masked(embeddings, nullptr, seq_len, out, error);
+}
+
+int EngineRuntime::run_embeddings_masked(const float* embeddings,
+                                         const std::uint8_t* attention_mask, std::size_t seq_len,
+                                         float* out, const char*& error) noexcept
+{
   if (!transformer_.valid()) {
     error = "Model has no Transformer backbone for external embeddings";
     return 4;
@@ -589,13 +629,149 @@ int EngineRuntime::run_embeddings(const float* embeddings, std::size_t seq_len, 
     error = "Embedding sequence length is outside the configured prefill limit";
     return 1;
   }
-  transformer_.reset();
-  for (std::size_t index{}; index < seq_len; ++index) {
-    if (!transformer_.decode_embedding({embeddings + (index * width), width},
-                                       {out + (index * width), width})) {
-      error = "Transformer embedding sequence could not be executed";
-      return 3;
-    }
+  const std::span<const std::uint8_t> mask =
+      attention_mask == nullptr ? std::span<const std::uint8_t>{}
+                                : std::span<const std::uint8_t>{attention_mask, seq_len};
+  if (!transformer_.forward_embeddings({embeddings, seq_len * width}, mask,
+                                       {out, seq_len * width})) {
+    error = "Transformer embedding sequence or attention mask could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_embed_suffix(const float* noisy_actions, std::size_t chunk_size,
+                                        float timestep, float* out, const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action-expert projection boundary";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (chunk_size == 0uz || chunk_size > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim) ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.expert_width)) {
+    error = "SmolVLA chunk size is outside the fixed projection limit";
+    return 1;
+  }
+  if (!smolvla_.embed_suffix({noisy_actions, chunk_size * config.max_action_dim}, timestep,
+                             {out, chunk_size * config.expert_width})) {
+    error = "SmolVLA action suffix embedding could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_run_expert(const float* suffix, std::size_t chunk_size,
+                                      const float* prefix_keys, const float* prefix_values,
+                                      const std::uint8_t* prefix_mask, std::size_t prefix_length,
+                                      float* out, const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (chunk_size == 0uz || chunk_size > 512uz || prefix_length == 0uz || prefix_length > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.expert_width) ||
+      prefix_length > (std::numeric_limits<std::size_t>::max() / config.expert_layers) ||
+      prefix_length * config.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / config.key_value_width)) {
+    error = "SmolVLA expert chunk or prefix length is outside the fixed execution limit";
+    return 1;
+  }
+  const std::size_t suffix_values = chunk_size * config.expert_width;
+  const std::size_t cache_values = prefix_length * config.expert_layers * config.key_value_width;
+  if (!smolvla_.run_with_prefix_kv({suffix, suffix_values}, {prefix_keys, cache_values},
+                                   {prefix_values, cache_values}, {prefix_mask, prefix_length},
+                                   {out, suffix_values})) {
+    error = "SmolVLA cached-VLM action expert could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_project_actions(const float* hidden, std::size_t chunk_size, float* out,
+                                           const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (chunk_size == 0uz || chunk_size > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.expert_width) ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim)) {
+    error = "SmolVLA action chunk size is outside the fixed projection limit";
+    return 1;
+  }
+  if (!smolvla_.project_actions({hidden, chunk_size * config.expert_width},
+                                {out, chunk_size * config.max_action_dim})) {
+    error = "SmolVLA action projection could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_denoise(const float* noisy_actions, std::size_t chunk_size,
+                                   float timestep, const float* prefix_keys,
+                                   const float* prefix_values, const std::uint8_t* prefix_mask,
+                                   std::size_t prefix_length, float* out,
+                                   const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (!std::isfinite(timestep) || chunk_size == 0uz || chunk_size > 512uz || prefix_length == 0uz ||
+      prefix_length > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim) ||
+      prefix_length > (std::numeric_limits<std::size_t>::max() / config.expert_layers) ||
+      prefix_length * config.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / config.key_value_width)) {
+    error = "SmolVLA denoise chunk or prefix length is outside the fixed execution limit";
+    return 1;
+  }
+  const std::size_t action_values = chunk_size * config.max_action_dim;
+  const std::size_t cache_values = prefix_length * config.expert_layers * config.key_value_width;
+  if (!smolvla_.denoise_with_prefix_kv({noisy_actions, action_values}, timestep,
+                                       {prefix_keys, cache_values}, {prefix_values, cache_values},
+                                       {prefix_mask, prefix_length}, {out, action_values})) {
+    error = "SmolVLA cached-VLM denoise step could not be executed";
+    return 3;
+  }
+  return 0;
+}
+
+int EngineRuntime::smolvla_sample(const float* initial_noise, std::size_t chunk_size,
+                                  std::size_t steps, const float* prefix_keys,
+                                  const float* prefix_values, const std::uint8_t* prefix_mask,
+                                  std::size_t prefix_length, float* out,
+                                  const char*& error) noexcept
+{
+  if (!smolvla_.valid()) {
+    error = "Model has no SmolVLA action expert";
+    return 4;
+  }
+  const SmolVLAActionExpertConfig& config = smolvla_.config();
+  if (steps == 0uz || steps > 100uz || chunk_size == 0uz || chunk_size > 512uz ||
+      prefix_length == 0uz || prefix_length > 512uz ||
+      chunk_size > (std::numeric_limits<std::size_t>::max() / config.max_action_dim) ||
+      prefix_length > (std::numeric_limits<std::size_t>::max() / config.expert_layers) ||
+      prefix_length * config.expert_layers >
+          (std::numeric_limits<std::size_t>::max() / config.key_value_width)) {
+    error = "SmolVLA Euler sample dimensions or step count are outside the fixed execution limit";
+    return 1;
+  }
+  const std::size_t action_values = chunk_size * config.max_action_dim;
+  const std::size_t cache_values = prefix_length * config.expert_layers * config.key_value_width;
+  if (!smolvla_.sample_euler_with_prefix_kv({initial_noise, action_values}, steps,
+                                            {prefix_keys, cache_values},
+                                            {prefix_values, cache_values},
+                                            {prefix_mask, prefix_length}, {out, action_values})) {
+    error = "SmolVLA cached-VLM Euler sample could not be executed";
+    return 3;
   }
   return 0;
 }

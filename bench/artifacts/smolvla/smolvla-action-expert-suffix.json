@@ -1,0 +1,15 @@
+{
+  "action_dim": 32,
+  "checkpoint": "model.safetensors",
+  "checkpoint_sha256": "7cd549ac2351fb069c0ddb3c34ad2d09cfc92b56a15dccdfc2e41467aaca01eb",
+  "chunk_size": 7,
+  "expert_width": 720,
+  "max_absolute_error": 1.9073486328125e-06,
+  "mean_absolute_error": 3.4650483371478913e-07,
+  "schema_version": 1,
+  "scope": "real SmolVLA action_in_proj, sinusoidal timestep embedding, and action-time MLP against PyTorch; VLM preprocessing and interleaved expert attention are not included",
+  "seed": 17,
+  "status": "passed",
+  "timestep": 0.37,
+  "tolerance": 5e-05
+}

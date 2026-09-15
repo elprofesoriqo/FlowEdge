@@ -1,0 +1,18 @@
+{
+  "action_dtype": "float32",
+  "action_shape": [
+    1,
+    50,
+    6
+  ],
+  "lerobot_version": "0.4.4",
+  "model": "lerobot/smolvla_base",
+  "revision": "c83c3163b8ca9b7e67c509fffd9121e66cb96205",
+  "schema_version": 1,
+  "scope": "upstream SmolVLA source action chunk for a supplied real capture; not FlowEdge inference, latency, or policy-quality evidence",
+  "source_action_sha256": "85238a829c92e839e3479c94353fff1c156489456f9a3eedf356832fe6f5f759",
+  "source_capture_sha256": "ef545399cc70d6c04f242a6bf16d064221e1e00b694eff81aa4a1ff3d2f6f719",
+  "source_noise_sha256": "99055a9070ad90c13d76355243c3d9db676b56dad310617c33d85def04172340",
+  "status": "passed",
+  "transformers_version": "4.57.6"
+}

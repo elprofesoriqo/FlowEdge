@@ -48,11 +48,35 @@ def main() -> int:
         embedding_hidden = engine.run_embeddings(embeddings)
         into_hidden = np.empty_like(embedding_hidden)
         engine.run_embeddings_into(embeddings, into_hidden)
+        all_valid = np.ones(tokens.size, dtype=np.uint8)
+        masked_hidden = engine.run_embeddings(embeddings, all_valid)
+        padded_mask = np.ones(tokens.size, dtype=np.uint8)
+        padded_mask[-1] = 0
+        padded_hidden = engine.run_embeddings(embeddings, padded_mask)
+        try:
+            engine.run_embeddings(embeddings, np.asarray([1, 0, 1, 0], dtype=np.uint8))
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("non-prefix attention mask was accepted")
         embedding_error = float(np.max(np.abs(token_hidden - embedding_hidden)))
         into_error = float(np.max(np.abs(embedding_hidden - into_hidden)))
-        if embedding_error > 5e-6 or into_error > 0.0:
+        all_valid_error = float(np.max(np.abs(embedding_hidden - masked_hidden)))
+        prefix_error = float(
+            np.max(np.abs(token_hidden[:-1] - padded_hidden[:-1]))
+            if tokens.size > 1
+            else 0.0
+        )
+        if (
+            embedding_error > 5e-6
+            or into_error > 0.0
+            or all_valid_error > 0.0
+            or prefix_error > 5e-6
+        ):
             raise RuntimeError(
-                f"embedding parity exceeded tolerance: token={embedding_error}, into={into_error}"
+                "embedding parity exceeded tolerance: "
+                f"token={embedding_error}, into={into_error}, all_valid={all_valid_error}, "
+                f"padded_prefix={prefix_error}"
             )
     except (ImportError, KeyError, OSError, RuntimeError, ValueError) as error:
         print(f"Transformer embedding verification failed: {error}", file=sys.stderr)
@@ -66,11 +90,13 @@ def main() -> int:
         "hidden_values": int(token_hidden.size),
         "token_vs_embedding_max_absolute_error": embedding_error,
         "embedding_vs_into_max_absolute_error": into_error,
+        "all_valid_mask_max_absolute_error": all_valid_error,
+        "padded_prefix_max_absolute_error": prefix_error,
         "tolerance": 5e-6,
         "status": "passed",
         "scope": (
-            "real converted GPT-2 token prefill versus caller-supplied embedding prefill; "
-            "not SmolVLA or policy-quality evaluation"
+            "real converted GPT-2 token prefill versus caller-supplied embedding prefill, "
+            "including prefix-mask semantics; not SmolVLA or policy-quality evaluation"
         ),
     }
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"

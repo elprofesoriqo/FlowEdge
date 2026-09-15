@@ -21,7 +21,9 @@ int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
 int fe_engine_deployment_profile(const fe_engine*, fe_deployment_profile*);
 
 int fe_engine_run(fe_engine*, const int32_t* tokens, size_t n, float* out);
-int fe_engine_run_embeddings(fe_engine*, const float* embeddings, size_t n, float* out);
+int fe_engine_run_embeddings(fe_engine*, const float* embeddings, size_t seq_len, float* out);
+int fe_engine_run_embeddings_masked(fe_engine*, const float* embeddings,
+                                    const uint8_t* attention_mask, size_t seq_len, float* out);
 int fe_engine_sample(fe_engine*, const int32_t* tokens, size_t n,
                      const float* noise, size_t steps, int method, float* action);
 int fe_engine_sample_condition(fe_engine*, const float* condition,
@@ -96,6 +98,17 @@ Rules:
   designed for a concurrent scheduler thread.
 - Prefill and token-conditioned sampling accept 1 to 512 tokens per call; streaming `step` has no
   growing sequence buffer.
+- `fe_engine_smolvla_embed_suffix` accepts one padded action chunk and returns the real
+  SmolVLA action/time suffix embedding. `fe_engine_smolvla_run_expert` executes the trained
+  expert from a caller-supplied, RoPE-applied VLM K/V cache, and
+  `fe_engine_smolvla_project_actions` produces padded action coordinates. These calls do not run
+  image/language preprocessing or the VLM encoder, so a complete policy still needs an external
+  cache producer and real-capture parity evidence.
+- `fe_engine_smolvla_denoise` composes those three operations in the native runtime for one flow
+  step and writes caller-owned padded action velocity storage without allocating in the hot path.
+- `fe_engine_smolvla_sample` applies the source deterministic Euler schedule from caller-supplied
+  noise and the same captured VLM cache. It supports 1--100 steps and permits exact in-place
+  noise/output storage. It still does not construct that cache or execute the VLM.
 
 ## Link with CMake
 

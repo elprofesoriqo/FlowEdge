@@ -35,6 +35,27 @@ TEST(CAbiContract, NullHandlesReportInvalidArguments)
   EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_run");
   EXPECT_EQ(fe_engine_run_embeddings(nullptr, &value, 1uz, &value), FE_STATUS_INVALID_ARGUMENT);
   EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_run_embeddings");
+  const std::uint8_t mask = 1u;
+  EXPECT_EQ(fe_engine_run_embeddings_masked(nullptr, &value, &mask, 1uz, &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_run_embeddings_masked");
+  EXPECT_EQ(fe_engine_smolvla_embed_suffix(nullptr, &value, 1uz, 0.5F, &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_embed_suffix");
+  EXPECT_EQ(fe_engine_smolvla_run_expert(nullptr, &value, 1uz, &value, &value, &mask, 1uz, &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_run_expert");
+  EXPECT_EQ(fe_engine_smolvla_project_actions(nullptr, &value, 1uz, &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_project_actions");
+  EXPECT_EQ(fe_engine_smolvla_denoise(nullptr, &value, 1uz, 0.5F, &value, &value, &mask, 1uz,
+                                      &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_denoise");
+  EXPECT_EQ(fe_engine_smolvla_sample(nullptr, &value, 1uz, 10uz, &value, &value, &mask, 1uz,
+                                     &value),
+            FE_STATUS_INVALID_ARGUMENT);
+  EXPECT_STREQ(fe_engine_last_error(), "Invalid arguments to fe_engine_smolvla_sample");
   EXPECT_EQ(fe_engine_step(nullptr, token, &value), FE_STATUS_INVALID_ARGUMENT);
   EXPECT_STREQ(fe_engine_last_error(), "Invalid null arguments to fe_engine_step");
   EXPECT_EQ(fe_engine_flow_advance(nullptr, 1uz, &value, &remaining), FE_STATUS_INVALID_ARGUMENT);

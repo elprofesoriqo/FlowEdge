@@ -328,6 +328,94 @@ int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, std::si
   return engine->runtime.run_embeddings(embeddings, seq_len, out, last_error());
 }
 
+int fe_engine_run_embeddings_masked(fe_engine* engine, const float* embeddings,
+                                    const std::uint8_t* attention_mask, std::size_t seq_len,
+                                    float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || embeddings == nullptr || attention_mask == nullptr || out == nullptr ||
+      seq_len == 0uz) {
+    last_error() = "Invalid arguments to fe_engine_run_embeddings_masked";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.run_embeddings_masked(embeddings, attention_mask, seq_len, out,
+                                               last_error());
+}
+
+int fe_engine_smolvla_embed_suffix(fe_engine* engine, const float* noisy_actions,
+                                   std::size_t chunk_size, float timestep, float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || noisy_actions == nullptr || out == nullptr || chunk_size == 0uz ||
+      !std::isfinite(timestep)) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_embed_suffix";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_embed_suffix(noisy_actions, chunk_size, timestep, out,
+                                              last_error());
+}
+
+int fe_engine_smolvla_run_expert(fe_engine* engine, const float* suffix, std::size_t chunk_size,
+                                 const float* prefix_keys, const float* prefix_values,
+                                 const std::uint8_t* prefix_mask, std::size_t prefix_length,
+                                 float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || suffix == nullptr || chunk_size == 0uz || prefix_keys == nullptr ||
+      prefix_values == nullptr || prefix_mask == nullptr || prefix_length == 0uz ||
+      out == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_run_expert";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_run_expert(suffix, chunk_size, prefix_keys, prefix_values,
+                                            prefix_mask, prefix_length, out, last_error());
+}
+
+int fe_engine_smolvla_project_actions(fe_engine* engine, const float* hidden,
+                                      std::size_t chunk_size, float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || hidden == nullptr || chunk_size == 0uz || out == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_project_actions";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_project_actions(hidden, chunk_size, out, last_error());
+}
+
+int fe_engine_smolvla_denoise(fe_engine* engine, const float* noisy_actions, std::size_t chunk_size,
+                              float timestep, const float* prefix_keys, const float* prefix_values,
+                              const std::uint8_t* prefix_mask, std::size_t prefix_length,
+                              float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || noisy_actions == nullptr || chunk_size == 0uz ||
+      !std::isfinite(timestep) || prefix_keys == nullptr || prefix_values == nullptr ||
+      prefix_mask == nullptr || prefix_length == 0uz || out == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_denoise";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_denoise(noisy_actions, chunk_size, timestep, prefix_keys,
+                                         prefix_values, prefix_mask, prefix_length, out,
+                                         last_error());
+}
+
+int fe_engine_smolvla_sample(fe_engine* engine, const float* initial_noise, std::size_t chunk_size,
+                             std::size_t steps, const float* prefix_keys,
+                             const float* prefix_values, const std::uint8_t* prefix_mask,
+                             std::size_t prefix_length, float* out)
+{
+  last_error() = "";
+  if (engine == nullptr || initial_noise == nullptr || chunk_size == 0uz || steps == 0uz ||
+      prefix_keys == nullptr || prefix_values == nullptr || prefix_mask == nullptr ||
+      prefix_length == 0uz || out == nullptr) {
+    last_error() = "Invalid arguments to fe_engine_smolvla_sample";
+    return FE_STATUS_INVALID_ARGUMENT;
+  }
+  return engine->runtime.smolvla_sample(initial_noise, chunk_size, steps, prefix_keys,
+                                        prefix_values, prefix_mask, prefix_length, out,
+                                        last_error());
+}
+
 #if defined(__MINGW32__) && defined(__AVX2__)
 __attribute__((force_align_arg_pointer))
 #endif

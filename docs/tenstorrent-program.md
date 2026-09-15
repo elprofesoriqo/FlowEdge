@@ -9,7 +9,9 @@ Tenstorrent execution is not implemented and no established partnership is claim
 1. Validate visual Diffusion Policy deployment with matched references, replay artifacts,
    and closed-loop simulator results.
 2. Pin a trained SmolVLA checkpoint; define exact observation, token, mask, expert, and
-   state contracts. Capture intermediate and complete-trajectory references.
+   state contracts. The native action/time suffix projection boundary is now covered by
+   a real-checkpoint PyTorch parity artifact; capture the remaining intermediate and
+   complete-trajectory references next.
 3. Implement one fixed-shape SmolVLA path on one Tenstorrent device, with complete Euler
    integration and persistent weights, conditioning, and solver buffers.
 4. Measure startup, first/warm inference, host-visible latency, transfers, synchronization,
@@ -22,10 +24,10 @@ Tenstorrent execution is not implemented and no established partnership is claim
 ## Scope
 
 Core owns native inference contracts. Companion adapters own external encoding and
-ecosystem integration. The thesis first validates an exact action expert using captured
-encoder outputs. Full-policy claims require actual preprocessing and encoding, including
-placement and transfer costs. Accelerator execution needs persistent-device interfaces,
-not host pointer substitutions in CPU kernels.
+ecosystem integration. The thesis next validates the complete attention expert using
+captured encoder outputs. Full-policy claims require actual preprocessing and encoding,
+including placement and transfer costs. Accelerator execution needs persistent-device
+interfaces, not host pointer substitutions in CPU kernels.
 
 The thesis delivers a correct measured backend. DeadlineFlow is the systems experiment.
 CppCon explains measured C++ decisions. Additional hardware generations, policies,

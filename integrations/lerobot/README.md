@@ -8,6 +8,8 @@ does not change `src/core` or `src/relay`, and it does not replace LeRobot's obs
 - Converted `lerobot/diffusion_pusht` checkpoints.
 - Encoded conditions, or source visual observations with the supported RGB encoder and statistics.
 - FlowEdge DDIM/DDPM inference and LeRobot action-horizon slicing.
+- Experimental SmolVLA cached-expert chunks: LeRobot/source code produces the VLM cache and
+  FlowEdge executes the seeded native action expert.
 - Deployment-only Python adapter; training remains in LeRobot.
 
 The adapter follows the same action contract documented by FlowEdge's Diffusion Policy guide:
@@ -18,6 +20,49 @@ observation history outside native Core. Robot limits and emergency-stop behavio
 The plugin consumes chunks across `select_action` calls, uses seeded Gaussian noise, and clears
 both history and queued actions on reset. See [policy evaluation](../../docs/guides/policy-evaluation.md)
 for `input_mode`, source checkpoint setup, matched replay, PushT, and periodic delivery.
+
+## Experimental SmolVLA cache boundary
+
+`FlowEdgeSmolVLACachedExpert` and `LeRobotSmolVLACacheProvider` are programmatic
+hybrid adapters, not a registered `--policy.type` and not native full SmolVLA.
+Install the optional source stack with `pip install -e 'integrations/lerobot[smolvla]'`.
+The provider follows an instantiated source-compatible LeRobot VLM to produce
+its batch-one, RoPE-applied K/V cache; the adapter then runs the
+native FlowEdge Euler action expert, truncates padded action coordinates, and
+queues the requested action chunk. Preprocessing, VLM execution, action
+postprocessing, and cache-transfer timing remain outside this boundary.
+
+The real hybrid parity gate exercises this boundary with a recorded LeRobot
+frame and compares the complete `50 x 6` action chunk against the source
+`SmolVLAPolicy`:
+
+```bash
+python tools/verification/verify_smolvla_hybrid.py \
+  models/smolvla_base/model.safetensors models/smolvla_base \
+  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/eslab-frame-000000.hybrid-action.json
+```
+
+This is source-pipeline plus native-expert evidence, not native VLM or full
+native SmolVLA deployment evidence. It also does not measure latency or
+control quality.
+
+For stage timing on the same real capture, use the separate benchmark entry
+point. It reports p50/p95/p99 for source PyTorch action generation, source VLM
+prefix/cache production, native action-expert execution, and the combined
+hybrid path:
+
+```bash
+python tools/benchmark/run_smolvla_hybrid_report.py \
+  models/smolvla_base/model.safetensors models/smolvla_base \
+  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
+  --module-path build-research --iterations 20 --warmup 5 \
+  --output bench/artifacts/smolvla/eslab-frame-000000.hybrid-report.json
+```
+
+These are prepared-capture CPU measurements, not full control-loop latency or
+real-time suitability evidence.
 
 ## Development install
 

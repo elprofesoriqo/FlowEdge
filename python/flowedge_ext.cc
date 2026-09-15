@@ -33,15 +33,19 @@ public:
     const int flags = PyBUF_FORMAT | PyBUF_C_CONTIGUOUS | (writable ? PyBUF_WRITABLE : 0);
     if (PyObject_GetBuffer(object.ptr(), &view_, flags) != 0)
       throw py::error_already_set{};
-    const bool format_matches = view_.format != nullptr &&
-                                (std::is_same_v<T, float> ? std::strcmp(view_.format, "f") == 0
-                                                          : (std::strcmp(view_.format, "i") == 0 ||
-                                                             std::strcmp(view_.format, "l") == 0));
+    const bool format_matches =
+        view_.format != nullptr &&
+        (std::is_same_v<T, float> ? std::strcmp(view_.format, "f") == 0
+         : std::is_same_v<T, std::uint8_t>
+             ? (std::strcmp(view_.format, "B") == 0 || std::strcmp(view_.format, "b") == 0)
+             : (std::strcmp(view_.format, "i") == 0 || std::strcmp(view_.format, "l") == 0));
     if (view_.itemsize != static_cast<Py_ssize_t>(sizeof(T)) || !format_matches) {
       PyBuffer_Release(&view_);
       view_.obj = nullptr;
       throw std::runtime_error(std::is_same_v<T, float> ? "expected a C-contiguous float32 buffer"
-                                                        : "expected a C-contiguous int32 buffer");
+                               : std::is_same_v<T, std::uint8_t>
+                                   ? "expected a C-contiguous uint8 buffer"
+                                   : "expected a C-contiguous int32 buffer");
     }
   }
 
@@ -67,6 +71,7 @@ private:
 
 using FloatBuffer = TypedBuffer<float>;
 using Int32Buffer = TypedBuffer<std::int32_t>;
+using UInt8Buffer = TypedBuffer<std::uint8_t>;
 
 py::object float_array(py::handle numpy, std::size_t size)
 {
@@ -185,7 +190,7 @@ public:
   }
 
   // External VLM/proprioception encoder embeddings -> hidden states.
-  py::object run_embeddings(py::handle embeddings_object)
+  py::object run_embeddings(py::handle embeddings_object, py::object attention_mask)
   {
     py::object embeddings_array = contiguous_array(numpy_, embeddings_object, "float32");
     const FloatBuffer embeddings{embeddings_array};
@@ -194,15 +199,223 @@ public:
       throw std::runtime_error("embeddings must contain one or more complete d_model rows");
     py::object out = float_matrix(numpy_, embeddings.size() / width, width);
     FloatBuffer output{out, true};
-    run_embeddings_native(embeddings, output);
+    if (attention_mask.is_none())
+      run_embeddings_native(embeddings, output);
+    else {
+      py::object mask_array = contiguous_array(numpy_, attention_mask, "uint8");
+      const UInt8Buffer mask{mask_array};
+      run_embeddings_masked_native(embeddings, mask, output);
+    }
     return out;
   }
 
-  void run_embeddings_into(py::handle embeddings_object, py::handle output_object)
+  void run_embeddings_into(py::handle embeddings_object, py::handle output_object,
+                           py::object attention_mask)
   {
     const FloatBuffer embeddings{embeddings_object};
     FloatBuffer output{output_object, true};
-    run_embeddings_native(embeddings, output);
+    if (attention_mask.is_none())
+      run_embeddings_native(embeddings, output);
+    else {
+      py::object mask_array = contiguous_array(numpy_, attention_mask, "uint8");
+      const UInt8Buffer mask{mask_array};
+      run_embeddings_masked_native(embeddings, mask, output);
+    }
+  }
+
+  py::object smolvla_embed_suffix(py::handle noisy_actions_object, float timestep)
+  {
+    py::object actions_array = contiguous_array(numpy_, noisy_actions_object, "float32");
+    const FloatBuffer actions{actions_array};
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    if (metadata.architecture != FE_ARCH_SMOLVLA_ACTION_EXPERT || metadata.action_dim == 0uz ||
+        metadata.d_inner == 0uz || actions.size() == 0uz ||
+        actions.size() % metadata.action_dim != 0uz)
+      throw std::runtime_error(
+          "expected a SmolVLA checkpoint and [chunk_size, max_action_dim] float32 actions");
+    const std::size_t chunk_size = actions.size() / metadata.action_dim;
+    py::object out = float_matrix(numpy_, chunk_size, metadata.d_inner);
+    FloatBuffer output{out, true};
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_smolvla_embed_suffix(engine_, actions.data(), chunk_size, timestep,
+                                          output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return out;
+  }
+
+  py::object smolvla_run_expert(py::handle suffix_object, py::handle prefix_keys_object,
+                                py::handle prefix_values_object, py::handle prefix_mask_object)
+  {
+    py::object suffix_array = contiguous_array(numpy_, suffix_object, "float32");
+    py::object keys_array = contiguous_array(numpy_, prefix_keys_object, "float32");
+    py::object values_array = contiguous_array(numpy_, prefix_values_object, "float32");
+    py::object mask_array = contiguous_array(numpy_, prefix_mask_object, "uint8");
+    const FloatBuffer suffix{suffix_array};
+    const FloatBuffer prefix_keys{keys_array};
+    const FloatBuffer prefix_values{values_array};
+    const UInt8Buffer prefix_mask{mask_array};
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    const std::size_t expert_width = static_cast<std::size_t>(metadata.d_inner);
+    const std::size_t expert_layers = static_cast<std::size_t>(metadata.n_layers);
+    if (metadata.architecture != FE_ARCH_SMOLVLA_ACTION_EXPERT || expert_width == 0uz ||
+        expert_layers == 0uz || suffix.size() == 0uz || suffix.size() % expert_width != 0uz ||
+        prefix_mask.size() == 0uz || prefix_keys.size() != prefix_values.size() ||
+        prefix_mask.size() > std::numeric_limits<std::size_t>::max() / expert_layers ||
+        prefix_mask.size() * expert_layers > std::numeric_limits<std::size_t>::max() / 320uz ||
+        prefix_keys.size() != prefix_mask.size() * expert_layers * 320uz)
+      throw std::runtime_error(
+          "expected SmolVLA suffix [chunk, expert_width], matching layer-major F32 VLM K/V "
+          "caches, and a nonempty uint8 prefix mask");
+    const std::size_t chunk_size = suffix.size() / expert_width;
+    py::object out = float_matrix(numpy_, chunk_size, expert_width);
+    FloatBuffer output{out, true};
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_smolvla_run_expert(engine_, suffix.data(), chunk_size, prefix_keys.data(),
+                                        prefix_values.data(), prefix_mask.data(),
+                                        prefix_mask.size(), output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return out;
+  }
+
+  py::object smolvla_project_actions(py::handle hidden_object)
+  {
+    py::object hidden_array = contiguous_array(numpy_, hidden_object, "float32");
+    const FloatBuffer hidden{hidden_array};
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    const std::size_t expert_width = static_cast<std::size_t>(metadata.d_inner);
+    const std::size_t action_dim = static_cast<std::size_t>(metadata.action_dim);
+    if (metadata.architecture != FE_ARCH_SMOLVLA_ACTION_EXPERT || expert_width == 0uz ||
+        action_dim == 0uz || hidden.size() == 0uz || hidden.size() % expert_width != 0uz)
+      throw std::runtime_error(
+          "expected a SmolVLA checkpoint and [chunk_size, expert_width] float32 hidden states");
+    const std::size_t chunk_size = hidden.size() / expert_width;
+    py::object out = float_matrix(numpy_, chunk_size, action_dim);
+    FloatBuffer output{out, true};
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_smolvla_project_actions(engine_, hidden.data(), chunk_size,
+                                             output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return out;
+  }
+
+  py::object smolvla_denoise(py::handle noisy_actions_object, float timestep,
+                             py::handle prefix_keys_object, py::handle prefix_values_object,
+                             py::handle prefix_mask_object)
+  {
+    py::object actions_array = contiguous_array(numpy_, noisy_actions_object, "float32");
+    py::object keys_array = contiguous_array(numpy_, prefix_keys_object, "float32");
+    py::object values_array = contiguous_array(numpy_, prefix_values_object, "float32");
+    py::object mask_array = contiguous_array(numpy_, prefix_mask_object, "uint8");
+    const FloatBuffer actions{actions_array};
+    const FloatBuffer prefix_keys{keys_array};
+    const FloatBuffer prefix_values{values_array};
+    const UInt8Buffer prefix_mask{mask_array};
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    const std::size_t action_dim = static_cast<std::size_t>(metadata.action_dim);
+    const std::size_t expert_layers = static_cast<std::size_t>(metadata.n_layers);
+    if (metadata.architecture != FE_ARCH_SMOLVLA_ACTION_EXPERT || action_dim == 0uz ||
+        expert_layers == 0uz || actions.size() == 0uz || actions.size() % action_dim != 0uz ||
+        prefix_mask.size() == 0uz || prefix_keys.size() != prefix_values.size() ||
+        prefix_mask.size() > std::numeric_limits<std::size_t>::max() / expert_layers ||
+        prefix_mask.size() * expert_layers > std::numeric_limits<std::size_t>::max() / 320uz ||
+        prefix_keys.size() != prefix_mask.size() * expert_layers * 320uz)
+      throw std::runtime_error(
+          "expected SmolVLA actions [chunk, max_action_dim], matching layer-major F32 VLM K/V "
+          "caches, and a nonempty uint8 prefix mask");
+    const std::size_t chunk_size = actions.size() / action_dim;
+    py::object out = float_matrix(numpy_, chunk_size, action_dim);
+    FloatBuffer output{out, true};
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_smolvla_denoise(engine_, actions.data(), chunk_size, timestep,
+                                     prefix_keys.data(), prefix_values.data(), prefix_mask.data(),
+                                     prefix_mask.size(), output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return out;
+  }
+
+  py::object smolvla_sample(py::handle initial_noise_object, py::handle prefix_keys_object,
+                            py::handle prefix_values_object, py::handle prefix_mask_object,
+                            std::size_t steps)
+  {
+    py::object noise_array = contiguous_array(numpy_, initial_noise_object, "float32");
+    py::object keys_array = contiguous_array(numpy_, prefix_keys_object, "float32");
+    py::object values_array = contiguous_array(numpy_, prefix_values_object, "float32");
+    py::object mask_array = contiguous_array(numpy_, prefix_mask_object, "uint8");
+    const FloatBuffer noise{noise_array};
+    const FloatBuffer prefix_keys{keys_array};
+    const FloatBuffer prefix_values{values_array};
+    const UInt8Buffer prefix_mask{mask_array};
+    fe_model_metadata metadata{};
+    if (fe_engine_model_metadata(engine_, &metadata) != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    const std::size_t action_dim = static_cast<std::size_t>(metadata.action_dim);
+    const std::size_t expert_layers = static_cast<std::size_t>(metadata.n_layers);
+    if (metadata.architecture != FE_ARCH_SMOLVLA_ACTION_EXPERT || action_dim == 0uz ||
+        expert_layers == 0uz || steps == 0uz || steps > 100uz || noise.size() == 0uz ||
+        noise.size() % action_dim != 0uz || prefix_mask.size() == 0uz ||
+        prefix_keys.size() != prefix_values.size() ||
+        prefix_mask.size() > std::numeric_limits<std::size_t>::max() / expert_layers ||
+        prefix_mask.size() * expert_layers > std::numeric_limits<std::size_t>::max() / 320uz ||
+        prefix_keys.size() != prefix_mask.size() * expert_layers * 320uz)
+      throw std::runtime_error(
+          "expected SmolVLA initial noise [chunk, max_action_dim], 1..100 Euler steps, matching "
+          "layer-major F32 VLM K/V caches, and a nonempty uint8 prefix mask");
+    const std::size_t chunk_size = noise.size() / action_dim;
+    py::object out = float_matrix(numpy_, chunk_size, action_dim);
+    FloatBuffer output{out, true};
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_smolvla_sample(engine_, noise.data(), chunk_size, steps, prefix_keys.data(),
+                                    prefix_values.data(), prefix_mask.data(), prefix_mask.size(),
+                                    output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
+    return out;
+  }
+
+  void run_embeddings_masked_native(const FloatBuffer& embeddings, const UInt8Buffer& mask,
+                                    FloatBuffer& output)
+  {
+    const std::size_t width = d_model();
+    if (width == 0uz || embeddings.size() == 0uz || embeddings.size() % width != 0uz ||
+        mask.size() != embeddings.size() / width || output.size() != embeddings.size())
+      throw std::runtime_error(
+          "embedding, attention_mask, and output shapes must be [seq_len, d_model], [seq_len], "
+          "and [seq_len, d_model]");
+    int rc{0};
+    {
+      py::gil_scoped_release release;
+      rc = fe_engine_run_embeddings_masked(engine_, embeddings.data(), mask.data(),
+                                           embeddings.size() / width, output.mutable_data());
+    }
+    if (rc != 0)
+      throw std::runtime_error(fe_engine_last_error());
   }
 
   py::object step(std::int32_t token)
@@ -448,7 +661,7 @@ private:
     {
       py::gil_scoped_release release;
       rc = fe_engine_run_embeddings(engine_, embeddings.data(), embeddings.size() / width,
-                                     output.mutable_data());
+                                    output.mutable_data());
     }
     if (rc != 0)
       throw std::runtime_error(fe_engine_last_error());
@@ -580,9 +793,26 @@ PYBIND11_MODULE(flowedge, m)
       .def_property_readonly("diffusion_metadata", &Engine::diffusion_metadata)
       .def("run", &Engine::run, py::arg("tokens"))
       .def("run_into", &Engine::run_into, py::arg("tokens"), py::arg("output"))
-      .def("run_embeddings", &Engine::run_embeddings, py::arg("embeddings"))
+      .def("run_embeddings", &Engine::run_embeddings, py::arg("embeddings"),
+           py::arg("attention_mask") = py::none())
       .def("run_embeddings_into", &Engine::run_embeddings_into, py::arg("embeddings"),
-           py::arg("output"))
+           py::arg("output"), py::arg("attention_mask") = py::none())
+      .def("smolvla_embed_suffix", &Engine::smolvla_embed_suffix,
+           "embed a padded SmolVLA action chunk before the external expert", py::arg("actions"),
+           py::arg("timestep"))
+      .def("smolvla_run_expert", &Engine::smolvla_run_expert,
+           "run the SmolVLA action expert from a captured VLM K/V cache", py::arg("suffix"),
+           py::arg("prefix_keys"), py::arg("prefix_values"), py::arg("prefix_mask"))
+      .def("smolvla_project_actions", &Engine::smolvla_project_actions,
+           "project SmolVLA expert hidden states into padded action coordinates", py::arg("hidden"))
+      .def("smolvla_denoise", &Engine::smolvla_denoise,
+           "run one complete SmolVLA action-expert denoise step from a captured VLM K/V cache",
+           py::arg("actions"), py::arg("timestep"), py::arg("prefix_keys"),
+           py::arg("prefix_values"), py::arg("prefix_mask"))
+      .def("smolvla_sample", &Engine::smolvla_sample,
+           "sample a SmolVLA action chunk with Euler from a captured VLM K/V cache",
+           py::arg("initial_noise"), py::arg("prefix_keys"), py::arg("prefix_values"),
+           py::arg("prefix_mask"), py::arg("steps") = 10uz)
       .def("step", &Engine::step, py::arg("token"))
       .def("step_into", &Engine::step_into, py::arg("token"), py::arg("output"))
       .def("reset", &Engine::reset)

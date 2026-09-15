@@ -22,6 +22,7 @@ flowedge-lerobot-evaluate = "flowedge_lerobot.evaluate:main"
 
 [project.optional-dependencies]
 evaluation = ["gym-pusht==0.1.5", "pymunk>=6.6,<7"]
+smolvla = ["lerobot[smolvla]>=0.4.4,<0.5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

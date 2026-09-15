@@ -128,6 +128,77 @@ int fe_engine_run_embeddings(fe_engine* engine, const float* embeddings, size_t 
                              float* out);
 
 /**
+ * @brief Process caller-supplied embeddings with a batch-one prefix attention mask.
+ *
+ * `attention_mask` contains one byte per row: leading 1 values are attended and
+ * trailing 0 values are padding. The mask is the condition-sequence boundary
+ * for VLA adapters; it does not implement a SmolVLA action expert.
+ */
+int fe_engine_run_embeddings_masked(fe_engine* engine, const float* embeddings,
+                                    const uint8_t* attention_mask, size_t seq_len, float* out);
+
+/**
+ * @brief Build the trained SmolVLA action-expert suffix embedding.
+ *
+ * This is the exact action/time projection boundary for a padded action
+ * chunk. Call `fe_engine_smolvla_run_expert` with a VLM K/V cache to execute
+ * the trained action expert.
+ * `noisy_actions` has [chunk_size * max_action_dim] values and `out` has
+ * [chunk_size * expert_width] values; dimensions are read from the checkpoint.
+ */
+int fe_engine_smolvla_embed_suffix(fe_engine* engine, const float* noisy_actions, size_t chunk_size,
+                                   float timestep, float* out);
+
+/**
+ * @brief Execute the SmolVLA action expert from an external VLM K/V cache.
+ *
+ * `suffix` and `out` have [chunk_size * expert_width] values. `prefix_keys`
+ * and `prefix_values` are layer-major F32 VLM K/V caches with
+ * [expert_layers * prefix_length * 320] values. The cache keys must already
+ * include the VLM RoPE transform. `prefix_mask` has one binary validity byte
+ * per physical prefix slot; valid positions may be sparse because source
+ * SmolVLA pads language tokens before appending state. This does not run
+ * LeRobot preprocessing or the vision/language VLM encoder.
+ */
+int fe_engine_smolvla_run_expert(fe_engine* engine, const float* suffix, size_t chunk_size,
+                                 const float* prefix_keys, const float* prefix_values,
+                                 const uint8_t* prefix_mask, size_t prefix_length, float* out);
+
+/**
+ * @brief Project SmolVLA expert hidden rows into padded action coordinates.
+ *
+ * `hidden` has [chunk_size * expert_width] values; `out` has
+ * [chunk_size * max_action_dim] values. The caller removes padded action
+ * coordinates according to its checkpoint configuration.
+ */
+int fe_engine_smolvla_project_actions(fe_engine* engine, const float* hidden, size_t chunk_size,
+                                      float* out);
+
+/**
+ * @brief Run one complete SmolVLA action-expert denoising step.
+ *
+ * This composes suffix embedding, cached-VLM expert execution, and action
+ * projection without runtime allocation. `noisy_actions` and `out` have
+ * [chunk_size * max_action_dim] values. The external VLM K/V cache follows
+ * the contract of `fe_engine_smolvla_run_expert`.
+ */
+int fe_engine_smolvla_denoise(fe_engine* engine, const float* noisy_actions, size_t chunk_size,
+                              float timestep, const float* prefix_keys, const float* prefix_values,
+                              const uint8_t* prefix_mask, size_t prefix_length, float* out);
+
+/**
+ * @brief Sample a SmolVLA action chunk with the source deterministic Euler schedule.
+ *
+ * `initial_noise` and `out` have [chunk_size * max_action_dim] values. `steps`
+ * is bounded to [1, 100]. `out` may exactly alias `initial_noise`; other
+ * overlap is unsupported. The VLM cache contract is the same as
+ * `fe_engine_smolvla_run_expert`.
+ */
+int fe_engine_smolvla_sample(fe_engine* engine, const float* initial_noise, size_t chunk_size,
+                             size_t steps, const float* prefix_keys, const float* prefix_values,
+                             const uint8_t* prefix_mask, size_t prefix_length, float* out);
+
+/**
  * @brief Advance the streaming decode state by a single token.
  * @param engine The engine instance.
  * @param token The input token ID.
