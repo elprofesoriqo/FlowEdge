@@ -20,7 +20,7 @@ flowchart LR
 | Transformer | `tools/verification/verify_transformer_reference.py` | Real Hugging Face checkpoint against native full-prefix and streaming execution | max error and parity |
 | Diffusion policy | `tools/benchmark/run_policy_report.py` | Same observations, processor, noise, and DDIM schedule through FlowEdge and LeRobot/PyTorch | encoder/policy/end-to-end p50/p95/p99, throughput, RSS, action error |
 | Closed loop | `flowedge_lerobot.evaluate` | Bounded PushT episodes | task result; not a timing proof |
-| SmolVLA | `tools/smolvla_preflight.py`, `verify_smolvla_action_expert.py`, `verify_smolvla_cached_expert.py`, `verify_smolvla_cached_trajectory.py`, `flowedge-inspect` | Real checkpoint schema, suffix parity, and captured VLM-cache expert/Euler replay | preflight + PyTorch max-error + real-capture replay artifacts; no native VLM, timing, or control-quality claim |
+| SmolVLA | `tools/smolvla_preflight.py`, `verify_smolvla_action_expert.py`, `verify_smolvla_cached_expert.py`, `verify_smolvla_cached_trajectory.py`, `verify_smolvla_hybrid.py`, `flowedge-inspect` | Real checkpoint schema, suffix parity, cached expert/Euler replay, and source-pipeline-to-native-expert action parity | preflight + PyTorch max-error + real-capture replay artifacts; hybrid evidence still makes no native VLM, timing, or control-quality claim |
 
 ## Canonical policy report
 

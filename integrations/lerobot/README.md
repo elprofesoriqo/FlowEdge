@@ -32,6 +32,22 @@ native FlowEdge Euler action expert, truncates padded action coordinates, and
 queues the requested action chunk. Preprocessing, VLM execution, action
 postprocessing, and cache-transfer timing remain outside this boundary.
 
+The real hybrid parity gate exercises this boundary with a recorded LeRobot
+frame and compares the complete `50 x 6` action chunk against the source
+`SmolVLAPolicy`:
+
+```bash
+python tools/verification/verify_smolvla_hybrid.py \
+  models/smolvla_base/model.safetensors models/smolvla_base \
+  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/eslab-frame-000000.hybrid-action.json
+```
+
+This is source-pipeline plus native-expert evidence, not native VLM or full
+native SmolVLA deployment evidence. It also does not measure latency or
+control quality.
+
 ## Development install
 
 From a checkout with the main `flowedge` package installed:

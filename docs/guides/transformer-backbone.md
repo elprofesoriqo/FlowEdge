@@ -200,9 +200,23 @@ python tools/verification/verify_smolvla_cached_trajectory.py \
   --output bench/artifacts/smolvla/smolvla-cached-trajectory.json
 ```
 
-This establishes only expert-side Euler replay from an externally generated
-cache. It remains short of native full-policy inference until the observation
-processor and VLM prefix/cache producer have matched source parity.
+This establishes expert-side Euler replay from an externally generated cache.
+The source-pipeline boundary can also be exercised end to end through the
+installed LeRobot provider and compared against the source action chunk:
+
+```bash
+python tools/verification/verify_smolvla_hybrid.py \
+  models/smolvla_base/model.safetensors models/smolvla_base \
+  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/eslab-frame-000000.hybrid-action.json
+```
+
+The resulting report covers source LeRobot image/state/language preprocessing,
+the source VLM prefix/cache provider, and the native FlowEdge action expert for
+the full `50 x 6` action chunk. It remains source-owned preprocessing/VLM plus
+native expert execution: this is not native VLM/full-native SmolVLA evidence,
+and it makes no latency, control-quality, or task-success claim.
 
 The native inspector recognizes this real checkpoint schema but fails closed:
 
@@ -211,9 +225,10 @@ build/flowedge-inspect models/smolvla_base/model.safetensors --json
 ```
 
 The report identifies `family: "smolvla"` and explains that the LeRobot
-preprocessing boundary and VLM encoder are not implemented. The action expert
-can consume an external cache, but this remains a schema/provenance check—not
-a claim of native full SmolVLA support.
+preprocessing boundary and VLM encoder are not implemented natively. The
+action expert can consume an external cache, while the hybrid report verifies
+the source provider-to-native-expert seam; neither is a claim of native full
+SmolVLA support.
 
 For a portable evidence artifact, run the verifier against the same binary:
 
