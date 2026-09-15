@@ -8,6 +8,8 @@ does not change `src/core` or `src/relay`, and it does not replace LeRobot's obs
 - Converted `lerobot/diffusion_pusht` checkpoints.
 - Encoded conditions, or source visual observations with the supported RGB encoder and statistics.
 - FlowEdge DDIM/DDPM inference and LeRobot action-horizon slicing.
+- Experimental SmolVLA cached-expert chunks: LeRobot/source code produces the VLM cache and
+  FlowEdge executes the seeded native action expert.
 - Deployment-only Python adapter; training remains in LeRobot.
 
 The adapter follows the same action contract documented by FlowEdge's Diffusion Policy guide:
@@ -18,6 +20,15 @@ observation history outside native Core. Robot limits and emergency-stop behavio
 The plugin consumes chunks across `select_action` calls, uses seeded Gaussian noise, and clears
 both history and queued actions on reset. See [policy evaluation](../../docs/guides/policy-evaluation.md)
 for `input_mode`, source checkpoint setup, matched replay, PushT, and periodic delivery.
+
+## Experimental SmolVLA cache boundary
+
+`FlowEdgeSmolVLACachedExpert` is a programmatic hybrid adapter, not a registered
+`--policy.type` and not native full SmolVLA. A source-compatible LeRobot VLM must
+first produce its batch-one, RoPE-applied K/V cache; the adapter then runs the
+native FlowEdge Euler action expert, truncates padded action coordinates, and
+queues the requested action chunk. Preprocessing, VLM execution, action
+postprocessing, and cache-transfer timing remain outside this boundary.
 
 ## Development install
 
