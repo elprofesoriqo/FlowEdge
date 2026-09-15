@@ -117,6 +117,9 @@ capture must contain batch-one, pre-processor tensors:
   `[1, 48]`;
 - `noise`: F32 `[1, 50, 32]`, captured once and reused by every implementation.
 
+For cached-expert replay, add `noisy_actions` (F32 `[1, 50, 32]`) and
+`timestep` (F32 `[1]`); they identify one actual source denoising step.
+
 ```bash
 python tools/verification/export_smolvla_reference.py \
   models/smolvla_base real-observation.npz \
@@ -127,6 +130,30 @@ python tools/verification/export_smolvla_reference.py \
 The exporter does not synthesize defaults and rejects missing, reshaped, or
 non-RGB-range inputs. Its action chunk and JSON digests form the later
 FlowEdge parity target.
+
+### Cached-VLM action-expert replay
+
+For the native expert boundary, preserve one real denoising input in the same
+capture as `noisy_actions` (`F32 [1, 50, 32]`) and `timestep` (`F32 [1]`). The
+exporter builds the upstream prefix once, retains its RoPE-applied VLM K/V
+cache, and records the expected expert hidden state and velocity. It does not
+fill in missing values:
+
+```bash
+python tools/verification/export_smolvla_expert_reference.py \
+  models/smolvla_base real-observation.npz \
+  --output smolvla-expert-reference.npz \
+  --manifest smolvla-expert-reference.json
+
+python tools/verification/verify_smolvla_cached_expert.py \
+  models/smolvla_base/model.safetensors smolvla-expert-reference.npz \
+  --module-path build-research \
+  --output bench/artifacts/smolvla/smolvla-cached-expert.json
+```
+
+The report is the required evidence for the cached-VLM action-expert path. It
+does not validate preprocessing, VLM encoding, a ten-step flow solve, timing,
+or control quality.
 
 The native inspector recognizes this real checkpoint schema but fails closed:
 
