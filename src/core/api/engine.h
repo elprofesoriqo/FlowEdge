@@ -155,9 +155,10 @@ int fe_engine_smolvla_embed_suffix(fe_engine* engine, const float* noisy_actions
  * `suffix` and `out` have [chunk_size * expert_width] values. `prefix_keys`
  * and `prefix_values` are layer-major F32 VLM K/V caches with
  * [expert_layers * prefix_length * 320] values. The cache keys must already
- * include the VLM RoPE transform. `prefix_mask` is `prefix_length` leading
- * one bytes followed by optional zero padding. This does not run LeRobot
- * preprocessing or the vision/language VLM encoder.
+ * include the VLM RoPE transform. `prefix_mask` has one binary validity byte
+ * per physical prefix slot; valid positions may be sparse because source
+ * SmolVLA pads language tokens before appending state. This does not run
+ * LeRobot preprocessing or the vision/language VLM encoder.
  */
 int fe_engine_smolvla_run_expert(fe_engine* engine, const float* suffix, size_t chunk_size,
                                  const float* prefix_keys, const float* prefix_values,

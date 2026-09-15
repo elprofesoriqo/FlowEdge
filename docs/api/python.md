@@ -83,8 +83,9 @@ suffix = smolvla.smolvla_embed_suffix(noisy_actions, timestep=1.0)
 assert suffix.shape == (50, 720)
 
 # Cache layout: [16 expert layers, prefix length, 320 VLM K/V values].
-# Keys have already received the VLM RoPE transform; the mask is leading ones
-# then optional trailing zero padding.
+# Keys have already received the VLM RoPE transform. The uint8 mask has one
+# validity byte per prefix slot; source SmolVLA may have zero-padded language
+# tokens before a valid state token.
 hidden = smolvla.smolvla_run_expert(suffix, prefix_keys, prefix_values, prefix_mask)
 velocity_padded = smolvla.smolvla_project_actions(hidden)
 

@@ -170,10 +170,10 @@ SmolVLAActionExpert::SmolVLAActionExpert(std::span<const TensorView> weights, Ar
   cfg_.attention_width = first_q->shape[0];
   cfg_.key_value_width = first_k->shape[0];
   cfg_.mlp_width = first_gate->shape[0];
-  // SmolVLA's Gemma expert has 12 query and 4 KV heads of width 80. These
+  // SmolVLA's Gemma expert has 15 query and 5 KV heads of width 64. These
   // dimensions are encoded by the pinned checkpoint and kept explicit rather
   // than guessing an ambiguous head decomposition from matrix shapes.
-  constexpr std::size_t kHeadWidth = 80uz;
+  constexpr std::size_t kHeadWidth = 64uz;
   if (cfg_.attention_width != 960uz || cfg_.key_value_width != 320uz || cfg_.mlp_width != 2048uz ||
       (cfg_.attention_width % kHeadWidth) != 0uz || (cfg_.key_value_width % kHeadWidth) != 0uz ||
       (cfg_.attention_width / cfg_.key_value_width) != 3uz ||
@@ -354,23 +354,16 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
   if (prefix_keys.size() != cache_values || prefix_values.size() != cache_values)
     return false;
   std::size_t valid_prefix{};
-  bool padding_started{};
   for (const std::uint8_t value : prefix_mask) {
     if (value > 1u)
       return false;
-    if (value == 0u) {
-      padding_started = true;
-      continue;
-    }
-    if (padding_started)
-      return false;
-    ++valid_prefix;
+    valid_prefix += value;
   }
   if (valid_prefix == 0uz)
     return false;
 
   copy_span(suffix, output);
-  constexpr std::size_t kHeadWidth = 80uz;
+  constexpr std::size_t kHeadWidth = 64uz;
   const std::size_t query_heads = cfg_.attention_width / kHeadWidth;
   const std::size_t key_value_heads = cfg_.key_value_width / kHeadWidth;
   const std::size_t groups = query_heads / key_value_heads;
@@ -405,6 +398,11 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
                     keys, prefix_size, cfg_.key_value_width, cfg_.key_value_width, pool_);
       matmul_weight(prefix_values.subspan(offset, prefix_size * cfg_.key_value_width), layer.v_proj,
                     values, prefix_size, cfg_.key_value_width, cfg_.key_value_width, pool_);
+      // The source expert's cross-attention projections have BF16 weights,
+      // so their output is BF16 before attention.  Keep this boundary
+      // explicit even though the caller-owned VLM cache is transported as F32.
+      round_to_bf16(keys);
+      round_to_bf16(values);
       apply_rope(query, chunk_size, query_heads, kHeadWidth, 0uz);
     } else {
       matmul_weight(normed, layer.k_proj, keys, chunk_size, cfg_.expert_width, cfg_.key_value_width,
@@ -455,11 +453,9 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
         }
         std::span<float> probabilities = scores.first(score_count);
         softmax(probabilities);
-        // Cross-attention K/V projections are F32 in the pinned checkpoint,
-        // so the upstream implementation keeps its attention probabilities
-        // and values in F32. Self-attention consumes BF16 VLM/expert values.
-        if (!layer.cross_attention)
-          round_to_bf16(probabilities);
+        // Source attention converts softmax probabilities to the value dtype.
+        // Both the cached VLM values and the expert K/V projections are BF16.
+        round_to_bf16(probabilities);
         for (std::size_t channel{}; channel < kHeadWidth; ++channel) {
           float sum{};
           for (std::size_t token{}; token < prefix_size; ++token) {

@@ -52,9 +52,11 @@ public:
 
   // Execute all interleaved expert layers for one action chunk. The caller
   // supplies the VLM's per-layer, RoPE-applied K/V cache in layer-major F32
-  // layout [expert_layers, prefix_length, key_value_width] and one validity
-  // byte per prefix token. This deliberately keeps image/language encoding
-  // outside Core while making captured-encoder parity possible.
+  // layout [expert_layers, prefix_length, key_value_width] and one binary
+  // validity byte per prefix token. Sparse valid positions are allowed: the
+  // source SmolVLA prefix may pad language tokens before appending state. This
+  // deliberately keeps image/language encoding outside Core while making
+  // captured-encoder parity possible.
   [[nodiscard]] bool run_with_prefix_kv(std::span<const float> suffix,
                                         std::span<const float> prefix_keys,
                                         std::span<const float> prefix_values,
