@@ -18,6 +18,10 @@ python tools/benchmark/run_policy_report.py models/policy.safetensors \
   --output bench/artifacts/policy/diffusion-pusht-report.json
 ```
 
+The published replay used `--threads 1`. To compare a four-thread host, pass
+`--threads 4` on the same command; PyTorch uses the same budget. Do not mix
+thread counts across backends.
+
 | Output | Includes |
 |---|---|
 | JSON | model/processor hashes, contract, host/build, raw samples, parity, limitations |
