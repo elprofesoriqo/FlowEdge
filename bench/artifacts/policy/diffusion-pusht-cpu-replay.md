@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Captured | `2026-09-13T14:00:38.402081+00:00` |
+| Captured | `2026-09-16T16:01:33.357681+00:00` |
 | Model | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
 | Model SHA-256 | `995d14d35db57d95c35ad9704c3d79c8612b7bc45f3877e5c46c2cdc516856a8` |
 | Processor | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
@@ -25,22 +25,22 @@ Encoder and policy are reported separately. End-to-end includes both and is the 
 
 | Backend | Startup | Encoder p50 / p95 / p99 | Policy p50 / p95 / p99 | E2E p50 / p95 / p99 | Throughput | RSS | Setup / hot allocations |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| flowedge | 998.002 ms | 101.249 ms / 130.462 ms / 138.550 ms | 25848.085 ms / 26390.380 ms / 26541.522 ms | 25966.772 ms / 26488.653 ms / 26643.189 ms | 0.046 Hz | 3293.434 MiB | not measured / not measured |
-| lerobot | 1145.402 ms | 100.764 ms / 115.043 ms / 128.573 ms | 3021.965 ms / 3061.190 ms / 3066.505 ms | 3120.536 ms / 3164.034 ms / 3171.596 ms | 0.382 Hz | 3293.434 MiB | not measured / not measured |
+| flowedge | 932.118 ms | 40.665 ms / 52.737 ms / 63.844 ms | 1271.430 ms / 1393.864 ms / 1465.381 ms | 1310.851 ms / 1435.827 ms / 1505.820 ms | 0.742 Hz | 3337.949 MiB | not measured / not measured |
+| lerobot | 1306.498 ms | 39.907 ms / 42.672 ms / 43.315 ms | 1411.824 ms / 1531.986 ms / 1539.610 ms | 1450.615 ms / 1573.397 ms / 1582.673 ms | 0.682 Hz | 3337.949 MiB | not measured / not measured |
 
 ## Relative comparison
 
 | Metric | FlowEdge / LeRobot |
 |---|---:|
-| Policy p50 | 8.553x |
-| End-to-end p50 | 8.321x |
-| Throughput | 0.121x |
+| Policy p50 | 0.901x |
+| End-to-end p50 | 0.904x |
+| Throughput | 1.089x |
 
 ## Commands
 
 ```text
-FlowEdge: C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/policy/diffusion-pusht-cpu-replay.json
-LeRobot:  C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models/diffusion_pusht.flowedge.safetensors --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --steps 10 --iterations 20 --warmup 2 --threads 1 --output bench/artifacts/policy/diffusion-pusht-cpu-replay.json
+FlowEdge: C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models\diffusion_pusht.flowedge.safetensors --source models\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 20 --warmup 2 --threads 1 --seed 7 --output bench\artifacts\policy\diffusion-pusht-cpu-replay.json
+LeRobot:  C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models\diffusion_pusht.flowedge.safetensors --source models\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 20 --warmup 2 --threads 1 --seed 7 --output bench\artifacts\policy\diffusion-pusht-cpu-replay.json
 ```
 
 ## Limits

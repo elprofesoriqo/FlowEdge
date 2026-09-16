@@ -11,11 +11,12 @@ from this page: they do not establish robot-policy latency or control quality.
 The {download}`captured CPU replay artifact <../bench/artifacts/policy/diffusion-pusht-cpu-replay.md>`
 and its [raw samples](../bench/artifacts/policy/diffusion-pusht-cpu-replay.json) use the pinned
 trained checkpoint, source RGB encoder/normalization, a two-observation PushT history,
-and matched noise with ten DDIM steps. On this Windows/Clang host, the 20-sample run
-measured roughly 25.97 s FlowEdge versus 3.12 s LeRobot median preprocessing-to-chunk
-latency. FlowEdge is slower on this workload. The removed generated-weight flow-head
+and matched noise with ten DDIM steps. On this Windows/Clang host, the 20-sample
+`threads=1` run measured 1.311 s FlowEdge versus 1.451 s LeRobot median
+preprocessing-to-chunk latency (policy p50 1.271 s vs 1.412 s). FlowEdge is
+faster on this packed-conv replay. The removed generated-weight flow-head
 fixture is not evidence about this policy.
-Maximum absolute action error was 7.63e-5 in dataset units. The small run characterizes
+Maximum absolute action error was 3.05e-5 in dataset units. The small run characterizes
 this fixture, not stable p99, general task success, or robot suitability. See the artifact
 for raw timings, shared-process memory accounting, versions, and unmeasured allocations.
 
