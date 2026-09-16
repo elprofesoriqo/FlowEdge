@@ -538,9 +538,10 @@ bool DiffusionHead::residual_forward(std::span<const float> input, std::size_t l
     arena.reset_to(mark);
     return false;
   }
-  conv1d_arena(arena, input, {weights.conv1.weight, out_channels * in_channels * weights.conv1.kernel},
-         {weights.conv1.bias, out_channels}, first, in_channels, out_channels, length, length,
-         weights.conv1.kernel, 1uz, weights.conv1.kernel / 2uz, pool_);
+  conv1d_arena(arena, input,
+               {weights.conv1.weight, out_channels * in_channels * weights.conv1.kernel},
+               {weights.conv1.bias, out_channels}, first, in_channels, out_channels, length, length,
+               weights.conv1.kernel, 1uz, weights.conv1.kernel / 2uz, pool_);
   group_norm(first, {weights.norm1.weight, out_channels}, {weights.norm1.bias, out_channels},
              out_channels, length, cfg_.groups);
   mish(first);
@@ -550,9 +551,10 @@ bool DiffusionHead::residual_forward(std::span<const float> input, std::size_t l
            weights.film.out_features);
   film(first, modulation.first(out_channels), modulation.subspan(out_channels, out_channels),
        out_channels, length);
-  conv1d_arena(arena, first, {weights.conv2.weight, out_channels * out_channels * weights.conv2.kernel},
-         {weights.conv2.bias, out_channels}, output, out_channels, out_channels, length, length,
-         weights.conv2.kernel, 1uz, weights.conv2.kernel / 2uz, pool_);
+  conv1d_arena(arena, first,
+               {weights.conv2.weight, out_channels * out_channels * weights.conv2.kernel},
+               {weights.conv2.bias, out_channels}, output, out_channels, out_channels, length,
+               length, weights.conv2.kernel, 1uz, weights.conv2.kernel / 2uz, pool_);
   group_norm(output, {weights.norm2.weight, out_channels}, {weights.norm2.bias, out_channels},
              out_channels, length, cfg_.groups);
   mish(output);
