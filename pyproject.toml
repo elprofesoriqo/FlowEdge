@@ -23,3 +23,23 @@ classifiers = [
 cmake.args = ["-DFLOWEDGE_PYTHON=ON"]
 cmake.build-type = "Release"
 ninja.make-fallback = false
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-*"
+skip = "pp* *-musllinux_*"
+test-skip = "*"
+build-verbosity = 1
+
+[tool.cibuildwheel.linux]
+archs = ["auto64"]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "yum install -y gcc-toolset-13-gcc-c++ ninja-build"
+environment = { PATH = "/opt/rh/gcc-toolset-13/root/usr/bin:$PATH", CC = "gcc", CXX = "g++" }
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "14.0" }
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

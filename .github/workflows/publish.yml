@@ -12,18 +12,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.17.0
+        uses: pypa/cibuildwheel@v2.22.0
         env:
-          # FlowEdge requires C++23. The default manylinux image uses older GCC.
-          # We use a manylinux image that supports modern GCC or let cibuildwheel handle it.
-          CIBW_SKIP: "cp36-* cp37-* cp38-* cp39-* pp* *musllinux*"
+          CIBW_BUILD: "cp310-* cp311-* cp312-*"
+          CIBW_SKIP: "pp* *-musllinux_*"
 
       - uses: actions/upload-artifact@v4
         with:
