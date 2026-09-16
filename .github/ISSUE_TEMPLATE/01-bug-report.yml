@@ -68,8 +68,12 @@ body:
       options:
         - Core runtime
         - Kernels / SIMD
+        - Diffusion Policy
+        - SmolVLA action expert
+        - Transformer
         - Mamba backbone
         - Flow-matching head
+        - LeRobot plugin
         - Relay
         - Python API
         - C API
