@@ -63,4 +63,6 @@ Source: `src/core/models/mamba/`. See [ADR 0002](../decisions/0002-mamba-block).
 
 ## Transformer
 
-Planned, behind the same contract: attention plus MLP, with a KV-cache sized to the max prefix so the state stays fixed.
+Experimental CPU decoder baseline (GPT-2 conversion smoke-tested, policy parity pending), behind
+the same contract: attention plus MLP, with a KV-cache sized to the max prefix so the state stays
+fixed. See [Fixed-shape Transformer baseline](../guides/transformer-backbone).

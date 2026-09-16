@@ -21,7 +21,7 @@ runtime.
 | Deployment profile | Bind dimensions, units, normalization, and solver limits to weights | [Profile contract](architecture/deployment-profile) |
 | Deadline profile | Gate tail latency and hot-path allocations for one host | [Deadline guide](guides/deadline-profile) |
 | Trace and state capsule | Reproduce actions and migrate compatible state | [Relay proposal](ecosystem/relay-proposal) |
-| LeRobot adapter | Run a converted Diffusion Policy through a bounded rollout seam | [LeRobot](guides/lerobot) |
+| LeRobot adapter | Run a converted Diffusion Policy or cached SmolVLA expert through a bounded rollout seam | [LeRobot](guides/lerobot) |
 
 ## Active development sequence
 

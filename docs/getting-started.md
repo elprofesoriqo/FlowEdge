@@ -5,6 +5,8 @@ Choose the shortest path for what you are building:
 | Goal | Continue at |
 |---|---|
 | Run the included complete policy | [Sample an action](sample-an-action) |
+| Deploy a converted LeRobot Diffusion Policy | [LeRobot adapter](guides/lerobot) |
+| Deploy SmolVLA with a cached VLM | [Transformer / SmolVLA guide](guides/transformer-backbone) |
 | Supply conditions from your own encoder | [Use an external encoder](use-an-external-encoder) |
 | Run a local inference service | [Relay end-to-end demo](relay-end-to-end-demo) |
 | Adapt a stateful ML workload | [Generic cooperative jobs](generic-cooperative-jobs) |
@@ -43,6 +45,16 @@ wget -qO models/mamba_flow.safetensors \
 ```
 
 Solver is `euler`, `heun`, or `rk4`. The last argument is the number of steps.
+
+A converted LeRobot Diffusion Policy uses the companion adapter. Observation encoding stays in LeRobot.
+
+```bash
+python -m pip install -e integrations/lerobot
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 10 --period-ms 10 --on-miss hold
+```
+
+`--on-miss` is `hold`, `drop`, or `raise`. Observation encoding stays in LeRobot. See the [LeRobot adapter](guides/lerobot).
 
 (use-an-external-encoder)=
 ## Use an external encoder

@@ -116,7 +116,8 @@ bounded simulator smoke test:
 
 ```bash
 python -m pip install -e integrations/lerobot
-flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 10 --period-ms 10 --on-miss hold
 ```
 
 The adapter owns the LeRobot processor and robot driver; FlowEdge owns fixed-shape inference.

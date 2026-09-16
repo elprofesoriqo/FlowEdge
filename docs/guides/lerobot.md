@@ -71,8 +71,22 @@ flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
 ```
 
 It prints JSON completion and timing telemetry. Pass `--period-ms 10` to count missed 10 ms
-control-loop periods. Observation encoding, limits, and emergency-stop behavior stay in the
-caller-owned robot adapter.
+control-loop periods. `--on-miss` selects what the plugin emits on an overrun:
+
+| `--on-miss` | Behavior |
+|---|---|
+| `hold` (default) | Repeat the last successfully sent action. Before the first on-time send, emit zeros. |
+| `drop` | Skip `send_action` for that period. |
+| `raise` | Raise `DeadlineMissed` after `stop`. |
+
+```bash
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 10 --threads 4 --period-ms 10 --on-miss hold
+```
+
+`--policy.type=flowedge` loads a converted Diffusion Policy. `--policy.type=flowedge_smolvla`
+loads the native action expert and a LeRobot VLM cache provider; it is not a native VLM.
+Observation encoding, joint limits, and emergency-stop stay in the caller-owned robot adapter.
 
 Tenstorrent support is intentionally not part of this integration slice. It remains a separate
 backend effort so this adapter does not couple the universal runtime to one accelerator.
