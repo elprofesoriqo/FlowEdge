@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -248,6 +249,21 @@ TEST(DiffusionConvolution, ThreadedSpecializationsMatchCallerThread)
              5uz, 1uz, 2uz, &pool);
   EXPECT_EQ(threaded, expected);
 
+  const auto expect_near = [](const std::vector<float>& got, const std::vector<float>& want) {
+    ASSERT_EQ(got.size(), want.size());
+    for (std::size_t i{0uz}; i < got.size(); ++i)
+      EXPECT_NEAR(got[i], want[i], 2e-4F) << "i=" << i;
+  };
+
+  std::vector<float> packed(fe::conv1d_workspace_floats(channels, channels, input_length, 5uz));
+  std::vector<float> packed_out(expected.size());
+  fe::conv1d(input, conv_weight, bias, packed_out, channels, channels, input_length, input_length,
+             5uz, 1uz, 2uz, nullptr, packed);
+  expect_near(packed_out, expected);
+  fe::conv1d(input, conv_weight, bias, packed_out, channels, channels, input_length, input_length,
+             5uz, 1uz, 2uz, &pool, packed);
+  expect_near(packed_out, expected);
+
   constexpr std::size_t upsampled_length{32uz};
   expected.resize(channels * upsampled_length);
   threaded.resize(expected.size());
@@ -256,6 +272,16 @@ TEST(DiffusionConvolution, ThreadedSpecializationsMatchCallerThread)
   fe::conv_transpose1d(input, transpose_weight, bias, threaded, channels, channels, input_length,
                        upsampled_length, 4uz, 2uz, 1uz, &pool);
   EXPECT_EQ(threaded, expected);
+
+  std::vector<float> packed_t(
+      fe::conv_transpose1d_workspace_floats(channels, channels, input_length));
+  std::vector<float> packed_t_out(expected.size());
+  fe::conv_transpose1d(input, transpose_weight, bias, packed_t_out, channels, channels,
+                       input_length, upsampled_length, 4uz, 2uz, 1uz, nullptr, packed_t);
+  expect_near(packed_t_out, expected);
+  fe::conv_transpose1d(input, transpose_weight, bias, packed_t_out, channels, channels,
+                       input_length, upsampled_length, 4uz, 2uz, 1uz, &pool, packed_t);
+  expect_near(packed_t_out, expected);
 }
 
 TEST(GroupNorm, MatchesReference)

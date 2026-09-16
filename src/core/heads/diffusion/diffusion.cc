@@ -119,6 +119,34 @@ private:
   return key.view();
 }
 
+void conv1d_arena(Arena& arena, std::span<const float> x, std::span<const float> weight,
+                  std::span<const float> bias, std::span<float> y, std::size_t in_channels,
+                  std::size_t out_channels, std::size_t input_length, std::size_t output_length,
+                  std::size_t kernel, std::size_t stride, std::size_t padding,
+                  ThreadPool* pool) noexcept
+{
+  std::byte* const mark = arena.mark();
+  conv1d(x, weight, bias, y, in_channels, out_channels, input_length, output_length, kernel, stride,
+         padding, pool,
+         arena.alloc_span<float, kSimdAlign>(
+             conv1d_workspace_floats(in_channels, out_channels, output_length, kernel)));
+  arena.reset_to(mark);
+}
+
+void conv_transpose1d_arena(Arena& arena, std::span<const float> x, std::span<const float> weight,
+                            std::span<const float> bias, std::span<float> y,
+                            std::size_t in_channels, std::size_t out_channels,
+                            std::size_t input_length, std::size_t output_length, std::size_t kernel,
+                            std::size_t stride, std::size_t padding, ThreadPool* pool) noexcept
+{
+  std::byte* const mark = arena.mark();
+  conv_transpose1d(x, weight, bias, y, in_channels, out_channels, input_length, output_length,
+                   kernel, stride, padding, pool,
+                   arena.alloc_span<float, kSimdAlign>(
+                       conv_transpose1d_workspace_floats(in_channels, out_channels, input_length)));
+  arena.reset_to(mark);
+}
+
 void add_bias(std::span<float> values, std::span<const float> bias, std::size_t rows,
               std::size_t columns) noexcept
 {
@@ -258,6 +286,16 @@ std::size_t DiffusionHead::required_workspace_floats(std::span<const TensorView>
       return 0uz;
   }
   if (!plan.add_product(stage_dims[0], horizon) || !plan.add(sample_values))
+    return 0uz;
+
+  std::size_t max_channels{0uz};
+  for (std::size_t i{0uz}; i < stages; ++i)
+    max_channels = std::max(max_channels, stage_dims[i]);
+  const std::size_t pack_conv =
+      conv1d_workspace_floats(2uz * max_channels, max_channels, horizon, 5uz);
+  const std::size_t pack_transpose =
+      conv_transpose1d_workspace_floats(max_channels, max_channels, horizon);
+  if (!plan.temporary({std::max(pack_conv, pack_transpose)}))
     return 0uz;
 
   std::size_t sampler_values{0uz};
@@ -500,9 +538,10 @@ bool DiffusionHead::residual_forward(std::span<const float> input, std::size_t l
     arena.reset_to(mark);
     return false;
   }
-  conv1d(input, {weights.conv1.weight, out_channels * in_channels * weights.conv1.kernel},
-         {weights.conv1.bias, out_channels}, first, in_channels, out_channels, length, length,
-         weights.conv1.kernel, 1uz, weights.conv1.kernel / 2uz, pool_);
+  conv1d_arena(arena, input,
+               {weights.conv1.weight, out_channels * in_channels * weights.conv1.kernel},
+               {weights.conv1.bias, out_channels}, first, in_channels, out_channels, length, length,
+               weights.conv1.kernel, 1uz, weights.conv1.kernel / 2uz, pool_);
   group_norm(first, {weights.norm1.weight, out_channels}, {weights.norm1.bias, out_channels},
              out_channels, length, cfg_.groups);
   mish(first);
@@ -512,9 +551,10 @@ bool DiffusionHead::residual_forward(std::span<const float> input, std::size_t l
            weights.film.out_features);
   film(first, modulation.first(out_channels), modulation.subspan(out_channels, out_channels),
        out_channels, length);
-  conv1d(first, {weights.conv2.weight, out_channels * out_channels * weights.conv2.kernel},
-         {weights.conv2.bias, out_channels}, output, out_channels, out_channels, length, length,
-         weights.conv2.kernel, 1uz, weights.conv2.kernel / 2uz, pool_);
+  conv1d_arena(arena, first,
+               {weights.conv2.weight, out_channels * out_channels * weights.conv2.kernel},
+               {weights.conv2.bias, out_channels}, output, out_channels, out_channels, length,
+               length, weights.conv2.kernel, 1uz, weights.conv2.kernel / 2uz, pool_);
   group_norm(output, {weights.norm2.weight, out_channels}, {weights.norm2.bias, out_channels},
              out_channels, length, cfg_.groups);
   mish(output);
@@ -522,9 +562,10 @@ bool DiffusionHead::residual_forward(std::span<const float> input, std::size_t l
     for (std::size_t i{0uz}; i < output.size(); ++i)
       output[i] += input[i];
   } else {
-    conv1d(input, {weights.residual.weight, out_channels * in_channels * weights.residual.kernel},
-           {weights.residual.bias, out_channels}, first, in_channels, out_channels, length, length,
-           1uz, 1uz, 0uz, pool_);
+    conv1d_arena(arena, input,
+                 {weights.residual.weight, out_channels * in_channels * weights.residual.kernel},
+                 {weights.residual.bias, out_channels}, first, in_channels, out_channels, length,
+                 length, 1uz, 1uz, 0uz, pool_);
     for (std::size_t i{0uz}; i < output.size(); ++i)
       output[i] += first[i];
   }
@@ -597,8 +638,9 @@ bool DiffusionHead::denoise_with_arena(std::span<const float> condition,
       if (output.empty())
         return false;
       const ConvWeights& weights = down_[stage].downsample;
-      conv1d(x, {weights.weight, channels * channels * weights.kernel}, {weights.bias, channels},
-             output, channels, channels, length, output_length, weights.kernel, 2uz, 1uz, pool_);
+      conv1d_arena(arena, x, {weights.weight, channels * channels * weights.kernel},
+                   {weights.bias, channels}, output, channels, channels, length, output_length,
+                   weights.kernel, 2uz, 1uz, pool_);
       x = output;
       length = output_length;
     }
@@ -637,9 +679,9 @@ bool DiffusionHead::denoise_with_arena(std::span<const float> condition,
     if (output.empty())
       return false;
     const ConvWeights& weights = up_[stage].upsample;
-    conv_transpose1d(x, {weights.weight, channels * channels * weights.kernel},
-                     {weights.bias, channels}, output, channels, channels, length, output_length,
-                     weights.kernel, 2uz, 1uz, pool_);
+    conv_transpose1d_arena(arena, x, {weights.weight, channels * channels * weights.kernel},
+                           {weights.bias, channels}, output, channels, channels, length,
+                           output_length, weights.kernel, 2uz, 1uz, pool_);
     x = output;
     length = output_length;
   }
@@ -650,15 +692,15 @@ bool DiffusionHead::denoise_with_arena(std::span<const float> condition,
   std::span<float> result = arena.alloc_span<float, kSimdAlign>(values);
   if (final.empty() || result.empty())
     return false;
-  conv1d(x, {final_conv_.weight, channels * channels * final_conv_.kernel},
-         {final_conv_.bias, channels}, final, channels, channels, length, length,
-         final_conv_.kernel, 1uz, final_conv_.kernel / 2uz, pool_);
+  conv1d_arena(arena, x, {final_conv_.weight, channels * channels * final_conv_.kernel},
+               {final_conv_.bias, channels}, final, channels, channels, length, length,
+               final_conv_.kernel, 1uz, final_conv_.kernel / 2uz, pool_);
   group_norm(final, {final_norm_.weight, channels}, {final_norm_.bias, channels}, channels, length,
              kFinalNormGroups);
   mish(final);
-  conv1d(final, {output_conv_.weight, cfg_.action_dim * channels},
-         {output_conv_.bias, cfg_.action_dim}, result, channels, cfg_.action_dim, length, length,
-         1uz, 1uz, 0uz, pool_);
+  conv1d_arena(arena, final, {output_conv_.weight, cfg_.action_dim * channels},
+               {output_conv_.bias, cfg_.action_dim}, result, channels, cfg_.action_dim, length,
+               length, 1uz, 1uz, 0uz, pool_);
   for (std::size_t t{0uz}; t < cfg_.horizon; ++t)
     for (std::size_t channel{0uz}; channel < cfg_.action_dim; ++channel)
       predicted_noise[(t * cfg_.action_dim) + channel] = result[(channel * length) + t];

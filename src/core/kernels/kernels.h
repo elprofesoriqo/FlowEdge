@@ -10,7 +10,7 @@
 #include <limits>
 #include <span>
 
-// Mamba CPU kernels. Buffers are caller-owned and 64B-aligned (arena).
+// CPU kernels. Buffers are caller-owned and 64B-aligned (arena).
 namespace fe {
 
 enum class MatmulWeightType : std::uint8_t
@@ -67,13 +67,33 @@ FE_FORCE_ALIGN void conv1d_causal(std::span<const float> x, std::span<const floa
                                   std::size_t channels, std::size_t length,
                                   std::size_t kernel) noexcept;
 
+// Workspace for packing Conv1D through matmul: [L_out][IC*K] plus [L_out][OC].
+[[nodiscard]] constexpr std::size_t conv1d_workspace_floats(std::size_t in_channels,
+                                                            std::size_t out_channels,
+                                                            std::size_t output_length,
+                                                            std::size_t kernel) noexcept
+{
+  return (output_length * in_channels * kernel) + (output_length * out_channels);
+}
+
+// Workspace for packing ConvTranspose1D: X^T [L_in][IC], W_k [OC][IC], GEMM [L_in][OC].
+[[nodiscard]] constexpr std::size_t conv_transpose1d_workspace_floats(
+    std::size_t in_channels, std::size_t out_channels, std::size_t input_length) noexcept
+{
+  return (input_length * in_channels) + (out_channels * in_channels) +
+         (input_length * out_channels);
+}
+
 // Dense PyTorch-style 1-D cross-correlation. Activations use [channels][length]
-// and weights use [out_channels][in_channels][kernel].
+// and weights use [out_channels][in_channels][kernel]. When `workspace` is large
+// enough, the kernel packs columns and reuses `matmul`; otherwise it keeps the
+// direct loop. No heap allocation.
 FE_FORCE_ALIGN void conv1d(std::span<const float> x, std::span<const float> weight,
                            std::span<const float> bias, std::span<float> y, std::size_t in_channels,
                            std::size_t out_channels, std::size_t input_length,
                            std::size_t output_length, std::size_t kernel, std::size_t stride,
-                           std::size_t padding, ThreadPool* pool = nullptr) noexcept;
+                           std::size_t padding, ThreadPool* pool = nullptr,
+                           std::span<float> workspace = {}) noexcept;
 
 // PyTorch ConvTranspose1d layout: weights are [in_channels][out_channels][kernel].
 FE_FORCE_ALIGN void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
@@ -81,7 +101,8 @@ FE_FORCE_ALIGN void conv_transpose1d(std::span<const float> x, std::span<const f
                                      std::size_t in_channels, std::size_t out_channels,
                                      std::size_t input_length, std::size_t output_length,
                                      std::size_t kernel, std::size_t stride, std::size_t padding,
-                                     ThreadPool* pool = nullptr) noexcept;
+                                     ThreadPool* pool = nullptr,
+                                     std::span<float> workspace = {}) noexcept;
 
 // GroupNorm over a single [channels][length] sample, with per-channel affine terms.
 FE_FORCE_ALIGN void group_norm(std::span<float> x, std::span<const float> weight,
