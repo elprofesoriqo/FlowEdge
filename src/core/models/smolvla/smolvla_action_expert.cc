@@ -65,66 +65,6 @@ namespace {
   return true;
 }
 
-void round_to_bf16(std::span<float> values) noexcept
-{
-  for (float& value : values) {
-    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-    const std::uint32_t bias = 0x7FFFu + ((bits >> 16u) & 1u);
-    value = std::bit_cast<float>((bits + bias) & 0xFFFF0000u);
-  }
-}
-
-// The upstream SmolLM expert normalizes in float32 with rms_norm_eps=1e-5,
-// then casts the result to BF16 for its projections.  The generic kernel has
-// a different fixed epsilon, so keep this small, allocation-free operation
-// local to the checkpoint-specific execution path.
-void smolvla_rmsnorm(std::span<const float> input, std::span<const float> weight,
-                     std::span<float> output, std::size_t rows, std::size_t width) noexcept
-{
-  constexpr float kEpsilon = 1e-5F;
-  for (std::size_t row{}; row < rows; ++row) {
-    const float* const source = input.data() + (row * width);
-    float* const destination = output.data() + (row * width);
-    float squared_sum{};
-    for (std::size_t channel{}; channel < width; ++channel)
-      squared_sum += source[channel] * source[channel];
-    const float scale = 1.0F / std::sqrt((squared_sum / static_cast<float>(width)) + kEpsilon);
-    for (std::size_t channel{}; channel < width; ++channel)
-      destination[channel] = source[channel] * scale;
-    // LlamaRMSNorm upcasts for the reduction, casts the normalized activation
-    // back to BF16, then multiplies by the BF16 learned weight. Combining the
-    // two products in F32 changes the BF16 rounding path across deep experts.
-    round_to_bf16({destination, width});
-    for (std::size_t channel{}; channel < width; ++channel)
-      destination[channel] *= weight[channel];
-    round_to_bf16({destination, width});
-  }
-}
-
-void apply_rope(std::span<float> values, std::size_t rows, std::size_t heads,
-                std::size_t head_width, std::size_t position_base) noexcept
-{
-  constexpr float kLogWavelength = 9.210340371976184F; // log(10,000)
-  const std::size_t half = head_width / 2uz;
-  for (std::size_t row{}; row < rows; ++row) {
-    const float position = static_cast<float>(position_base + row);
-    for (std::size_t head{}; head < heads; ++head) {
-      float* const data = values.data() + ((row * heads + head) * head_width);
-      for (std::size_t channel{}; channel < half; ++channel) {
-        const float exponent =
-            (2.0F * static_cast<float>(channel)) / static_cast<float>(head_width);
-        const float angle = position / std::exp(kLogWavelength * exponent);
-        const float sine = std::sin(angle);
-        const float cosine = std::cos(angle);
-        const float first = data[channel];
-        const float second = data[half + channel];
-        data[channel] = (first * cosine) - (second * sine);
-        data[half + channel] = (second * cosine) + (first * sine);
-      }
-    }
-  }
-}
-
 } // namespace
 
 SmolVLAActionExpert::SmolVLAActionExpert(std::span<const TensorView> weights, Arena& arena) noexcept
@@ -373,7 +313,6 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
   constexpr std::size_t kHeadWidth = 64uz;
   const std::size_t query_heads = cfg_.attention_width / kHeadWidth;
   const std::size_t key_value_heads = cfg_.key_value_width / kHeadWidth;
-  const std::size_t groups = query_heads / key_value_heads;
   for (std::size_t layer_index{}; layer_index < cfg_.expert_layers; ++layer_index) {
     const Layer& layer = layers_[layer_index];
     std::byte* const mark = arena_->mark();
@@ -393,8 +332,8 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
       return false;
     }
 
-    smolvla_rmsnorm(output, {layer.input_norm, cfg_.expert_width}, normed, chunk_size,
-                    cfg_.expert_width);
+    rmsnorm_bf16(output, {layer.input_norm, cfg_.expert_width}, normed, chunk_size,
+                 cfg_.expert_width);
     round_to_bf16(normed);
     matmul_weight(normed, layer.q_proj, query, chunk_size, cfg_.expert_width, cfg_.attention_width,
                   pool_);
@@ -425,65 +364,17 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
     if (!layer.cross_attention)
       round_to_bf16(keys);
 
-    for (std::size_t row{}; row < chunk_size; ++row) {
-      for (std::size_t head{}; head < query_heads; ++head) {
-        const std::size_t kv_head = head / groups;
-        const float* const q = query.data() + ((row * query_heads + head) * kHeadWidth);
-        const std::size_t attended_offset = (row * cfg_.attention_width) + (head * kHeadWidth);
-        const std::size_t score_count =
-            layer.cross_attention ? prefix_size : prefix_size + row + 1uz;
-        for (std::size_t token{}; token < prefix_size; ++token) {
-          if (prefix_mask[token] == 0u) {
-            scores[token] = -std::numeric_limits<float>::infinity();
-            continue;
-          }
-          const float* const key =
-              layer.cross_attention
-                  ? keys.data() + ((token * key_value_heads + kv_head) * kHeadWidth)
-                  : prefix_keys.data() +
-                        (((layer_index * prefix_size + token) * key_value_heads + kv_head) *
-                         kHeadWidth);
-          float dot{};
-          for (std::size_t channel{}; channel < kHeadWidth; ++channel)
-            dot += q[channel] * key[channel];
-          scores[token] = dot / std::sqrt(static_cast<float>(kHeadWidth));
-        }
-        if (!layer.cross_attention) {
-          for (std::size_t token{}; token <= row; ++token) {
-            const float* const key =
-                keys.data() + ((token * key_value_heads + kv_head) * kHeadWidth);
-            float dot{};
-            for (std::size_t channel{}; channel < kHeadWidth; ++channel)
-              dot += q[channel] * key[channel];
-            scores[prefix_size + token] = dot / std::sqrt(static_cast<float>(kHeadWidth));
-          }
-        }
-        std::span<float> probabilities = scores.first(score_count);
-        softmax(probabilities);
-        // Source attention converts softmax probabilities to the value dtype.
-        // Both the cached VLM values and the expert K/V projections are BF16.
-        round_to_bf16(probabilities);
-        for (std::size_t channel{}; channel < kHeadWidth; ++channel) {
-          float sum{};
-          for (std::size_t token{}; token < prefix_size; ++token) {
-            if (prefix_mask[token] == 0u)
-              continue;
-            const float* const value =
-                layer.cross_attention
-                    ? values.data() + ((token * key_value_heads + kv_head) * kHeadWidth)
-                    : prefix_values.data() +
-                          (((layer_index * prefix_size + token) * key_value_heads + kv_head) *
-                           kHeadWidth);
-            sum += probabilities[token] * value[channel];
-          }
-          if (!layer.cross_attention)
-            for (std::size_t token{}; token <= row; ++token)
-              sum += probabilities[prefix_size + token] *
-                     values[(token * cfg_.key_value_width) + (kv_head * kHeadWidth) + channel];
-          attended[attended_offset + channel] = sum;
-        }
-      }
-    }
+    const std::size_t prefix_layer = layer_index * prefix_size * cfg_.key_value_width;
+    grouped_query_attention(
+        query, keys, values,
+        layer.cross_attention
+            ? std::span<const float>{}
+            : prefix_keys.subspan(prefix_layer, prefix_size * cfg_.key_value_width),
+        layer.cross_attention
+            ? std::span<const float>{}
+            : prefix_values.subspan(prefix_layer, prefix_size * cfg_.key_value_width),
+        prefix_mask, scores, attended, chunk_size, query_heads, key_value_heads, kHeadWidth,
+        prefix_size, layer.cross_attention);
     round_to_bf16(attended);
     matmul_weight(attended, layer.o_proj, projected, chunk_size, cfg_.attention_width,
                   cfg_.expert_width, pool_);
@@ -492,8 +383,8 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
       output[i] += projected[i];
     round_to_bf16(output);
 
-    smolvla_rmsnorm(output, {layer.post_attention_norm, cfg_.expert_width}, normed, chunk_size,
-                    cfg_.expert_width);
+    rmsnorm_bf16(output, {layer.post_attention_norm, cfg_.expert_width}, normed, chunk_size,
+                 cfg_.expert_width);
     round_to_bf16(normed);
     matmul_weight(normed, layer.gate_proj, gate, chunk_size, cfg_.expert_width, cfg_.mlp_width,
                   pool_);
@@ -516,8 +407,7 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
     arena_->reset_to(mark);
     return false;
   }
-  smolvla_rmsnorm(output, {final_norm_, cfg_.expert_width}, normalized, chunk_size,
-                  cfg_.expert_width);
+  rmsnorm_bf16(output, {final_norm_, cfg_.expert_width}, normalized, chunk_size, cfg_.expert_width);
   round_to_bf16(normalized);
   copy_span(normalized, output);
   arena_->reset_to(mark);
