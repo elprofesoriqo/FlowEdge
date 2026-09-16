@@ -249,29 +249,36 @@ std::size_t DiffusionHead::required_workspace_floats(std::span<const TensorView>
       !checked_add(timestep_dim, condition_dim, condition_features) || !plan.add(timestep_dim) ||
       !plan.add(time_hidden) || !plan.add(condition_features) || !plan.add(sample_values))
     return 0uz;
-  const auto residual = [&plan](std::size_t channels, std::size_t length) noexcept {
+  const auto residual = [&plan](std::size_t in_channels, std::size_t out_channels,
+                                std::size_t length) noexcept {
     std::size_t activation{0uz};
     std::size_t modulation{0uz};
-    return checked_mul(channels, length, activation) && checked_mul(2uz, channels, modulation) &&
-           plan.add(activation) && plan.temporary({activation, modulation});
+    return checked_mul(out_channels, length, activation) &&
+           checked_mul(2uz, out_channels, modulation) && plan.add(activation) &&
+           plan.temporary({activation, modulation,
+                           conv1d_workspace_floats(in_channels, out_channels, length, 5uz)});
   };
 
   std::size_t length = horizon;
+  std::size_t in_channels = action_dim;
   for (std::size_t stage{0uz}; stage < stages; ++stage) {
     const std::size_t channels = stage_dims[stage];
-    for (std::size_t block{0uz}; block < 2uz; ++block)
-      if (!residual(channels, length))
+    for (std::size_t block{0uz}; block < 2uz; ++block) {
+      if (!residual(in_channels, channels, length))
         return 0uz;
+      in_channels = channels;
+    }
     if (stage + 1uz < stages) {
       length /= 2uz;
-      if (!plan.add_product(channels, length))
+      if (!plan.add_product(channels, length) ||
+          !plan.temporary({conv1d_workspace_floats(channels, channels, length, 3uz)}))
         return 0uz;
     }
   }
 
   const std::size_t bottom_channels = stage_dims[stages - 1uz];
   for (std::size_t block{0uz}; block < 2uz; ++block)
-    if (!residual(bottom_channels, length))
+    if (!residual(bottom_channels, bottom_channels, length))
       return 0uz;
 
   for (std::size_t stage{0uz}; stage + 1uz < stages; ++stage) {
@@ -279,10 +286,11 @@ std::size_t DiffusionHead::required_workspace_floats(std::span<const TensorView>
     const std::size_t low = stage_dims[stages - 2uz - stage];
     std::size_t concatenated_channels{0uz};
     if (!checked_mul(2uz, high, concatenated_channels) ||
-        !plan.add_product(concatenated_channels, length) || !residual(low, length) ||
-        !residual(low, length))
+        !plan.add_product(concatenated_channels, length) ||
+        !residual(concatenated_channels, low, length) || !residual(low, low, length))
       return 0uz;
-    if (!checked_mul(length, 2uz, length) || !plan.add_product(low, length))
+    if (!checked_mul(length, 2uz, length) || !plan.add_product(low, length) ||
+        !plan.temporary({conv_transpose1d_workspace_floats(low, low, length / 2uz)}))
       return 0uz;
   }
   if (!plan.add_product(stage_dims[0], horizon) || !plan.add(sample_values))
