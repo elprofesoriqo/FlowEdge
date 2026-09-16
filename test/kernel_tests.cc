@@ -172,7 +172,7 @@ TEST(Mish, MatchesReference)
   fe::mish(values);
   for (std::size_t i{0uz}; i < values.size(); ++i) {
     const float softplus = input[i] > 20.0F ? input[i] : std::log1p(std::exp(input[i]));
-    EXPECT_NEAR(values[i], input[i] * std::tanh(softplus), 2e-6F);
+    EXPECT_NEAR(values[i], input[i] * std::tanh(softplus), k_tol);
   }
 }
 

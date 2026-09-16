@@ -9,15 +9,6 @@
 namespace fe {
 namespace {
 
-[[nodiscard]] float stable_softplus(float value) noexcept
-{
-  if (value > 20.0F)
-    return value;
-  if (value < -20.0F)
-    return std::exp(value);
-  return std::log1p(std::exp(value));
-}
-
 template<std::size_t Kernel, std::size_t Stride>
 void conv1d_channels(std::span<const float> x, std::span<const float> weight,
                      std::span<const float> bias, std::span<float> y, std::size_t in_channels,
@@ -102,17 +93,18 @@ void conv1d(std::span<const float> x, std::span<const float> weight, std::span<c
   if (workspace.size() >= packed_floats + gemm_floats && packed_columns >= 32uz) {
     std::span<float> packed = workspace.first(packed_floats);
     std::span<float> gemm = workspace.subspan(packed_floats, gemm_floats);
-    std::fill(packed.begin(), packed.end(), 0.0F);
-    for (std::size_t ic{0uz}; ic < in_channels; ++ic) {
-      const float* const input = x.data() + (ic * input_length);
-      for (std::size_t k{0uz}; k < kernel; ++k) {
-        const std::ptrdiff_t offset =
-            static_cast<std::ptrdiff_t>(k) - static_cast<std::ptrdiff_t>(padding);
-        for (std::size_t ot{0uz}; ot < output_length; ++ot) {
-          const std::ptrdiff_t index = static_cast<std::ptrdiff_t>(ot * stride) + offset;
-          if (index >= 0 && index < static_cast<std::ptrdiff_t>(input_length))
-            packed[(ot * packed_columns) + (ic * kernel) + k] =
-                input[static_cast<std::size_t>(index)];
+    for (std::size_t ot{0uz}; ot < output_length; ++ot) {
+      float* const row = packed.data() + (ot * packed_columns);
+      const std::ptrdiff_t origin =
+          static_cast<std::ptrdiff_t>(ot * stride) - static_cast<std::ptrdiff_t>(padding);
+      for (std::size_t ic{0uz}; ic < in_channels; ++ic) {
+        const float* const input = x.data() + (ic * input_length);
+        float* const dest = row + (ic * kernel);
+        for (std::size_t k{0uz}; k < kernel; ++k) {
+          const std::ptrdiff_t index = origin + static_cast<std::ptrdiff_t>(k);
+          dest[k] = (index >= 0 && index < static_cast<std::ptrdiff_t>(input_length))
+                        ? input[static_cast<std::size_t>(index)]
+                        : 0.0F;
         }
       }
     }
@@ -278,12 +270,6 @@ void group_norm(std::span<float> x, std::span<const float> weight, std::span<con
         x[base + t] = ((x[base + t] - mean_f) * inverse_stddev * weight[channel]) + bias[channel];
     }
   }
-}
-
-void mish(std::span<float> x) noexcept
-{
-  for (float& value : x)
-    value *= std::tanh(stable_softplus(value));
 }
 
 void film(std::span<float> x, std::span<const float> scale, std::span<const float> bias,

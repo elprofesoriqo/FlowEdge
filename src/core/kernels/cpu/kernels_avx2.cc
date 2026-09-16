@@ -142,6 +142,28 @@ void FE_FORCE_ALIGN softplus(std::span<float> x) noexcept
     x[i] = std::log1p(std::exp(x[i]));
 }
 
+void FE_FORCE_ALIGN mish(std::span<float> x) noexcept
+{
+  std::size_t i{0uz};
+  const __m256 one = _mm256_set1_ps(1.0F);
+  const __m256 two = _mm256_set1_ps(2.0F);
+  const __m256 zero = _mm256_setzero_ps();
+  const __m256 sign = _mm256_castsi256_ps(_mm256_set1_epi32(static_cast<int>(0x80000000U)));
+  for (; i + 8uz <= x.size(); i += 8uz) {
+    const __m256 v = _mm256_loadu_ps(x.data() + i);
+    const __m256 nabs = _mm256_or_ps(v, sign);
+    const __m256 softplus =
+        _mm256_add_ps(_mm256_max_ps(v, zero), log8(_mm256_add_ps(one, exp8(nabs))));
+    const __m256 exp2 = exp8(_mm256_mul_ps(softplus, two));
+    const __m256 tanh = _mm256_sub_ps(one, _mm256_div_ps(two, _mm256_add_ps(one, exp2)));
+    _mm256_storeu_ps(x.data() + i, _mm256_mul_ps(v, tanh));
+  }
+  for (; i < x.size(); ++i) {
+    const float v = x[i];
+    x[i] = v * std::tanh(std::fmax(v, 0.0F) + std::log1p(std::exp(-std::fabs(v))));
+  }
+}
+
 namespace {
 struct MatmulF32Row1Ctx
 {
@@ -195,6 +217,87 @@ struct MatmulF32RowNCtx
   std::size_t in_dim;
   std::size_t out_dim;
 };
+inline void matmul_f32_dot4(const float* __restrict__ i0, const float* __restrict__ i1,
+                            const float* __restrict__ i2, const float* __restrict__ i3,
+                            const float* __restrict__ wr, std::size_t in_dim,
+                            float* __restrict__ accs) noexcept
+{
+  std::size_t i{0uz};
+  __m256 v0 = _mm256_setzero_ps();
+  __m256 v1 = v0, v2 = v0, v3 = v0;
+  for (; i + 32uz <= in_dim; i += 32uz) {
+    __m256 wv = _mm256_loadu_ps(wr + i);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
+    v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
+    v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
+    wv = _mm256_loadu_ps(wr + i + 8uz);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 8uz), wv, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 8uz), wv, v1);
+    v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 8uz), wv, v2);
+    v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 8uz), wv, v3);
+    wv = _mm256_loadu_ps(wr + i + 16uz);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 16uz), wv, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 16uz), wv, v1);
+    v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 16uz), wv, v2);
+    v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 16uz), wv, v3);
+    wv = _mm256_loadu_ps(wr + i + 24uz);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 24uz), wv, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 24uz), wv, v1);
+    v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 24uz), wv, v2);
+    v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 24uz), wv, v3);
+  }
+  for (; i + 8uz <= in_dim; i += 8uz) {
+    const __m256 wv = _mm256_loadu_ps(wr + i);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
+    v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
+    v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
+  }
+  accs[0] = hsum8(v0);
+  accs[1] = hsum8(v1);
+  accs[2] = hsum8(v2);
+  accs[3] = hsum8(v3);
+  for (; i < in_dim; ++i) {
+    const float wv = wr[i];
+    accs[0] += i0[i] * wv;
+    accs[1] += i1[i] * wv;
+    accs[2] += i2[i] * wv;
+    accs[3] += i3[i] * wv;
+  }
+}
+
+inline void matmul_f32_dot2(const float* __restrict__ i0, const float* __restrict__ i1,
+                            const float* __restrict__ wr, std::size_t in_dim,
+                            float* __restrict__ accs) noexcept
+{
+  std::size_t i{0uz};
+  __m256 v0 = _mm256_setzero_ps();
+  __m256 v1 = v0, v0b = v0, v1b = v0;
+  for (; i + 16uz <= in_dim; i += 16uz) {
+    const __m256 w0 = _mm256_loadu_ps(wr + i);
+    const __m256 w1 = _mm256_loadu_ps(wr + i + 8uz);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), w0, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), w0, v1);
+    v0b = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 8uz), w1, v0b);
+    v1b = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 8uz), w1, v1b);
+  }
+  v0 = _mm256_add_ps(v0, v0b);
+  v1 = _mm256_add_ps(v1, v1b);
+  for (; i + 8uz <= in_dim; i += 8uz) {
+    const __m256 wv = _mm256_loadu_ps(wr + i);
+    v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
+    v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
+  }
+  accs[0] = hsum8(v0);
+  accs[1] = hsum8(v1);
+  for (; i < in_dim; ++i) {
+    const float wv = wr[i];
+    accs[0] += i0[i] * wv;
+    accs[1] += i1[i] * wv;
+  }
+}
+
 void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
                                     const MatmulF32RowNCtx* ctx) noexcept
 {
@@ -206,51 +309,32 @@ void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
   const std::size_t out_dim = ctx->out_dim;
   for (std::size_t o{lo}; o < hi; ++o) {
     const float* __restrict__ wr = w_data + (o * in_dim);
-    for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
-      const std::size_t nr = (rows - r0 < 4uz) ? (rows - r0) : 4uz;
-      const float* __restrict__ i0 = in_data + ((r0 + 0uz) * in_dim);
-      const float* __restrict__ i1 = in_data + ((r0 + (nr > 1uz ? 1uz : 0uz)) * in_dim);
-      const float* __restrict__ i2 = in_data + ((r0 + (nr > 2uz ? 2uz : 0uz)) * in_dim);
-      const float* __restrict__ i3 = in_data + ((r0 + (nr > 3uz ? 3uz : 0uz)) * in_dim);
-      float acc0{0.0F}, acc1{0.0F}, acc2{0.0F}, acc3{0.0F};
-      std::size_t i{0uz};
-      __m256 v0 = _mm256_setzero_ps();
-      __m256 v1 = v0, v2 = v0, v3 = v0;
-      for (; i + 8uz <= in_dim; i += 8uz) {
-        const __m256 wv = _mm256_loadu_ps(wr + i);
-        v0 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), wv, v0);
-        if (nr > 1)
-          v1 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), wv, v1);
-        if (nr > 2)
-          v2 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), wv, v2);
-        if (nr > 3)
-          v3 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), wv, v3);
-      }
-      acc0 = hsum8(v0);
-      if (nr > 1)
-        acc1 = hsum8(v1);
-      if (nr > 2)
-        acc2 = hsum8(v2);
-      if (nr > 3)
-        acc3 = hsum8(v3);
-      for (; i < in_dim; ++i) {
-        const float wv = wr[i];
-        acc0 += i0[i] * wv;
-        if (nr > 1)
-          acc1 += i1[i] * wv;
-        if (nr > 2)
-          acc2 += i2[i] * wv;
-        if (nr > 3)
-          acc3 += i3[i] * wv;
-      }
-      float* __restrict__ orow = out_data + (r0 * out_dim);
-      orow[o] = acc0;
-      if (nr > 1uz)
-        orow[out_dim + o] = acc1;
-      if (nr > 2uz)
-        orow[(2uz * out_dim) + o] = acc2;
-      if (nr > 3uz)
-        orow[(3uz * out_dim) + o] = acc3;
+    std::size_t r0{0uz};
+    for (; r0 + 4uz <= rows; r0 += 4uz) {
+      const float* const i0 = in_data + (r0 * in_dim);
+      float accs[4];
+      matmul_f32_dot4(i0, i0 + in_dim, i0 + (2uz * in_dim), i0 + (3uz * in_dim), wr, in_dim, accs);
+      float* const orow = out_data + (r0 * out_dim);
+      orow[o] = accs[0];
+      orow[out_dim + o] = accs[1];
+      orow[(2uz * out_dim) + o] = accs[2];
+      orow[(3uz * out_dim) + o] = accs[3];
+    }
+    if (r0 + 2uz <= rows) {
+      const float* const i0 = in_data + (r0 * in_dim);
+      float accs[2];
+      matmul_f32_dot2(i0, i0 + in_dim, wr, in_dim, accs);
+      float* const orow = out_data + (r0 * out_dim);
+      orow[o] = accs[0];
+      orow[out_dim + o] = accs[1];
+      r0 += 2uz;
+    }
+    if (r0 < rows) {
+      const MatmulF32Row1Ctx one{.in = {in_data + (r0 * in_dim), in_dim},
+                                 .w = {wr, in_dim},
+                                 .out = {out_data + (r0 * out_dim) + o, 1uz},
+                                 .in_dim = in_dim};
+      matmul_f32_row1(0uz, 1uz, &one);
     }
   }
 }
