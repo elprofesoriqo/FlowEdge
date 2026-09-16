@@ -10,7 +10,9 @@ body:
         Thanks for suggesting an improvement to FlowEdge.
 
         Please focus on the use case and the smallest useful implementation.
-        Large architectural changes should be discussed before implementation begins.
+        If the design is not obvious, use the Research template instead.
+        Current focus is Diffusion Policy performance and the SmolVLA
+        cached-expert LeRobot path; new backends need a reason to outrank that.
 
   - type: checkboxes
     id: checks

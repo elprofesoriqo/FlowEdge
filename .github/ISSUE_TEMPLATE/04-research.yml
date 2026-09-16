@@ -1,0 +1,94 @@
+name: "Research"
+description: Pin scope, checkpoints, and evidence before any implementation.
+title: "[Research] "
+labels:
+  - enhancement
+  - phase:research
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the problem is clear but the implementation is not.
+
+        Research is a comment thread, not a branch. Implementation starts only after
+        the issue is labeled `phase:ready`.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and Discussions.
+          required: true
+        - label: This is not a request for training, a graph runtime, or a new advertised backend.
+          required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Area
+      options:
+        - Diffusion Policy performance
+        - SmolVLA / action expert
+        - Transformer kernels
+        - LeRobot plugin
+        - Packaging / install
+        - Relay / action delivery
+        - Documentation / brand
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The user-visible failure or gap. Not the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Smallest useful scope
+      placeholder: |
+        One checkpoint, one host class, one command that becomes green.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      placeholder: |
+        Native VLM, CUDA, extra policy families, new ADRs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Acceptance evidence
+      placeholder: |
+        Command, artifact path, parity envelope, allocation check, or user-path screenshot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: pins
+    attributes:
+      label: Pins and references
+      description: Checkpoints, revisions, issues, papers. Leave blank if unknown; the first research comment should fill this.
+      placeholder: |
+        Checkpoint:
+        Revision:
+        Related issues:
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I can do the research comment.
+        - label: I can implement once the issue is `phase:ready`.
+        - label: I can run the acceptance command on my hardware.
