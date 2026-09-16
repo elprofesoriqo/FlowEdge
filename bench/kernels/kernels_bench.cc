@@ -74,6 +74,14 @@ void BM_matmul_dt_proj(benchmark::State& state)
 {
   run_matmul(state, kSeq, kDtRank, kDInner);
 }
+void BM_matmul_dp_conv_l4(benchmark::State& state)
+{
+  run_matmul(state, 4uz, 2048uz * 5uz, 2048uz);
+}
+void BM_matmul_dp_conv_l16(benchmark::State& state)
+{
+  run_matmul(state, 16uz, 512uz * 5uz, 512uz);
+}
 
 void BM_silu(benchmark::State& state)
 {
@@ -145,9 +153,11 @@ void run_dense_conv1d(benchmark::State& state, std::size_t channels, std::size_t
   const std::vector<float> w = filled(channels * channels * kernel, 0.001F);
   const std::vector<float> b = filled(channels);
   std::vector<float> y(channels * output_length);
+  std::vector<float> workspace(
+      fe::conv1d_workspace_floats(channels, channels, output_length, kernel));
   for (auto _ : state) {
     fe::conv1d(x, w, b, y, channels, channels, input_length, output_length, kernel, stride, padding,
-               pool);
+               pool, workspace);
     benchmark::DoNotOptimize(y.data());
     benchmark::ClobberMemory();
   }
@@ -204,9 +214,11 @@ void BM_diffusion_upsample_512_l8(benchmark::State& state)
   const std::vector<float> w = filled(channels * channels * kernel, 0.001F);
   const std::vector<float> b = filled(channels);
   std::vector<float> y(channels * output_length);
+  std::vector<float> workspace(
+      fe::conv_transpose1d_workspace_floats(channels, channels, input_length));
   for (auto _ : state) {
     fe::conv_transpose1d(x, w, b, y, channels, channels, input_length, output_length, kernel, 2uz,
-                         1uz);
+                         1uz, nullptr, workspace);
     benchmark::DoNotOptimize(y.data());
     benchmark::ClobberMemory();
   }
@@ -238,6 +250,8 @@ BENCHMARK(BM_matmul_in_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_out_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_x_proj)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_matmul_dt_proj)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_matmul_dp_conv_l4)->Unit(benchmark::kMillisecond);
+BENCHMARK(BM_matmul_dp_conv_l16)->Unit(benchmark::kMillisecond);
 BENCHMARK(BM_silu)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_softplus)->Unit(benchmark::kMicrosecond);
 BENCHMARK(BM_gate_silu)->Unit(benchmark::kMicrosecond);
