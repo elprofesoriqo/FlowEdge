@@ -169,8 +169,8 @@ void conv1d(std::span<const float> x, std::span<const float> weight, std::span<c
 void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
                       std::span<const float> bias, std::span<float> y, std::size_t in_channels,
                       std::size_t out_channels, std::size_t input_length, std::size_t output_length,
-                      std::size_t kernel, std::size_t stride, std::size_t padding,
-                      ThreadPool* pool, std::span<float> workspace) noexcept
+                      std::size_t kernel, std::size_t stride, std::size_t padding, ThreadPool* pool,
+                      std::span<float> workspace) noexcept
 {
   if (in_channels == 0uz || out_channels == 0uz || input_length == 0uz || output_length == 0uz ||
       kernel == 0uz || stride == 0uz || x.size() < in_channels * input_length ||
