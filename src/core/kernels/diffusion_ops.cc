@@ -87,13 +87,44 @@ void conv_transpose1d_channels(std::span<const float> x, std::span<const float> 
 void conv1d(std::span<const float> x, std::span<const float> weight, std::span<const float> bias,
             std::span<float> y, std::size_t in_channels, std::size_t out_channels,
             std::size_t input_length, std::size_t output_length, std::size_t kernel,
-            std::size_t stride, std::size_t padding, ThreadPool* pool) noexcept
+            std::size_t stride, std::size_t padding, ThreadPool* pool,
+            std::span<float> workspace) noexcept
 {
   if (in_channels == 0uz || out_channels == 0uz || input_length == 0uz || output_length == 0uz ||
       kernel == 0uz || stride == 0uz || x.size() < in_channels * input_length ||
       weight.size() < out_channels * in_channels * kernel || bias.size() < out_channels ||
       y.size() < out_channels * output_length) [[unlikely]]
     return;
+
+  const std::size_t packed_columns = in_channels * kernel;
+  const std::size_t packed_floats = output_length * packed_columns;
+  const std::size_t gemm_floats = output_length * out_channels;
+  if (workspace.size() >= packed_floats + gemm_floats && packed_columns >= 32uz) {
+    std::span<float> packed = workspace.first(packed_floats);
+    std::span<float> gemm = workspace.subspan(packed_floats, gemm_floats);
+    std::fill(packed.begin(), packed.end(), 0.0F);
+    for (std::size_t ic{0uz}; ic < in_channels; ++ic) {
+      const float* const input = x.data() + (ic * input_length);
+      for (std::size_t k{0uz}; k < kernel; ++k) {
+        const std::ptrdiff_t offset =
+            static_cast<std::ptrdiff_t>(k) - static_cast<std::ptrdiff_t>(padding);
+        for (std::size_t ot{0uz}; ot < output_length; ++ot) {
+          const std::ptrdiff_t index = static_cast<std::ptrdiff_t>(ot * stride) + offset;
+          if (index >= 0 && index < static_cast<std::ptrdiff_t>(input_length))
+            packed[(ot * packed_columns) + (ic * kernel) + k] =
+                input[static_cast<std::size_t>(index)];
+        }
+      }
+    }
+    matmul(packed, weight, gemm, output_length, packed_columns, out_channels, pool);
+    for (std::size_t oc{0uz}; oc < out_channels; ++oc) {
+      float* const output = y.data() + (oc * output_length);
+      const float shift = bias[oc];
+      for (std::size_t ot{0uz}; ot < output_length; ++ot)
+        output[ot] = gemm[(ot * out_channels) + oc] + shift;
+    }
+    return;
+  }
 
   const auto operation = [&](std::size_t first, std::size_t last) noexcept {
     if (kernel == 5uz && stride == 1uz)
@@ -139,13 +170,43 @@ void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
                       std::span<const float> bias, std::span<float> y, std::size_t in_channels,
                       std::size_t out_channels, std::size_t input_length, std::size_t output_length,
                       std::size_t kernel, std::size_t stride, std::size_t padding,
-                      ThreadPool* pool) noexcept
+                      ThreadPool* pool, std::span<float> workspace) noexcept
 {
   if (in_channels == 0uz || out_channels == 0uz || input_length == 0uz || output_length == 0uz ||
       kernel == 0uz || stride == 0uz || x.size() < in_channels * input_length ||
       weight.size() < in_channels * out_channels * kernel || bias.size() < out_channels ||
       y.size() < out_channels * output_length) [[unlikely]]
     return;
+
+  const std::size_t x_floats = input_length * in_channels;
+  const std::size_t w_floats = out_channels * in_channels;
+  const std::size_t gemm_floats = input_length * out_channels;
+  if (workspace.size() >= x_floats + w_floats + gemm_floats && in_channels >= 32uz) {
+    std::span<float> x_t = workspace.first(x_floats);
+    std::span<float> w_k = workspace.subspan(x_floats, w_floats);
+    std::span<float> gemm = workspace.subspan(x_floats + w_floats, gemm_floats);
+    for (std::size_t ic{0uz}; ic < in_channels; ++ic)
+      for (std::size_t it{0uz}; it < input_length; ++it)
+        x_t[(it * in_channels) + ic] = x[(ic * input_length) + it];
+    for (std::size_t oc{0uz}; oc < out_channels; ++oc)
+      std::fill_n(y.data() + (oc * output_length), output_length, bias[oc]);
+    for (std::size_t k{0uz}; k < kernel; ++k) {
+      for (std::size_t ic{0uz}; ic < in_channels; ++ic)
+        for (std::size_t oc{0uz}; oc < out_channels; ++oc)
+          w_k[(oc * in_channels) + ic] = weight[((ic * out_channels) + oc) * kernel + k];
+      matmul(x_t, w_k, gemm, input_length, in_channels, out_channels, pool);
+      for (std::size_t it{0uz}; it < input_length; ++it) {
+        const std::ptrdiff_t origin =
+            static_cast<std::ptrdiff_t>(it * stride + k) - static_cast<std::ptrdiff_t>(padding);
+        if (origin < 0 || origin >= static_cast<std::ptrdiff_t>(output_length))
+          continue;
+        const std::size_t ot = static_cast<std::size_t>(origin);
+        for (std::size_t oc{0uz}; oc < out_channels; ++oc)
+          y[(oc * output_length) + ot] += gemm[(it * out_channels) + oc];
+      }
+    }
+    return;
+  }
 
   const auto operation = [&](std::size_t first, std::size_t last) noexcept {
     if (kernel == 4uz && stride == 2uz)

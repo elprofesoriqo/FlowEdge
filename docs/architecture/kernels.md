@@ -29,7 +29,9 @@ best file for the host. Every kernel takes `std::span`, owns no memory, and
 never allocates over 64-byte-aligned caller buffers.
 
 The set is `matmul` for F32 and BF16 weights, `conv1d_causal`,
-`conv1d_step`, `rmsnorm`, `silu`, `softplus`, `gate_silu`, and
+`conv1d_step`, dense `conv1d` / `conv_transpose1d` (optional packed-im2col
+workspace through `matmul`), `rmsnorm`, `rmsnorm_bf16`, `silu`, `softplus`,
+`gate_silu`, `apply_rope`, `grouped_query_attention`, `round_to_bf16`, and
 `discretize_and_scan`.
 
 ## The exp and log kernels
@@ -55,8 +57,8 @@ waits on memory. Fusing removes an intermediate pass and keeps the model code
 small.
 
 `matmul`, the activations, and the fused scan carry explicit intrinsics on SIMD
-backends. `conv1d` and `rmsnorm` are deliberately simple loops; together they
-are under 3% of a layer, too little to dominate the profile.
+backends. Packed Diffusion Policy convolution reuses `matmul`. `rmsnorm` and
+the Transformer helpers stay scalar unless a profile says otherwise.
 
 The scan stores its state in a $[t][n][c]$ layout so that the inner loop over channels is unit-stride, which turns into contiguous vector loads over full cache lines. A $[t][c][n]$ layout would stride the reduction and waste bandwidth on partial lines. See [ADR 0001](../decisions/0001-cpu-kernels).
 
