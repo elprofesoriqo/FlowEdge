@@ -63,4 +63,11 @@ Source: `src/core/models/mamba/`. See [ADR 0002](../decisions/0002-mamba-block).
 
 ## Transformer
 
-Planned, behind the same contract: attention plus MLP, with a KV-cache sized to the max prefix so the state stays fixed.
+The experimental causal decoder baseline is implemented: learned positions,
+affine LayerNorm, GELU, fused QKV, and a KV cache sized to the max prefix.
+It is a kernel incubator (`tiny-gpt2` conversion smoke), not a product
+backbone. Policy work uses the SmolVLA action expert: RMSNorm, RoPE,
+grouped-query self/cross attention, and SwiGLU in `kernels.h`, with the VLM
+cache supplied from LeRobot.
+
+See [Fixed-shape Transformer baseline](../guides/transformer-backbone).

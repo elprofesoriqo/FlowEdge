@@ -2,27 +2,27 @@
 
 <img class="fe-hero-img" src="_static/hero.png" alt="FlowEdge" />
 
-<p class="fe-lede">FlowEdge is a C++23 engine for fixed flow-matching and diffusion action policies. Supported native compute and Relay hot paths use preallocated memory. Python adapters, observation encoders, and robot drivers have separate allocation and timing behavior.</p>
+<p class="fe-lede">FlowEdge runs a trained LeRobot policy in a fixed-memory C++ runtime. Convert the checkpoint, keep the encoder in LeRobot, and measure the control period. Current CPU Diffusion Policy is correct and not yet faster than PyTorch; that gap is the first engineering target.</p>
 
-## What it is
+## Convert, run, measure
 
-The native Mamba path maps a prefix to a condition vector and integrates a flow head into an action chunk. The visual Diffusion Policy adapter uses the source LeRobot encoder outside Core. Measure the complete deployment path against its control period; native component speed alone does not establish real-time suitability.
+| Step | Entry point |
+|---|---|
+| Convert a pinned LeRobot checkpoint | [Converter](guides/converter) |
+| Run the LeRobot plugin or rollout | [LeRobot adapter](guides/lerobot) |
+| Measure p50, missed deadlines, RSS | [Performance](performance) |
 
-It is not a training framework and not a graph runtime. It is a fixed set of hand-written architectures that share one kernel library. Every weight and every scratch buffer comes from a single arena, sized once at load, so the runtime path allocates nothing.
+`--policy.type=flowedge` is Diffusion Policy. `--policy.type=flowedge_smolvla` is the native action expert with a LeRobot VLM cache. Mamba + flow remains the CI fixture. Relay, cooperative jobs, and generic daemons are optional systems layers.
 
-## What you can use today
+It is not a training framework and not a graph runtime. Every weight and every scratch buffer comes from a single arena, sized once at load, so the runtime path allocates nothing.
+
+## Other surfaces
 
 | Goal | Entry point |
 |---|---|
-| Run a complete Mamba + flow policy | [Getting Started](getting-started) |
 | Keep an existing encoder and use only the action head | [Capabilities](capabilities) |
-| Run deadline-aware inference between processes | [Relay quickstart](guides/relay-quickstart) |
-| Deliver safe multi-rate action chunks | [Action delivery](guides/action-delivery) |
-| Run managed streaming jobs | [Generic job daemon](guides/generic-job-daemon) |
-| Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
-| Compare FlowEdge with PyTorch | [Performance](performance) |
-| Convert or port a supported checkpoint | [Converter](guides/converter) |
-| Deploy a supported LeRobot policy | [LeRobot adapter](guides/lerobot) |
+| Getting-started command list | [Getting Started](getting-started) |
+| Deadline-aware inference between processes | [Relay quickstart](guides/relay-quickstart) |
 | Choose a model artifact path | [Model import](guides/model-import) |
 | Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
 
@@ -43,28 +43,16 @@ It is not a training framework and not a graph runtime. It is a fixed set of han
 
 <div class="fe-grid">
   <div class="fe-card">
-    <h4>Backbones</h4>
-    <ul><li class="done">Mamba SSM</li><li>Experimental Transformer decoder baseline</li></ul>
+    <h4>User policies</h4>
+    <ul><li class="done">Diffusion Policy (correct, slower than PyTorch)</li><li class="done">SmolVLA cached expert</li></ul>
   </div>
   <div class="fe-card">
-    <h4>Heads</h4>
-    <ul><li class="done">Flow matching</li><li class="done">Diffusion Policy</li><li>DiT (planned)</li></ul>
+    <h4>Runtime</h4>
+    <ul><li class="done">CPU AVX2 / NEON</li><li class="done">FP32 / BF16</li><li class="done">Zero-alloc hot path</li></ul>
   </div>
   <div class="fe-card">
-    <h4>Solvers</h4>
-    <ul><li class="done">Euler</li><li class="done">Heun</li><li class="done">RK4</li><li class="done">DDIM / DDPM</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Precision</h4>
-    <ul><li class="done">FP32</li><li class="done">BF16</li><li>INT8 (planned)</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Backends</h4>
-    <ul><li class="done">CPU (AVX2 / NEON)</li><li>CUDA (planned)</li><li>Tenstorrent (planned)</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Interfaces</h4>
-    <ul><li class="done">C-ABI</li><li class="done">Python</li><li class="done">Converter</li></ul>
+    <h4>LeRobot plugin</h4>
+    <ul><li class="done"><code>flowedge</code></li><li class="done"><code>flowedge_smolvla</code></li><li class="done">hold / drop / raise</li></ul>
   </div>
 </div>
 
@@ -89,13 +77,12 @@ graph TD
 :caption: Start
 Overview <self>
 getting-started
-capabilities
+guides/lerobot
+guides/converter
 guides/policy-evaluation
-guides/transformer-backbone
-guides/deadline-flow
-tenstorrent-program
 performance
 benchmarks
+capabilities
 ```
 
 ```{toctree}
@@ -123,22 +110,28 @@ api/python
 ```{toctree}
 :hidden:
 :caption: Guides
-guides/add-a-head
-guides/add-a-backbone
-guides/converter
-guides/checkpoint-preflight
 guides/diffusion-policy
-guides/lerobot
+guides/transformer-backbone
+guides/checkpoint-preflight
 guides/model-import
 guides/edge-benchmarks
 guides/deadline-profile
 guides/sanitizers
 guides/verification
 guides/observability
-guides/cooperative-jobs
+guides/add-a-head
+guides/add-a-backbone
+```
+
+```{toctree}
+:hidden:
+:caption: Systems (optional)
 guides/relay-quickstart
 guides/action-delivery
+guides/cooperative-jobs
 guides/generic-job-daemon
+guides/deadline-flow
+tenstorrent-program
 ```
 
 ```{toctree}

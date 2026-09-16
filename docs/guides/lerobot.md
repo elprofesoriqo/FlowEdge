@@ -71,16 +71,47 @@ flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors --steps 10
 ```
 
 It prints JSON completion and timing telemetry. Pass `--period-ms 10` to count missed 10 ms
-control-loop periods. Observation encoding, limits, and emergency-stop behavior stay in the
-caller-owned robot adapter.
+control-loop periods. `--on-miss` selects what the plugin emits on an overrun:
+
+| `--on-miss` | Behavior |
+|---|---|
+| `hold` (default) | Repeat the last successfully sent action. Before the first on-time send, emit zeros. |
+| `drop` | Skip `send_action` for that period. |
+| `raise` | Raise `DeadlineMissed` after `stop`. |
+
+Joint-limit clamps and emergency-stop stay in the robot adapter, after this
+plugin boundary. Observation encoding stays in the caller-owned encoder.
+
+```bash
+flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 10 --threads 4 --period-ms 10 --on-miss hold
+```
+
+`--policy.type=flowedge` loads a converted Diffusion Policy. `--policy.type=flowedge_smolvla`
+loads the native SmolVLA action expert; LeRobot still owns the VLM and supplies
+the KV cache. That path is not native full SmolVLA.
 
 Tenstorrent support is intentionally not part of this integration slice. It remains a separate
 backend effort so this adapter does not couple the universal runtime to one accelerator.
 
-## ARM64/NEON validation
+## ARM64 / Jetson rollout
 
 Every CI run includes an `ubuntu-24.04-arm` job. It builds the Release Core and Relay targets with
 `FLOWEDGE_BACKEND=cpu`, runs the native tests and adapter contract tests, then publishes a profile
 artifact containing compiler, CPU, latency, and allocation metadata. This is architecture
 validation, not a claim for a specific Jetson, RDK, or robot; hardware pilots still need their
 own processor and safety checks.
+
+On a Jetson Orin (or any ARM host) run the same simulator JSON the Windows replay uses:
+
+```bash
+python tools/verification/run_edge_dp_rollout.py \
+  models/diffusion_pusht.flowedge.safetensors \
+  --steps 20 --threads 4 --period-ms 10 --on-miss hold \
+  --output jetson-dp-rollout.json
+```
+
+The script records platform, machine, `p50_ms`, `p99_ms`, `missed_deadlines`,
+`on_miss`, and `peak_rss_bytes`. Compare against the
+[published Windows replay](../performance) without treating either file as a
+real-time guarantee.

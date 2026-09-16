@@ -20,31 +20,30 @@ runtime.
 | Checkpoint preflight | Reject incompatible artifacts before a robot starts | [Preflight](guides/checkpoint-preflight) |
 | Deployment profile | Bind dimensions, units, normalization, and solver limits to weights | [Profile contract](architecture/deployment-profile) |
 | Deadline profile | Gate tail latency and hot-path allocations for one host | [Deadline guide](guides/deadline-profile) |
+| LeRobot adapter | `--policy.type=flowedge` or `flowedge_smolvla` with hold/drop/raise | [LeRobot](guides/lerobot) |
 | Trace and state capsule | Reproduce actions and migrate compatible state | [Relay proposal](ecosystem/relay-proposal) |
-| LeRobot adapter | Run a converted Diffusion Policy through a bounded rollout seam | [LeRobot](guides/lerobot) |
 
 ## Active development sequence
 
-The [roadmap](roadmap) is the source of truth: validate the LeRobot visual-policy
-boundary, establish matched replay and task evaluation, implement one exact SmolVLA
-path on Tenstorrent, then evaluate DeadlineFlow. The partner milestones below support
-that sequence; upstream acceptance and hardware access are external dependencies.
+The [roadmap](roadmap) tracks research tracks. The product sequence is: make
+Diffusion Policy faster than PyTorch CPU, finish the SmolVLA cached-expert
+plugin, then measure one ARM/Jetson host. Relay, Tenstorrent, and DeadlineFlow
+stay optional until a user policy wins.
 
 ```{mermaid}
 flowchart LR
-  P[Publish measured edge artifact] --> H[Run one hardware pilot]
-  H --> U[Propose LeRobot integration]
-  U --> M[Expand model import matrix]
-  M --> B[Add measured hardware backends]
+  P[Pack DP conv through matmul] --> S[SmolVLA policy type]
+  S --> J[Jetson / SO-100 JSON]
+  J --> U[Propose LeRobot integration]
 ```
 
 | Order | Deliverable | Proof |
 |---:|---|---|
-| 1 | Reproducible FlowEdge-versus-LeRobot artifact | Same checkpoint, processor, host, and commands |
-| 2 | SO-100/SO-101 deployment pilot | Deadline, RSS, action shape, and stop behavior captured |
-| 3 | Upstream LeRobot RFC | Narrow adapter boundary accepted by maintainers |
-| 4 | Portable import/backend matrix | Each supported path has conversion and runtime verification |
-| 5 | Accelerator work | Same contract and benchmark pass on the target hardware |
+| 1 | Packed Diffusion Policy kernels | Same-host replay at or below LeRobot/PyTorch, zero hot-path alloc |
+| 2 | `flowedge_smolvla` plugin | Hybrid action chunk within existing envelopes |
+| 3 | ARM/Jetson rollout JSON | Volunteer host, miss behavior, RSS |
+| 4 | Wheels | `pip install flowedge` without a local C++23 toolchain |
+| 5 | Accelerator work | Same contract on one measured device |
 
 Success means an external team can convert a policy, verify it in CI, and reproduce a robot-side
 failure without adopting FlowEdge-specific training code.
