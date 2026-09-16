@@ -186,6 +186,142 @@ inline void softmax(std::span<float> values) noexcept
     value *= inverse;
 }
 
+// Round F32 values to BF16-representable F32 (round-to-nearest-even).
+inline void round_to_bf16(std::span<float> values) noexcept
+{
+  for (float& value : values) {
+    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+    const std::uint32_t bias = 0x7FFFu + ((bits >> 16u) & 1u);
+    value = std::bit_cast<float>((bits + bias) & 0xFFFF0000u);
+  }
+}
+
+// Llama-style RMSNorm with BF16 rounding after the reduction and after the
+// learned weight. SmolVLA's expert depends on that rounding path; the generic
+// `rmsnorm` kernel multiplies through in F32.
+inline void rmsnorm_bf16(std::span<const float> input, std::span<const float> weight,
+                         std::span<float> output, std::size_t rows, std::size_t width,
+                         float epsilon = 1e-5F) noexcept
+{
+  for (std::size_t row{}; row < rows; ++row) {
+    const float* const source = input.data() + (row * width);
+    float* const destination = output.data() + (row * width);
+    float squared_sum{};
+    for (std::size_t channel{}; channel < width; ++channel)
+      squared_sum += source[channel] * source[channel];
+    const float scale = 1.0F / std::sqrt((squared_sum / static_cast<float>(width)) + epsilon);
+    for (std::size_t channel{}; channel < width; ++channel)
+      destination[channel] = source[channel] * scale;
+    round_to_bf16({destination, width});
+    for (std::size_t channel{}; channel < width; ++channel)
+      destination[channel] *= weight[channel];
+    round_to_bf16({destination, width});
+  }
+}
+
+// Grouped-query attention for one expert layer. Query is [rows][query_heads][head_width].
+// Cross-attention reads keys/values as the projected prefix. Self-attention reads the
+// VLM cache from prefix_keys/prefix_values and the projected suffix from keys/values,
+// with a causal suffix of length row+1. `scores` must hold prefix_size+rows floats.
+// Softmax probabilities are rounded to BF16 to match the SmolVLA source dtypes.
+inline void grouped_query_attention(
+    std::span<const float> query, std::span<const float> keys, std::span<const float> values,
+    std::span<const float> prefix_keys, std::span<const float> prefix_values,
+    std::span<const std::uint8_t> prefix_mask, std::span<float> scores, std::span<float> attended,
+    std::size_t rows, std::size_t query_heads, std::size_t kv_heads, std::size_t head_width,
+    std::size_t prefix_size, bool cross_attention) noexcept
+{
+  if (query_heads == 0uz || kv_heads == 0uz || (query_heads % kv_heads) != 0uz || head_width == 0uz)
+    return;
+  const std::size_t query_floats = rows * query_heads * head_width;
+  const std::size_t key_rows = cross_attention ? prefix_size : rows;
+  const std::size_t kv_floats = key_rows * kv_heads * head_width;
+  const std::size_t prefix_kv = prefix_size * kv_heads * head_width;
+  const std::size_t score_need = cross_attention ? prefix_size : prefix_size + rows;
+  if (query.size() < query_floats || keys.size() < kv_floats || values.size() < kv_floats ||
+      prefix_mask.size() < prefix_size || scores.size() < score_need ||
+      attended.size() < query_floats)
+    return;
+  if (!cross_attention && (prefix_keys.size() < prefix_kv || prefix_values.size() < prefix_kv))
+    return;
+  const std::size_t groups = query_heads / kv_heads;
+  for (std::size_t row{}; row < rows; ++row) {
+    for (std::size_t head{}; head < query_heads; ++head) {
+      const std::size_t kv_head = head / groups;
+      const float* const q = query.data() + ((row * query_heads + head) * head_width);
+      const std::size_t attended_offset = (row * query_heads * head_width) + (head * head_width);
+      const std::size_t score_count = cross_attention ? prefix_size : prefix_size + row + 1uz;
+      for (std::size_t token{}; token < prefix_size; ++token) {
+        if (prefix_mask[token] == 0u) {
+          scores[token] = -std::numeric_limits<float>::infinity();
+          continue;
+        }
+        const float* const key = (cross_attention ? keys.data() : prefix_keys.data()) +
+                                 ((token * kv_heads + kv_head) * head_width);
+        float dot{};
+        for (std::size_t channel{}; channel < head_width; ++channel)
+          dot += q[channel] * key[channel];
+        scores[token] = dot / std::sqrt(static_cast<float>(head_width));
+      }
+      if (!cross_attention) {
+        for (std::size_t token{}; token <= row; ++token) {
+          const float* const key = keys.data() + ((token * kv_heads + kv_head) * head_width);
+          float dot{};
+          for (std::size_t channel{}; channel < head_width; ++channel)
+            dot += q[channel] * key[channel];
+          scores[prefix_size + token] = dot / std::sqrt(static_cast<float>(head_width));
+        }
+      }
+      std::span<float> probabilities = scores.first(score_count);
+      softmax(probabilities);
+      round_to_bf16(probabilities);
+      for (std::size_t channel{}; channel < head_width; ++channel) {
+        float sum{};
+        for (std::size_t token{}; token < prefix_size; ++token) {
+          if (prefix_mask[token] == 0u)
+            continue;
+          const float* const value = (cross_attention ? values.data() : prefix_values.data()) +
+                                     ((token * kv_heads + kv_head) * head_width);
+          sum += probabilities[token] * value[channel];
+        }
+        if (!cross_attention) {
+          for (std::size_t token{}; token <= row; ++token)
+            sum += probabilities[prefix_size + token] *
+                   values[(token * kv_heads * head_width) + (kv_head * head_width) + channel];
+        }
+        attended[attended_offset + channel] = sum;
+      }
+    }
+  }
+}
+
+// Interleaved RoPE on [rows][heads][head_width] with even head_width.
+inline void apply_rope(std::span<float> values, std::size_t rows, std::size_t heads,
+                       std::size_t head_width, std::size_t position_base) noexcept
+{
+  if (head_width < 2uz || (head_width % 2uz) != 0uz)
+    return;
+  constexpr float kLogWavelength = 9.210340371976184F; // log(10,000)
+  const std::size_t half = head_width / 2uz;
+  for (std::size_t row{}; row < rows; ++row) {
+    const float position = static_cast<float>(position_base + row);
+    for (std::size_t head{}; head < heads; ++head) {
+      float* const data = values.data() + ((row * heads + head) * head_width);
+      for (std::size_t channel{}; channel < half; ++channel) {
+        const float exponent =
+            (2.0F * static_cast<float>(channel)) / static_cast<float>(head_width);
+        const float angle = position / std::exp(kLogWavelength * exponent);
+        const float sine = std::sin(angle);
+        const float cosine = std::cos(angle);
+        const float first = data[channel];
+        const float second = data[half + channel];
+        data[channel] = (first * cosine) - (second * sine);
+        data[half + channel] = (second * cosine) + (first * sine);
+      }
+    }
+  }
+}
+
 // 1 causal-conv step: window is [channels][kernel] with the newest sample at index kernel-1.
 // y[c] = bias[c] + sum_k weight[c,k]·window[c,k]
 FE_FORCE_ALIGN void conv1d_step(std::span<const float> window, std::span<const float> weight,

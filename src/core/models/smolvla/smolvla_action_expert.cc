@@ -365,16 +365,17 @@ bool SmolVLAActionExpert::run_with_prefix_kv(std::span<const float> suffix,
       round_to_bf16(keys);
 
     const std::size_t prefix_layer = layer_index * prefix_size * cfg_.key_value_width;
-    grouped_query_attention(
-        query, keys, values,
-        layer.cross_attention
-            ? std::span<const float>{}
-            : prefix_keys.subspan(prefix_layer, prefix_size * cfg_.key_value_width),
-        layer.cross_attention
-            ? std::span<const float>{}
-            : prefix_values.subspan(prefix_layer, prefix_size * cfg_.key_value_width),
-        prefix_mask, scores, attended, chunk_size, query_heads, key_value_heads, kHeadWidth,
-        prefix_size, layer.cross_attention);
+    grouped_query_attention(query, keys, values,
+                            layer.cross_attention
+                                ? std::span<const float>{}
+                                : prefix_keys.subspan(prefix_layer,
+                                                      prefix_size * cfg_.key_value_width),
+                            layer.cross_attention
+                                ? std::span<const float>{}
+                                : prefix_values.subspan(prefix_layer,
+                                                        prefix_size * cfg_.key_value_width),
+                            prefix_mask, scores, attended, chunk_size, query_heads, key_value_heads,
+                            kHeadWidth, prefix_size, layer.cross_attention);
     round_to_bf16(attended);
     matmul_weight(attended, layer.o_proj, projected, chunk_size, cfg_.attention_width,
                   cfg_.expert_width, pool_);
