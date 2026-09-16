@@ -1,0 +1,24 @@
+{
+  "action_max_absolute_error": 0.025867938995361328,
+  "action_mean_absolute_error": 0.002440317301079631,
+  "action_shape": [
+    50,
+    6
+  ],
+  "action_tolerance": 0.03,
+  "checkpoint": "model.safetensors",
+  "checkpoint_sha256": "7cd549ac2351fb069c0ddb3c34ad2d09cfc92b56a15dccdfc2e41467aaca01eb",
+  "hybrid_actions_sha256": "effbe85d654935eb32afb8e3c65f692189e7d0a01ced5de5e49c865c2a498907",
+  "lerobot_version": "0.4.4",
+  "model": "lerobot/smolvla_base",
+  "prefix_length": 177,
+  "schema_version": 1,
+  "scope": "source LeRobot image/state/language preprocessing and VLM-prefix execution followed by native FlowEdge cached action-expert Euler replay; not native VLM/preprocessor parity, latency, or policy-quality evaluation",
+  "source_actions_sha256": "397a3f7d083c33abb318272022f4bd2532208711bdb244b0b078d95d8d249c93",
+  "source_cache_keys_sha256": "1f2aa5c347ef38cd1a5e804dd46ba7dd712eb2b4be0d8ee1776d448dd24d641c",
+  "source_cache_values_sha256": "7788855db0a979eacda8a7d066e326b498845a8bbb2e9edcc1834c3a41f3d57d",
+  "source_capture_sha256": "ef545399cc70d6c04f242a6bf16d064221e1e00b694eff81aa4a1ff3d2f6f719",
+  "source_noise_sha256": "99055a9070ad90c13d76355243c3d9db676b56dad310617c33d85def04172340",
+  "status": "passed",
+  "transformers_version": "4.57.6"
+}

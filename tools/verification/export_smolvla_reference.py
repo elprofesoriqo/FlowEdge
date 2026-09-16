@@ -14,6 +14,8 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
+
 
 DEFAULT_REVISION = "c83c3163b8ca9b7e67c509fffd9121e66cb96205"
 
@@ -45,6 +47,34 @@ def required(capture, name: str, dtype, shape: tuple[int, ...]):
     return value
 
 
+def present_images(capture, image_features, batch_size: int):
+    """Validate source images that are actually present in a real observation."""
+    images = {}
+    for key, feature in image_features.items():
+        if key not in capture:
+            continue
+        image = capture[key]
+        channels = feature.shape[0]
+        if (
+            image.dtype != np.dtype("float32")
+            or image.ndim != 4
+            or image.shape[0] != batch_size
+            or image.shape[1] != channels
+            or image.shape[2] <= 0
+            or image.shape[3] <= 0
+        ):
+            raise ValueError(
+                f"capture {key!r} must be float32 [batch, {channels}, height, width], got "
+                f"{image.dtype}/{tuple(image.shape)}"
+            )
+        if not np.isfinite(image).all() or image.min() < 0.0 or image.max() > 1.0:
+            raise ValueError(f"capture {key!r} must be finite RGB in [0, 1]")
+        images[key] = image
+    if not images:
+        raise ValueError("capture must contain at least one configured observation image")
+    return images
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path, help="local lerobot/smolvla_base directory")
@@ -65,7 +95,7 @@ def main() -> int:
             raise ValueError(f"capture does not exist: {args.capture}")
         policy = SmolVLAPolicy.from_pretrained(args.model).eval()
         batch_size = 1
-        state_dim = policy.config.state_feature.shape[0]
+        state_dim = policy.config.robot_state_feature.shape[0]
         action_dim = policy.config.action_feature.shape[0]
         capture = np.load(args.capture, allow_pickle=False)
         state = required(capture, "observation.state", np.dtype("float32"), (batch_size, state_dim))
@@ -78,7 +108,7 @@ def main() -> int:
         attention_mask = required(
             capture,
             "observation.language.attention_mask",
-            np.dtype("int64"),
+            np.dtype("bool"),
             (batch_size, policy.config.tokenizer_max_length),
         )
         noise = required(
@@ -96,11 +126,7 @@ def main() -> int:
             "observation.language.tokens": torch.from_numpy(tokens),
             "observation.language.attention_mask": torch.from_numpy(attention_mask),
         }
-        for key, feature in policy.config.image_features.items():
-            channels, height, width = feature.shape
-            image = required(capture, key, np.dtype("float32"), (batch_size, channels, height, width))
-            if not np.isfinite(image).all() or image.min() < 0.0 or image.max() > 1.0:
-                raise ValueError(f"capture {key!r} must be finite RGB in [0, 1]")
+        for key, image in present_images(capture, policy.config.image_features, batch_size).items():
             batch[key] = torch.from_numpy(image)
         with torch.no_grad():
             actions = policy.predict_action_chunk(batch, noise=torch.from_numpy(noise))

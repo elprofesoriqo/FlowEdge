@@ -38,9 +38,19 @@ public:
   // used by streaming decode, making prefix/decode parity testable by design.
   [[nodiscard]] bool forward_tokens(std::span<const std::int32_t> tokens,
                                     std::span<float> output) noexcept;
+  // Prefill caller-supplied embeddings with an optional prefix mask. A mask is
+  // batch-one, byte-valued, and must contain leading ones followed by padding
+  // zeros. This is the first explicit condition-sequence boundary for VLA
+  // adapters; cross-attention and the SmolVLA expert remain separate work.
+  [[nodiscard]] bool forward_embeddings(std::span<const float> embeddings,
+                                        std::span<const std::uint8_t> attention_mask,
+                                        std::span<float> output) noexcept;
   // Process one already-embedded token. This is the VLA boundary: image,
   // proprioception and language encoders remain outside the generic backbone.
   [[nodiscard]] bool decode_embedding(std::span<const float> embedding,
+                                      std::span<float> output) noexcept;
+  [[nodiscard]] bool decode_embedding(std::span<const float> embedding,
+                                      std::span<const std::uint8_t> attention_mask,
                                       std::span<float> output) noexcept;
   [[nodiscard]] bool decode_token(std::int32_t token, std::span<float> output) noexcept;
 
@@ -63,7 +73,8 @@ private:
     float* value_cache{}; // [max_sequence][d_model]
   };
 
-  [[nodiscard]] bool decode_layer(Layer& layer, std::span<float> hidden) noexcept;
+  [[nodiscard]] bool decode_layer(Layer& layer, std::span<float> hidden,
+                                  std::span<const std::uint8_t> attention_mask) noexcept;
   [[nodiscard]] std::span<float> scratch(std::size_t count) noexcept
   {
     return arena_->alloc_span<float, kSimdAlign>(count);

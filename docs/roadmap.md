@@ -4,7 +4,7 @@
 
 | Layer | Complete |
 |---|---|
-| Core | Mamba, flow head, CPU kernels, BF16 weights, C/C++/Python APIs |
+| Core | Mamba, flow head, CPU kernels, BF16 weights, C/C++/Python APIs, cached-VLM SmolVLA action-expert boundary |
 | State | Resumable flow solving, Mamba snapshots, generic job capsules |
 | Relay service | Action and generic-job daemons, EDF, cancellation, administration |
 | Action delivery | Multi-rate chunks, timed replacement, freshness and safety gate |
@@ -20,14 +20,15 @@ Tenstorrent, then DeadlineFlow experiments. CPU Mamba remains a supported refere
 |---:|---|---|
 | 1 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks, reset tests |
 | 2 | Matched replay and task evaluation | Raw timings, checkpoint/processor hashes, PushT episode outcomes |
-| 3 | Exact SmolVLA reference contract | Pinned real-checkpoint preflight; converter, source-encoder parity, and complete action-expert execution still required |
+| 3 | Exact SmolVLA reference contract | Pinned checkpoint preflight and suffix parity; captured-VLM expert replay parity and source-encoder parity still required |
 | 4 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers, complete Euler integration |
 | 5 | Accelerator optimization | Profile-driven layouts, traces or kernels; reproducible hardware records |
 | 6 | DeadlineFlow research evaluation | Fixed/adaptive baselines, quality/deadline curves, underruns, ablations |
 | 7 | Broader support | Second hardware generation/model after the first path passes its gates |
 
-The first DeadlineFlow selector and CPU DDIM bridge are experimental. SmolVLA and
-Tenstorrent execution remain unimplemented. The thesis delivers the measured backend;
+The first DeadlineFlow selector and CPU DDIM bridge are experimental. Full SmolVLA and
+Tenstorrent execution remain unimplemented; the cached-VLM action expert is an explicit
+boundary rather than a full-policy claim. The thesis delivers the measured backend;
 the paper tests scheduling; the CppCon talk explains measured C++ design decisions.
 See [policy evaluation](guides/policy-evaluation), [DeadlineFlow](guides/deadline-flow),
 and the [Tenstorrent program](tenstorrent-program).

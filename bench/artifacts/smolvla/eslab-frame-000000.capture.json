@@ -1,0 +1,44 @@
+{
+  "camera_shapes": {
+    "observation.images.camera1": [
+      1,
+      3,
+      480,
+      640
+    ],
+    "observation.images.camera2": [
+      1,
+      3,
+      480,
+      640
+    ]
+  },
+  "camera_sources": {
+    "observation.images.camera1": {
+      "file": "file-000.mp4",
+      "sha256": "aed593d0a882d310c201463f4aba6948af756d70d195267b8dce6410fc5af087"
+    },
+    "observation.images.camera2": {
+      "file": "file-000.mp4",
+      "sha256": "017fd92ec872caea283662cc60821f9bea1c3044b9f0a483c1cb8025b14c824d"
+    }
+  },
+  "capture_sha256": "ef545399cc70d6c04f242a6bf16d064221e1e00b694eff81aa4a1ff3d2f6f719",
+  "data_parquet": "file-000.parquet",
+  "data_parquet_sha256": "f65cc4ad0862433fffaa057f96a317dc6c47c418166107fe6f41e14d3c6c96f0",
+  "dataset": "eslab1234/smolvla_multitask_hil_285k_v1_220ep_trimmed",
+  "dataset_license": "Apache-2.0",
+  "dataset_revision": "f2252cd9c68f79bc645a92cd8b5418989c65e6c6",
+  "frame_index": 0,
+  "noise_seed": 17,
+  "noise_sha256": "322dc55cf0ac0509d3c2e079c49b92c7b716b1f541d5b8b00981578f8589a4da",
+  "recorded_state_shape": [
+    1,
+    6
+  ],
+  "schema_version": 1,
+  "scope": "recorded LeRobot observation mapped to configured source camera keys; no image synthesis, camera duplication, or model-quality claim",
+  "status": "passed",
+  "task": "Pick up the 5 blocks in sequence (red, yellow, wood, green, blue), then place each block separately into its designated target position.\n",
+  "video_frame_index": 0
+}

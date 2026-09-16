@@ -138,7 +138,8 @@ void Transformer::reset() noexcept
   position_ = 0uz;
 }
 
-bool Transformer::decode_layer(Layer& layer, std::span<float> hidden) noexcept
+bool Transformer::decode_layer(Layer& layer, std::span<float> hidden,
+                               std::span<const std::uint8_t> attention_mask) noexcept
 {
   std::byte* const mark = arena_->mark();
   const std::size_t model = cfg_.d_model;
@@ -168,7 +169,9 @@ bool Transformer::decode_layer(Layer& layer, std::span<float> hidden) noexcept
       float dot{};
       for (std::size_t channel{}; channel < head_width; ++channel)
         dot += qkv[offset + channel] * key[channel];
-      scores[token] = dot * inverse_scale;
+      scores[token] = (!attention_mask.empty() && attention_mask[token] == 0u)
+                          ? -std::numeric_limits<float>::infinity()
+                          : dot * inverse_scale;
     }
     softmax(scores);
     for (std::size_t channel{}; channel < head_width; ++channel) {
@@ -195,6 +198,13 @@ bool Transformer::decode_layer(Layer& layer, std::span<float> hidden) noexcept
 bool Transformer::decode_embedding(std::span<const float> embedding,
                                    std::span<float> output) noexcept
 {
+  return decode_embedding(embedding, {}, output);
+}
+
+bool Transformer::decode_embedding(std::span<const float> embedding,
+                                   std::span<const std::uint8_t> attention_mask,
+                                   std::span<float> output) noexcept
+{
   if (!valid_ || embedding.size() != cfg_.d_model || output.size() != cfg_.d_model ||
       position_ >= cfg_.max_sequence)
     return false;
@@ -209,7 +219,7 @@ bool Transformer::decode_embedding(std::span<const float> embedding,
   for (std::size_t i{}; i < cfg_.d_model; ++i)
     hidden[i] = embedding[i] + position[i];
   for (std::size_t layer{}; layer < cfg_.n_layers; ++layer)
-    if (!decode_layer(layers_[layer], hidden)) {
+    if (!decode_layer(layers_[layer], hidden, attention_mask)) {
       arena_->reset_to(mark);
       return false;
     }
@@ -239,6 +249,42 @@ bool Transformer::forward_tokens(std::span<const std::int32_t> tokens,
   reset();
   for (std::size_t index{}; index < tokens.size(); ++index)
     if (!decode_token(tokens[index], output.subspan(index * cfg_.d_model, cfg_.d_model)))
+      return false;
+  return true;
+}
+
+bool Transformer::forward_embeddings(std::span<const float> embeddings,
+                                     std::span<const std::uint8_t> attention_mask,
+                                     std::span<float> output) noexcept
+{
+  if (!valid_ || embeddings.empty() || embeddings.size() % cfg_.d_model != 0uz ||
+      output.size() != embeddings.size())
+    return false;
+  const std::size_t sequence = embeddings.size() / cfg_.d_model;
+  if (sequence > cfg_.max_sequence ||
+      (!attention_mask.empty() && attention_mask.size() != sequence))
+    return false;
+  if (!attention_mask.empty()) {
+    bool seen_padding = false;
+    bool has_valid_token = false;
+    for (const std::uint8_t value : attention_mask) {
+      if (value > 1u)
+        return false;
+      if (value == 0u)
+        seen_padding = true;
+      else {
+        has_valid_token = true;
+        if (seen_padding)
+          return false;
+      }
+    }
+    if (!has_valid_token)
+      return false;
+  }
+  reset();
+  for (std::size_t index{}; index < sequence; ++index)
+    if (!decode_embedding({embeddings.data() + (index * cfg_.d_model), cfg_.d_model},
+                          attention_mask, {output.data() + (index * cfg_.d_model), cfg_.d_model}))
       return false;
   return true;
 }

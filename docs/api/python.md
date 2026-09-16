@@ -58,6 +58,52 @@ action = np.empty(e.action_dim, dtype=np.float32)
 e.sample_condition(condition, noise, action, 8, "heun")
 ```
 
+For a generic Transformer checkpoint, the experimental boundary accepts
+caller-owned embedding rows. A batch-one prefix mask may be supplied for padded
+VLA sequences; it must contain
+leading `1` values followed by `0` padding:
+
+```python
+transformer = flowedge.Engine("models/tiny-gpt2.flowedge.safetensors")
+embeddings = external_vlm(observation).astype(np.float32, copy=False)
+mask = np.array([1, 1, 1, 0], dtype=np.uint8)
+hidden = transformer.run_embeddings(embeddings, attention_mask=mask)
+```
+
+This is an embedding boundary, not a native SmolVLA encoder.
+
+The pinned SmolVLA checkpoint exposes the native action expert when the caller
+supplies a captured VLM K/V cache. Its three allocation-free primitives are
+suffix embedding, expert execution, and action projection:
+
+```python
+smolvla = flowedge.Engine("models/smolvla_base/model.safetensors")
+noisy_actions = np.zeros((50, 32), dtype=np.float32)
+suffix = smolvla.smolvla_embed_suffix(noisy_actions, timestep=1.0)
+assert suffix.shape == (50, 720)
+
+# Cache layout: [16 expert layers, prefix length, 320 VLM K/V values].
+# Keys have already received the VLM RoPE transform. The uint8 mask has one
+# validity byte per prefix slot; source SmolVLA may have zero-padded language
+# tokens before a valid state token.
+hidden = smolvla.smolvla_run_expert(suffix, prefix_keys, prefix_values, prefix_mask)
+velocity_padded = smolvla.smolvla_project_actions(hidden)
+
+# Prefer this equivalent single call in the control loop.
+velocity_padded = smolvla.smolvla_denoise(
+    noisy_actions, 1.0, prefix_keys, prefix_values, prefix_mask
+)
+
+# Source SmolVLA's deterministic 10-step Euler loop, seeded by the caller.
+actions_padded = smolvla.smolvla_sample(
+    initial_noise, prefix_keys, prefix_values, prefix_mask, steps=10
+)
+```
+
+This does not run LeRobot observation preprocessing, image/language encoding,
+or build the VLM cache. A real captured-cache *trajectory* replay artifact is
+still required before making a native SmolVLA inference or control-quality claim.
+
 The same solve can be split across scheduler quanta without changing its result:
 
 ```python

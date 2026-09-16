@@ -1,0 +1,22 @@
+{
+  "checkpoint": "model.safetensors",
+  "checkpoint_sha256": "7cd549ac2351fb069c0ddb3c34ad2d09cfc92b56a15dccdfc2e41467aaca01eb",
+  "expert_layers": 16,
+  "expert_width": 720,
+  "hidden_max_absolute_error": 0.0703125,
+  "hidden_mean_absolute_error": 0.0067158048041164875,
+  "hidden_tolerance": 0.1,
+  "key_value_width": 320,
+  "prefix_length": 177,
+  "reference": "eslab-frame-000000.expert-reference.npz",
+  "reference_sha256": "57c4b313583eb06c7a90be5bc69933210474e6ee0b74533785c9a1cfdebf0ace",
+  "schema_version": 1,
+  "scope": "real captured VLM K/V cache replay through the native SmolVLA action expert; not VLM/preprocessor parity, latency, or policy-quality evaluation",
+  "source_noisy_actions_sha256": "b96bbcf16044fe2ef6e2738a8cb5ea27be8e1dc7344f2c14570489732ce72b1d",
+  "source_prefix_keys_sha256": "1f2aa5c347ef38cd1a5e804dd46ba7dd712eb2b4be0d8ee1776d448dd24d641c",
+  "source_prefix_values_sha256": "7788855db0a979eacda8a7d066e326b498845a8bbb2e9edcc1834c3a41f3d57d",
+  "status": "passed",
+  "velocity_max_absolute_error": 0.04370760917663574,
+  "velocity_mean_absolute_error": 0.004934076685458422,
+  "velocity_tolerance": 0.08
+}

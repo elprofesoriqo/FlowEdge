@@ -251,37 +251,39 @@ void inspect_smolvla(std::span<const fe::TensorMetadata> tensors, Report& report
   const auto* state = find_tensor(tensors, "model.state_proj.weight");
   const auto* expert_norm = find_tensor(tensors, "model.vlm_with_expert.lm_expert.norm.weight");
   for (const std::string_view name : {
-         "model.action_in_proj.weight",
-         "model.action_in_proj.bias",
-         "model.action_out_proj.weight",
-         "model.action_out_proj.bias",
-         "model.action_time_mlp_in.weight",
-         "model.action_time_mlp_in.bias",
-         "model.action_time_mlp_out.weight",
-         "model.action_time_mlp_out.bias",
-         "model.state_proj.weight",
-         "model.state_proj.bias",
-         "model.vlm_with_expert.lm_expert.norm.weight",
+           "model.action_in_proj.weight",
+           "model.action_in_proj.bias",
+           "model.action_out_proj.weight",
+           "model.action_out_proj.bias",
+           "model.action_time_mlp_in.weight",
+           "model.action_time_mlp_in.bias",
+           "model.action_time_mlp_out.weight",
+           "model.action_time_mlp_out.bias",
+           "model.state_proj.weight",
+           "model.state_proj.bias",
+           "model.vlm_with_expert.lm_expert.norm.weight",
        })
     missing_if_absent(tensors, name, report);
 
-  if (action_in != nullptr && action_in->ndim == 2uz)
-    report.d_model = action_in->shape[0];
-  if (time_in != nullptr && time_in->ndim == 2uz)
-    report.d_inner = time_in->shape[1];
+  if (action_in != nullptr && action_in->ndim == 2uz) {
+    report.d_inner = action_in->shape[0];
+    report.action_dim = action_in->shape[1];
+  }
+  if (state != nullptr && state->ndim == 2uz)
+    report.d_model = state->shape[0];
   report.n_layers = layer_count(tensors, "model.vlm_with_expert.lm_expert.layers.");
 
-  if (action_in != nullptr && !shape_is(action_in, {report.d_model, 32uz}))
+  if (action_in != nullptr && !shape_is(action_in, {report.d_inner, 32uz}))
     report.errors.emplace_back("SmolVLA action input projection has an incompatible shape");
-  if (action_out != nullptr && !shape_is(action_out, {32uz, report.d_model}))
+  if (action_out != nullptr && !shape_is(action_out, {32uz, report.d_inner}))
     report.errors.emplace_back("SmolVLA action output projection has an incompatible shape");
-  if (time_in != nullptr && !shape_is(time_in, {report.d_model, 2uz * report.d_model}))
+  if (time_in != nullptr && !shape_is(time_in, {report.d_inner, 2uz * report.d_inner}))
     report.errors.emplace_back("SmolVLA time input projection has an incompatible shape");
-  if (time_out != nullptr && !shape_is(time_out, {report.d_model, report.d_model}))
+  if (time_out != nullptr && !shape_is(time_out, {report.d_inner, report.d_inner}))
     report.errors.emplace_back("SmolVLA time output projection has an incompatible shape");
   if (state != nullptr && !shape_is(state, {960uz, 32uz}))
     report.errors.emplace_back("SmolVLA state projection has an incompatible shape");
-  if (expert_norm != nullptr && !shape_is(expert_norm, {report.d_model}))
+  if (expert_norm != nullptr && !shape_is(expert_norm, {report.d_inner}))
     report.errors.emplace_back("SmolVLA expert norm has an incompatible shape");
   if (report.n_layers == 0uz)
     report.errors.emplace_back("SmolVLA action expert has no numbered layers");
@@ -290,23 +292,24 @@ void inspect_smolvla(std::span<const fe::TensorMetadata> tensors, Report& report
     const std::string prefix =
         "model.vlm_with_expert.lm_expert.layers." + std::to_string(layer) + ".";
     for (const std::string_view suffix : {
-           "input_layernorm.weight",
-           "post_attention_layernorm.weight",
-           "self_attn.q_proj.weight",
-           "self_attn.k_proj.weight",
-           "self_attn.v_proj.weight",
-           "self_attn.o_proj.weight",
-           "mlp.gate_proj.weight",
-           "mlp.up_proj.weight",
-           "mlp.down_proj.weight",
+             "input_layernorm.weight",
+             "post_attention_layernorm.weight",
+             "self_attn.q_proj.weight",
+             "self_attn.k_proj.weight",
+             "self_attn.v_proj.weight",
+             "self_attn.o_proj.weight",
+             "mlp.gate_proj.weight",
+             "mlp.up_proj.weight",
+             "mlp.down_proj.weight",
          })
       missing_if_absent(tensors, prefix + std::string{suffix}, report);
   }
 
-  // The checkpoint is intentionally recognized but not admitted to the native
-  // runtime: preprocessing, the VLM encoder, and the action expert are not yet
-  // implemented by FlowEdge.
-  report.errors.emplace_back("SmolVLA source encoder and action expert are not implemented");
+  // The checkpoint is recognized but full-policy admission remains closed.
+  // FlowEdge can execute the action expert from a captured VLM K/V cache, but
+  // preprocessing and production of that cache remain external.
+  report.errors.emplace_back("SmolVLA full VLM encoder is not implemented; the action expert "
+                             "requires an external VLM K/V cache");
   report.errors.emplace_back(
       "SmolVLA requires the LeRobot image/language preprocessing and observation-history boundary");
 }
@@ -589,8 +592,8 @@ int main(int argc, char** argv)
   const bool transformer = has_prefix(tensors, "transformer.");
   const bool flow = has_prefix(tensors, "flow.");
   const bool diffusion = has_prefix(tensors, "dp.");
-  const bool smolvla = has_prefix(tensors, "model.vlm_with_expert.") &&
-                       has_prefix(tensors, "model.action_in_proj.");
+  const bool smolvla =
+      has_prefix(tensors, "model.vlm_with_expert.") && has_prefix(tensors, "model.action_in_proj.");
   report.family = diffusion             ? "diffusion-policy"
                   : smolvla             ? "smolvla"
                   : transformer && flow ? "transformer-flow"

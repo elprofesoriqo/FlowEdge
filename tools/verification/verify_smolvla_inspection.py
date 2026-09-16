@@ -52,19 +52,19 @@ def main() -> int:
         compatibility = report["compatibility"]
         errors = compatibility["errors"]
         required_errors = {
-            "SmolVLA source encoder and action expert are not implemented",
+            "SmolVLA full VLM encoder is not implemented; the action expert requires an external VLM K/V cache",
             "SmolVLA requires the LeRobot image/language preprocessing and observation-history boundary",
         }
         if model["family"] != "smolvla":
             raise RuntimeError(f"unexpected model family: {model['family']!r}")
-        if model["d_model"] != 720 or model["layers"] != 16:
+        if model["d_model"] != 960 or model["d_inner"] != 720 or model["layers"] != 16:
             raise RuntimeError("unexpected SmolVLA expert dimensions")
         if checkpoint["tensor_count"] != 500:
             raise RuntimeError("unexpected SmolVLA tensor count")
         if checkpoint["precision"] != "mixed":
             raise RuntimeError("unexpected SmolVLA precision classification")
-        if report["memory"]["arena_bytes"] != 0:
-            raise RuntimeError("unsupported SmolVLA must not reserve a runtime arena")
+        if report["memory"]["arena_bytes"] <= 0:
+            raise RuntimeError("SmolVLA suffix boundary must reserve a runtime arena")
         if compatibility["supported"] or compatibility["missing_required_tensors"]:
             raise RuntimeError("inspector admitted or incompletely recognized SmolVLA")
         if not required_errors.issubset(errors):
@@ -82,7 +82,7 @@ def main() -> int:
         "checkpoint_sha256": sha256(args.checkpoint),
         "native_digest": checkpoint["digest"],
         "family": model["family"],
-        "expert_width": model["d_model"],
+        "expert_width": model["d_inner"],
         "expert_layers": model["layers"],
         "tensor_count": checkpoint["tensor_count"],
         "precision": checkpoint["precision"],
@@ -90,8 +90,9 @@ def main() -> int:
         "supported_by_flowedge": compatibility["supported"],
         "status": "passed",
         "scope": (
-            "real SmolVLA safetensors schema recognition and explicit unsupported boundary; "
-            "not FlowEdge inference, action generation, latency, or policy-quality evaluation"
+            "real SmolVLA safetensors schema recognition and explicit full-policy boundary; "
+            "suffix projection parity is covered separately; cached-VLM action-expert replay, "
+            "latency, and policy-quality evaluation are not covered"
         ),
     }
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"

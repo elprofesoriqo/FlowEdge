@@ -1,0 +1,84 @@
+{
+  "benchmark": "smolvla_hybrid",
+  "capture": "eslab-frame-000000.capture.npz",
+  "captured_at": "2026-09-15T19:41:52.278291+00:00",
+  "checkpoint": "model.safetensors",
+  "hardware": {
+    "build_type": "Release",
+    "compiler": "Clang 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)",
+    "cpu": "Intel64 Family 6 Model 158 Stepping 13, GenuineIntel",
+    "host": "Jankowski",
+    "native_threads": 1,
+    "os": "Windows-10-10.0.26200-SP0",
+    "threads": 1
+  },
+  "iterations": 1,
+  "limitations": [
+    "Quantiles are not stable estimates when iterations is small; use a larger matched run for p99 claims.",
+    "Prepared capture starts after camera capture, dataset decoding, tokenizer, and public processor I/O.",
+    "The hybrid path keeps the VLM and preprocessing in LeRobot/PyTorch; it does not measure a native VLM implementation.",
+    "No controller queue, deadline, underrun, task-success, or control-quality measurement is included."
+  ],
+  "measurements_ms": {
+    "flowedge_cached_action_expert": {
+      "p50": 6519.3978,
+      "p95": 6519.3978,
+      "p99": 6519.3978
+    },
+    "hybrid_source_prefix_to_action": {
+      "p50": 74298.6135,
+      "p95": 74298.6135,
+      "p99": 74298.6135
+    },
+    "pytorch_prepared_capture_to_action": {
+      "p50": 83986.3315,
+      "p95": 83986.3315,
+      "p99": 83986.3315
+    },
+    "source_vlm_prefix_and_cache": {
+      "p50": 67779.2157,
+      "p95": 67779.2157,
+      "p99": 67779.2157
+    }
+  },
+  "parity": {
+    "action_shape": [
+      50,
+      6
+    ],
+    "max_absolute_error": 0.01609325408935547,
+    "tolerance": 0.03
+  },
+  "provenance": {
+    "cache_keys_sha256": "7919fd3877b0daac91f0fb3db749d47002130a0b20662b3a78bd875149652106",
+    "cache_prefix_length": 177,
+    "cache_values_sha256": "84dee5e16df3c2bb9b572a875805e62cfcd16e348fa4d966e99aaaf78a2781f6",
+    "capture_sha256": "ef545399cc70d6c04f242a6bf16d064221e1e00b694eff81aa4a1ff3d2f6f719",
+    "noise_sha256": "99055a9070ad90c13d76355243c3d9db676b56dad310617c33d85def04172340"
+  },
+  "raw_samples_ms": {
+    "flowedge_cached_action_expert": [
+      6519.3978
+    ],
+    "hybrid_source_prefix_to_action": [
+      74298.6135
+    ],
+    "pytorch_prepared_capture_to_action": [
+      83986.3315
+    ],
+    "source_vlm_prefix_and_cache": [
+      67779.2157
+    ]
+  },
+  "sample_count": 1,
+  "schema_version": 1,
+  "scope": "prepared real LeRobot capture through source PyTorch or source VLM-prefix plus native FlowEdge action expert; excludes camera capture, dataset decode, transport, controller delivery, native VLM implementation, and task-quality evaluation",
+  "status": "passed",
+  "versions": {
+    "lerobot": "0.4.4",
+    "numpy": "2.2.6",
+    "torch": "2.10.0+cpu",
+    "transformers": "4.57.6"
+  },
+  "warmup": 0
+}
