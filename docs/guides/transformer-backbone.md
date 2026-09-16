@@ -74,9 +74,10 @@ python tools/smolvla_preflight.py models/smolvla_base/model.safetensors \
   --output bench/artifacts/smolvla/smolvla-base-preflight.json
 ```
 
-The resulting manifest establishes the real-source contract only. Native
-support is the cached-expert plugin (`--policy.type=flowedge_smolvla`), not a
-full VLM. The encoder stays in LeRobot.
+The resulting manifest establishes the real-source contract only. It records
+`supported_by_flowedge: false`; the native path is intentionally partial until
+the source encoder, captured-VLM expert replay parity, complete Euler action
+integration, and matched task evaluation are available.
 
 The first native action-expert boundary is now implemented for the real
 checkpoint: action projection, the exact SmolVLA sine/cosine timestep embedding,
@@ -217,12 +218,7 @@ the full `50 x 6` action chunk. It remains source-owned preprocessing/VLM plus
 native expert execution: this is not native VLM/full-native SmolVLA evidence,
 and it makes no latency, control-quality, or task-success claim.
 
-`--policy.type=flowedge_smolvla` registers that boundary as a LeRobot policy
-type. The VLM stays in LeRobot; FlowEdge executes the native expert.
-
-```bash
-python -m pip install -e 'integrations/lerobot[smolvla]'
-```
+The native inspector recognizes this real checkpoint schema but fails closed:
 
 ```bash
 build/flowedge-inspect models/smolvla_base/model.safetensors --json

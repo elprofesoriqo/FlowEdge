@@ -44,7 +44,7 @@ flowchart LR
 
 | Area | Capabilities |
 |---|---|
-| Models | Mamba streaming; flow head with Euler, Heun, RK4; fixed LeRobot Diffusion Policy head; SmolVLA cached action expert |
+| Models | Mamba streaming; flow head with Euler, Heun, RK4; fixed LeRobot Diffusion Policy head; cached SmolVLA action expert |
 | Weights | FP32/BF16 `.safetensors`; shared immutable worker weights |
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
@@ -52,7 +52,7 @@ flowchart LR
 | Generic jobs | Iterative, streaming, speculative; QoS reservations; drain, quarantine, recovery |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
-| LeRobot | `--policy.type=flowedge` and `flowedge_smolvla`; hold/drop/raise miss behavior; visual DP encoder stays in LeRobot |
+| LeRobot | Encoded conditions or the supported source visual Diffusion Policy encoder; seeded chunk consumption; `--on-miss` hold/drop/raise; `--policy.type=flowedge` and `flowedge_smolvla` |
 | Evaluation | Matched visual-policy replay; PushT closed-loop runner; periodic inference with underrun/freshness telemetry |
 | DeadlineFlow | Fixed-capacity calibrated-plan selector; CPU DDIM bridge; accelerator plans remain future work |
 | External runtime | Optional fixed-shape ONNX Runtime companion adapter; separate allocation contract |
@@ -76,9 +76,9 @@ flowchart LR
 | Area | Status |
 |---|---|
 | External runtime plugins | TensorRT, general PyTorch, llama.cpp/vLLM adapters are planned |
-| Transformer and KV cache | GPT-2 baseline is a kernel incubator. SmolVLA uses a native expert plus a LeRobot VLM cache. |
-| Diffusion Policy | LeRobot `diffusion_pusht` head is available and slower than PyTorch CPU on the published replay |
-| CUDA, Metal, Vulkan, TTNN | Unimplemented. Not advertised until a user policy beats PyTorch. |
+| Transformer and KV cache | Experimental fixed-shape GPT-style CPU baseline and KV cache; real GPT-2 conversion smoke-tested, policy parity remains pending |
+| Diffusion Policy | LeRobot `diffusion_pusht` head is available; DiT and π0 remain planned |
+| CUDA, Metal, Vulkan, TTNN | Planned backends |
 | ROS 2 and Zenoh | Optional Relay adapters after the production model service |
 | Distributed scheduling | Deferred until local traces justify it |
 

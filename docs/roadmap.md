@@ -13,18 +13,18 @@
 
 ## Active development sequence
 
-FlowEdge prioritizes a faster LeRobot Diffusion Policy drop-in, a SmolVLA
-cached-expert plugin, then ARM/Jetson evidence. CPU Mamba remains a supported
-CI fixture. Tenstorrent and DeadlineFlow stay research tracks.
+FlowEdge prioritizes a validated trained LeRobot policy, SmolVLA execution on
+Tenstorrent, then DeadlineFlow experiments. CPU Mamba remains a supported reference.
 
 | Order | Deliverable | Acceptance evidence |
 |---:|---|---|
-| 1 | Packed Diffusion Policy convolution | Replay at or below LeRobot/PyTorch; zero hot-path alloc |
-| 2 | `flowedge` / `flowedge_smolvla` plugin | Seeded chunks, hold/drop/raise, hybrid expert parity |
-| 3 | ARM/Jetson rollout JSON | Same schema as the Windows replay |
-| 4 | Exact SmolVLA cache contract | Pinned checkpoint preflight and captured-VLM expert replay |
-| 5 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers |
-| 6 | DeadlineFlow research evaluation | Quality/deadline curves after a user policy wins |
+| 1 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks, reset tests |
+| 2 | Matched replay and task evaluation | Raw timings, checkpoint/processor hashes, PushT episode outcomes |
+| 3 | Exact SmolVLA reference contract | Pinned checkpoint preflight and suffix parity; captured-VLM expert replay parity and source-encoder parity still required |
+| 4 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers, complete Euler integration |
+| 5 | Accelerator optimization | Profile-driven layouts, traces or kernels; reproducible hardware records |
+| 6 | DeadlineFlow research evaluation | Fixed/adaptive baselines, quality/deadline curves, underruns, ablations |
+| 7 | Broader support | Second hardware generation/model after the first path passes its gates |
 
 The first DeadlineFlow selector and CPU DDIM bridge are experimental. Full SmolVLA and
 Tenstorrent execution remain unimplemented; the cached-VLM action expert is an explicit

@@ -4,11 +4,12 @@ Choose the shortest path for what you are building:
 
 | Goal | Continue at |
 |---|---|
-| Deploy a converted LeRobot Diffusion Policy | [LeRobot rollout](lerobot-rollout) |
-| Deploy SmolVLA with a cached VLM | [SmolVLA cached expert](smolvla-cached-expert) |
+| Run the included complete policy | [Sample an action](sample-an-action) |
+| Deploy a converted LeRobot Diffusion Policy | [LeRobot adapter](guides/lerobot) |
+| Deploy SmolVLA with a cached VLM | [Transformer / SmolVLA guide](guides/transformer-backbone) |
 | Supply conditions from your own encoder | [Use an external encoder](use-an-external-encoder) |
-| Run the Mamba CI fixture | [Sample a Mamba action](sample-an-action) |
 | Run a local inference service | [Relay end-to-end demo](relay-end-to-end-demo) |
+| Adapt a stateful ML workload | [Generic cooperative jobs](generic-cooperative-jobs) |
 | Use NumPy/Python | [Python](python-quickstart) |
 
 See [Capabilities](capabilities) for the full implemented/planned matrix and current limitations.
@@ -23,49 +24,37 @@ git clone https://github.com/elprofesoriqo/FlowEdge.git
 cd FlowEdge
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
-python -m pip install .
+```
+
+## Get a model
+
+Download one to try, or convert your own (see [Converter](guides/converter)).
+
+```bash
+mkdir -p models
+wget -qO models/mamba_flow.safetensors \
+  "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
+```
+
+(sample-an-action)=
+## Sample an action
+
+```bash
+./build/flow_sample models/mamba_flow.safetensors euler 10
+# action_dim=8  solver=euler  NFE=10  action[0..2]=0.021476, 0.176867, 0.692564
+```
+
+Solver is `euler`, `heun`, or `rk4`. The last argument is the number of steps.
+
+A converted LeRobot Diffusion Policy uses the companion adapter. Observation encoding stays in LeRobot.
+
+```bash
 python -m pip install -e integrations/lerobot
-```
-
-(lerobot-rollout)=
-## LeRobot rollout
-
-This is the product path. Convert a pinned Diffusion Policy, then measure a
-bounded control loop. The encoder, joint limits, and emergency-stop stay in
-LeRobot or the robot adapter.
-
-```bash
-hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
-  --local-dir models/diffusion_pusht
-python convert/convert.py models/diffusion_pusht \
-  models/diffusion_pusht.flowedge.safetensors --arch diffusion --dtype f32
 flowedge-lerobot-rollout models/diffusion_pusht.flowedge.safetensors \
-  --steps 10 --threads 4 --period-ms 10 --on-miss hold
+  --steps 10 --period-ms 10 --on-miss hold
 ```
 
-`--on-miss` is `hold` (repeat the last successfully sent action; zeros if none),
-`drop` (skip `send_action`), or `raise` (`DeadlineMissed`). See the
-[LeRobot adapter](guides/lerobot) for `--policy.type=flowedge` and ARM/Jetson
-commands.
-
-The published CPU replay is still slower than PyTorch; treat the JSON
-`p50_ms` / `missed_deadlines` as the number to beat, not a latency claim.
-
-(smolvla-cached-expert)=
-## SmolVLA cached expert
-
-`--policy.type=flowedge_smolvla` runs the native Euler action expert. LeRobot
-owns SigLIP + SmolLM and supplies the KV cache. This is not a native VLM.
-
-```bash
-python -m pip install -e 'integrations/lerobot[smolvla]'
-python tools/verification/verify_smolvla_hybrid.py \
-  models/smolvla_base/model.safetensors models/smolvla_base \
-  bench/artifacts/smolvla/eslab-frame-000000.capture.npz \
-  --module-path build
-```
-
-See the [Transformer / SmolVLA guide](guides/transformer-backbone).
+`--on-miss` is `hold`, `drop`, or `raise`. Observation encoding stays in LeRobot. See the [LeRobot adapter](guides/lerobot).
 
 (use-an-external-encoder)=
 ## Use an external encoder
@@ -88,26 +77,10 @@ State can migrate between compatible streaming engines without exposing raw inte
 # snapshot_bytes=... migrated_exact=true output0=...
 ```
 
-(sample-an-action)=
-## Sample a Mamba action
-
-Mamba + flow is the allocation/streaming CI fixture. It is not the LeRobot
-product default.
-
-```bash
-mkdir -p models
-wget -qO models/mamba_flow.safetensors \
-  "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors"
-./build/flow_sample models/mamba_flow.safetensors euler 10
-# action_dim=8  solver=euler  NFE=10  action[0..2]=0.021476, 0.176867, 0.692564
-```
-
-Solver is `euler`, `heun`, or `rk4`. The last argument is the number of steps.
-
 (relay-end-to-end-demo)=
 ## Relay end-to-end demo
 
-Relay is optional. Build the local systems layer, then run its daemon/client/deadline/trace lifecycle:
+Build the optional local systems layer, then run its daemon/client/deadline/trace lifecycle:
 
 ```bash
 FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/build.sh Release -DFLOWEDGE_RELAY=ON
@@ -117,7 +90,29 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 The demo starts two preallocated workers, submits through `RelayClient`, demonstrates a typed
 deadline rejection, shuts the daemon down, inspects the portable trace, and replays completed actions.
 Use `scripts/verify_all.sh` for the complete tests/examples/benchmarks/install-consumer gate.
-See the [Relay quickstart](guides/relay-quickstart) for manual daemon/client commands.
+See the [Relay quickstart](guides/relay-quickstart) for manual daemon/client commands, expected
+outcomes, production settings, and troubleshooting.
+
+(generic-cooperative-jobs)=
+## Generic cooperative jobs
+
+Relay also exposes a runtime-neutral cooperative contract for iterative, streaming, and speculative
+workloads. The sample advances a toy iterative model, migrates its canonical state capsule to a fresh
+instance, demonstrates streaming cancellation, and completes a speculative job:
+
+```bash
+./build-relay/cooperative_job_sample
+./build-relay/routed_job_sample
+./build-relay/mamba_relay_stream models/mamba_flow.safetensors
+./build-relay/flowedge_cooperative_job_bench 100000
+./build-relay/flowedge_mamba_stream_bench models/mamba_flow.safetensors 1000
+./build-relay/flowedge_worker_drain_bench 10000
+```
+
+`routed_job_sample` drains a live lane and moves its job to a compatible worker.
+`mamba_relay_stream` proves exact Mamba continuation on another engine. The benchmarks fail on a
+hot-path allocation.
+See [Cooperative jobs and state migration](guides/cooperative-jobs).
 
 (python-quickstart)=
 ## Python
@@ -128,19 +123,20 @@ pip install .
 
 ```python
 import numpy as np, flowedge
-e = flowedge.Engine("models/diffusion_pusht.flowedge.safetensors")
+e = flowedge.Engine("models/mamba_flow.safetensors")
+prefix = np.array([1, 2, 3, 4], dtype=np.int32)
+a = e.sample(prefix=prefix,
+             noise=np.random.randn(e.action_dim).astype("float32"),
+             steps=10, method="euler")
 ```
-
-For the Mamba smoke checkpoint, `Engine.sample(prefix, noise, steps, method)`
-accepts `euler`, `heun`, or `rk4`.
 
 ## What to expect
 
 - Model loading may allocate once for weights and runtime setup. The supported hot paths
   allocate no heap memory after engine/worker initialization.
 - One engine owns one mutable stream or active solve; use separate engines for concurrent sessions.
-- The implemented backend is CPU. Converted LeRobot Diffusion Policy and the SmolVLA
-  cached expert are the user paths; Mamba remains the CI fixture.
+- The implemented backend is CPU. Mamba + flow and converted LeRobot Diffusion Policy are available;
+  CUDA, Tenstorrent, and Transformer policy-parity work remain tracked.
 - Relay shared-memory rings are local SPSC endpoints, not a distributed queue.
 - Deadline admission is disabled until you provide a measured `--nfe-ns` value.
 - FlowEdge improves predictability inside the runtime but does not replace OS-level real-time setup or
