@@ -23,3 +23,29 @@ classifiers = [
 cmake.args = ["-DFLOWEDGE_PYTHON=ON"]
 cmake.build-type = "Release"
 ninja.make-fallback = false
+
+[tool.cibuildwheel]
+# Native 64-bit only. `cibuildwheel --print-build-identifiers` on each runner:
+#   linux x86_64:  cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64
+#   linux aarch64: cp310-manylinux_aarch64 cp311-manylinux_aarch64 cp312-manylinux_aarch64
+#   windows AMD64: cp310-win_amd64 cp311-win_amd64 cp312-win_amd64
+#   macos:         cp310-macosx_arm64 (or x86_64) plus cp311/cp312 on that arch
+# Linux aarch64 is ubuntu-24.04-arm in publish.yml, not qemu on ubuntu-latest.
+build = "cp310-* cp311-* cp312-*"
+skip = "pp* *-musllinux_* *-win32 *-manylinux_i686"
+test-skip = "*"
+build-verbosity = 1
+
+[tool.cibuildwheel.linux]
+archs = ["auto64"]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "yum install -y gcc-toolset-13-gcc-c++ ninja-build"
+environment = { PATH = "/opt/rh/gcc-toolset-13/root/usr/bin:$PATH", CC = "gcc", CXX = "g++" }
+
+[tool.cibuildwheel.macos]
+archs = ["auto64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "14.0" }
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]

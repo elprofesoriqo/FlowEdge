@@ -113,6 +113,59 @@ class PluginTests(unittest.TestCase):
 
         register_third_party_plugins()
         self.assertIsNotNone(PreTrainedConfig.get_choice_class("flowedge"))
+        self.assertIsNotNone(PreTrainedConfig.get_choice_class("flowedge_smolvla"))
+
+    def test_smolvla_plugin_consumes_cached_chunks(self):
+        import torch
+        from lerobot.configs.types import FeatureType, PolicyFeature
+        from lerobot_policy_flowedge.configuration_flowedge import FlowEdgeSmolVLAConfig
+        from lerobot_policy_flowedge.modeling_flowedge_smolvla import FlowEdgeSmolVLAPolicy
+        from flowedge_lerobot import FlowEdgeSmolVLACachedExpert, SmolVLAKVCache
+
+        class Engine:
+            model_metadata = {
+                "architecture": 7,
+                "action_dim": 2,
+                "action_horizon": 3,
+                "n_layers": 2,
+            }
+
+            def smolvla_sample(self, noise, prefix_keys, prefix_values, prefix_mask, steps):
+                del noise, prefix_keys, prefix_values, prefix_mask, steps
+                return np.array([[1, 2], [3, 4], [5, 6]], dtype=np.float32)
+
+        class Provider:
+            def reset(self):
+                self.resets = getattr(self, "resets", 0) + 1
+
+            def __call__(self, batch):
+                del batch
+                return SmolVLAKVCache(
+                    keys=np.zeros((2, 3, 320), dtype=np.float32),
+                    values=np.zeros((2, 3, 320), dtype=np.float32),
+                    mask=np.array([1, 1, 0], dtype=np.uint8),
+                )
+
+        config = FlowEdgeSmolVLAConfig(
+            checkpoint_path="expert.safetensors",
+            source_checkpoint_path="smolvla_base",
+            device="cpu",
+            input_features={
+                "observation.state": PolicyFeature(type=FeatureType.STATE, shape=(6,))
+            },
+            output_features={
+                "action": PolicyFeature(type=FeatureType.ACTION, shape=(2,))
+            },
+        )
+        policy = FlowEdgeSmolVLAPolicy(
+            config,
+            expert=FlowEdgeSmolVLACachedExpert(Engine(), action_dim=2, action_steps=2),
+            cache_provider=Provider(),
+        )
+        batch = {"observation.state": torch.zeros(1, 6)}
+        self.assertEqual(policy.select_action(batch).tolist(), [[1, 2]])
+        self.assertEqual(policy.select_action(batch).tolist(), [[3, 4]])
+        self.assertEqual(policy.select_action(batch).tolist(), [[1, 2]])
 
 
 if __name__ == "__main__":

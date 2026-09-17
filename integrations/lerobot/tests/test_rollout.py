@@ -3,6 +3,7 @@ import unittest
 import numpy as np
 
 from flowedge_lerobot import FlowEdgeDiffusionPolicy, MAX_ROLLOUT_STEPS, run_rollout
+from flowedge_lerobot.rollout import DeadlineMissed
 
 
 class FakeEngine:
@@ -99,6 +100,56 @@ class RolloutTests(unittest.TestCase):
             period_ms=0.001,
         )
         self.assertEqual(result.missed_deadlines, 2)
+        self.assertEqual(result.on_miss, "hold")
+
+    def test_on_miss_drop_skips_send(self):
+        robot = FakeRobot()
+        run_rollout(
+            FlowEdgeDiffusionPolicy(FakeEngine()),
+            robot,
+            lambda value: value,
+            steps=2,
+            period_ms=0.001,
+            on_miss="drop",
+        )
+        self.assertEqual(robot.actions, [])
+
+    def test_on_miss_hold_repeats_last_sent_action(self):
+        robot = FakeRobot()
+        run_rollout(
+            FlowEdgeDiffusionPolicy(FakeEngine()),
+            robot,
+            lambda value: value,
+            steps=2,
+            period_ms=0.001,
+            on_miss="hold",
+        )
+        self.assertEqual(len(robot.actions), 2)
+        np.testing.assert_array_equal(robot.actions[0], np.zeros(2, dtype=np.float32))
+        np.testing.assert_array_equal(robot.actions[1], np.zeros(2, dtype=np.float32))
+
+    def test_on_miss_raise(self):
+        robot = FakeRobot()
+        with self.assertRaises(DeadlineMissed):
+            run_rollout(
+                FlowEdgeDiffusionPolicy(FakeEngine()),
+                robot,
+                lambda value: value,
+                steps=1,
+                period_ms=0.001,
+                on_miss="raise",
+            )
+        self.assertEqual(robot.stop_count, 1)
+
+    def test_on_miss_must_be_known(self):
+        with self.assertRaisesRegex(ValueError, "on_miss must be"):
+            run_rollout(
+                FlowEdgeDiffusionPolicy(FakeEngine()),
+                FakeRobot(),
+                lambda value: value,
+                steps=1,
+                on_miss="zero",
+            )
 
     def test_period_must_be_positive(self):
         with self.assertRaisesRegex(ValueError, "period_ms must be positive"):

@@ -84,8 +84,29 @@ cmake --build build-diffusion-perf --target flowedge_kernels_bench -j2
 The former C++ diffusion-latency runner embedded zero conditions and generated
 noise, so it was removed rather than presented as policy evidence. The matched
 visual-policy replay above is the sole public end-to-end diffusion measurement.
-These component figures are not a real-time guarantee; the next performance
-milestone on this U-Net is the DRAM-bound 2048-channel short-row GEMM.
+These component figures are not a real-time guarantee.
+
+Dense Conv1D now packs columns through the existing `matmul` when the caller
+supplies a workspace of `conv1d_workspace_floats` (and `IC*K >= 32`).
+ConvTranspose1D packs per kernel tap when `IC >= 32`. The published 8.55×
+replay still used the scalar path on one thread; do not treat packing as a
+beaten-PyTorch result until that artifact is regenerated.
+
+### Four-thread replay
+
+The published replay pinned `threads=1` for both FlowEdge and PyTorch. Re-run
+the same fixture with a declared thread budget on both sides:
+
+```bash
+python tools/benchmark/run_policy_report.py models/diffusion_pusht.flowedge.safetensors \
+  --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
+  --steps 10 --iterations 20 --warmup 5 --threads 4 \
+  --output bench/artifacts/policy/diffusion-pusht-cpu-replay-4t.json
+```
+
+PyTorch will also thread. Until that JSON exists, the public number remains the
+one-thread artifact above. Kernel microbenchmarks with four workers (3.30 ms /
+11.0 ms / 41.3 ms on the 512/1024/2048 Conv1D cases) are not policy latency.
 
 ### Allocation-conscious inference paths
 
@@ -305,6 +326,5 @@ every compiler or linker configuration.
 
 FlowEdge's hard allocation guarantee applies after engine/worker initialization:
 repeated inference and Relay hot paths must allocate zero heap memory. Model loading
-may still allocate today; strict zero-allocation initialization is tracked separately
-because it requires caller-owned storage or a load-time arena API; see
-[issue #63](https://github.com/elprofesoriqo/FlowEdge/issues/63).
+may still allocate today; a stricter caller-owned load API is not part of the
+current product path.

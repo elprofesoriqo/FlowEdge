@@ -176,6 +176,66 @@ TEST(Mish, MatchesReference)
   }
 }
 
+TEST(ApplyRope, RotatesPairedHalves)
+{
+  std::vector<float> values{1.0F, 0.0F, 0.0F, 1.0F};
+  fe::apply_rope(values, 1uz, 1uz, 4uz, 0uz);
+  EXPECT_NEAR(values[0], 1.0F, 1e-6F);
+  EXPECT_NEAR(values[1], 0.0F, 1e-6F);
+  EXPECT_NEAR(values[2], 0.0F, 1e-6F);
+  EXPECT_NEAR(values[3], 1.0F, 1e-6F);
+  fe::apply_rope(values, 1uz, 1uz, 4uz, 1uz);
+  const float angle = 1.0F / std::exp(9.210340371976184F * (0.0F / 4.0F));
+  EXPECT_NEAR(values[0], std::cos(angle), 1e-5F);
+  EXPECT_NEAR(values[2], std::sin(angle), 1e-5F);
+}
+
+TEST(RoundToBf16, RoundsToNearestEven)
+{
+  std::vector<float> values{1.0F, 1.0F + std::ldexp(1.0F, -16), 1.0F + std::ldexp(1.0F, -17)};
+  fe::round_to_bf16(values);
+  EXPECT_EQ(std::bit_cast<std::uint32_t>(values[0]) & 0xFFFFu, 0u);
+  EXPECT_EQ(std::bit_cast<std::uint32_t>(values[1]) & 0xFFFFu, 0u);
+  EXPECT_EQ(std::bit_cast<std::uint32_t>(values[2]) & 0xFFFFu, 0u);
+}
+
+TEST(RmsNormBf16, RoundsBeforeAndAfterWeight)
+{
+  const std::vector<float> input{3.0F, 4.0F};
+  const std::vector<float> weight{0.5F, 1.5F};
+  std::vector<float> output(2uz);
+  fe::rmsnorm_bf16(input, weight, output, 1uz, 2uz);
+  const float scale = 1.0F / std::sqrt((9.0F + 16.0F) / 2.0F + 1e-5F);
+  std::vector<float> expected{3.0F * scale, 4.0F * scale};
+  fe::round_to_bf16(expected);
+  expected[0] *= 0.5F;
+  expected[1] *= 1.5F;
+  fe::round_to_bf16(expected);
+  EXPECT_EQ(output, expected);
+}
+
+TEST(GroupedQueryAttention, CrossAttendsValidPrefixTokens)
+{
+  constexpr std::size_t rows{1uz}, query_heads{2uz}, kv_heads{1uz}, head_width{2uz}, prefix{2uz};
+  const std::vector<float> query{1.0F, 0.0F, 0.0F, 1.0F};
+  const std::vector<float> keys{1.0F, 0.0F, 0.0F, 1.0F};
+  const std::vector<float> values{2.0F, 3.0F, 4.0F, 5.0F};
+  const std::array<std::uint8_t, prefix> mask{1u, 0u};
+  std::vector<float> scores(prefix + rows);
+  std::vector<float> attended(rows * query_heads * head_width);
+  fe::grouped_query_attention(query, keys, values, {}, {}, mask, scores, attended, rows,
+                              query_heads, kv_heads, head_width, prefix, true);
+  EXPECT_NEAR(attended[0], 2.0F, 1e-5F);
+  EXPECT_NEAR(attended[1], 3.0F, 1e-5F);
+  EXPECT_NEAR(attended[2], 2.0F, 1e-5F);
+  EXPECT_NEAR(attended[3], 3.0F, 1e-5F);
+  std::vector<float> ignored(attended.size(), 7.0F);
+  std::vector<float> too_small_scores(1uz);
+  fe::grouped_query_attention(query, keys, values, {}, {}, mask, too_small_scores, ignored, rows,
+                              query_heads, kv_heads, head_width, prefix, true);
+  EXPECT_EQ(ignored, std::vector<float>(attended.size(), 7.0F));
+}
+
 TEST(DenseConv1d, SameAndStridedMatchNaive)
 {
   constexpr std::size_t in_channels{2uz}, out_channels{3uz}, length{5uz}, kernel{3uz};

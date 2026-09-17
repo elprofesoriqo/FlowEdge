@@ -27,6 +27,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(args.diffusion_steps, 10)
         self.assertEqual(args.scheduler, "ddim")
         self.assertIsNone(args.period_ms)
+        self.assertEqual(args.on_miss, "hold")
 
     def test_simulator_is_bounded_and_stops(self):
         policy = FakePolicy()
@@ -53,6 +54,21 @@ class CliTests(unittest.TestCase):
         self.assertIsInstance(payload["peak_rss_bytes"], (int, type(None)))
         self.assertTrue(payload["platform"])
         self.assertTrue(payload["machine"])
+
+    def test_host_facts_mark_edge_rollout_json(self):
+        with patch(
+            "flowedge_lerobot.cli.FlowEdgeDiffusionPolicy.from_checkpoint"
+        ) as load:
+            load.return_value = FakePolicy()
+            with patch("builtins.print") as print_result:
+                self.assertEqual(
+                    main(["policy.safetensors", "--steps", "1", "--host-facts"]), 0
+                )
+        payload = json.loads(print_result.call_args.args[0])
+        self.assertEqual(payload["evaluation_kind"], "edge_dp_rollout")
+        self.assertTrue(payload["checkpoint"])
+        self.assertIn("processor", payload)
+        self.assertIn("python", payload)
 
 
 if __name__ == "__main__":

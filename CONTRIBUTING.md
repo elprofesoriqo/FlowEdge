@@ -13,6 +13,28 @@ If you're new to the project, look for issues labeled:
 
 For large features or architectural changes, please open or comment on an issue first so the scope and interface can be agreed before implementation.
 
+## Development loop
+
+```text
+issue → research comment → follow-up issues → one PR → review → evidence on main
+```
+
+1. **Issue.** State the problem, the smallest useful scope, what is out of scope, and the evidence that would close it. Use the research template when the design is not yet obvious.
+2. **Research.** Comment on the issue with pinned checkpoints, shapes, hot kernels, and open questions. Do not open a PR yet. Split child issues if the parent is still too large.
+3. **Implement.** One PR per issue, from `main`. Runtime changes must keep the zero-allocation hot path.
+4. **Evidence.** Model work includes a parity command. Performance work includes same-host before/after medians. User-path changes update the relevant guide.
+
+Current product focus is a faster Diffusion Policy drop-in and a SmolVLA cached-expert LeRobot path. New CUDA, Metal, Vulkan, π0, or Relay features need an issue that explains why they outrank that work.
+
+## Code bar
+
+1. Remove work that does not need to exist.
+2. Reuse an existing FlowEdge contract.
+3. Prefer a zero-overhead standard or platform facility.
+4. Write the smallest measured implementation.
+
+Core compute and documented Relay hot paths allocate nothing after construction. Setup may use `std::expected`; hot paths do not throw. `FlowEdge::Core` never depends on Relay.
+
 ## Development environment
 
 FlowEdge requires:
@@ -25,6 +47,10 @@ FlowEdge requires:
   * MSVC 19.38+
 
 See the `README.md` and project documentation for full build and setup instructions.
+
+Binary wheels are built with cibuildwheel (`pyproject.toml` `[tool.cibuildwheel]`)
+for CPython 3.10–3.12 on native-arch manylinux_2_28 (x86_64 and aarch64 runners),
+Windows AMD64, and macOS. A local `pip install .` still compiles with a C++23 toolchain.
 
 A typical build with tests enabled is:
 

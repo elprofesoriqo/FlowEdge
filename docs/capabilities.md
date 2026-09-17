@@ -44,7 +44,7 @@ flowchart LR
 
 | Area | Capabilities |
 |---|---|
-| Models | Mamba streaming; flow head with Euler, Heun, RK4; fixed LeRobot Diffusion Policy head |
+| Models | Mamba streaming; flow head with Euler, Heun, RK4; fixed LeRobot Diffusion Policy head; cached SmolVLA action expert |
 | Weights | FP32/BF16 `.safetensors`; shared immutable worker weights |
 | CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
 | State | Versioned snapshots; canonical job capsules; exact restore |
@@ -52,7 +52,7 @@ flowchart LR
 | Generic jobs | Iterative, streaming, speculative; QoS reservations; drain, quarantine, recovery |
 | Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
 | APIs | C, C++ CMake targets, Python |
-| LeRobot | Encoded conditions or the supported source visual Diffusion Policy encoder; seeded chunk consumption |
+| LeRobot | Encoded conditions or the supported source visual Diffusion Policy encoder; seeded chunk consumption; `--on-miss` hold/drop/raise; `--policy.type=flowedge` and `flowedge_smolvla` |
 | Evaluation | Matched visual-policy replay; PushT closed-loop runner; periodic inference with underrun/freshness telemetry |
 | DeadlineFlow | Fixed-capacity calibrated-plan selector; CPU DDIM bridge; accelerator plans remain future work |
 | External runtime | Optional fixed-shape ONNX Runtime companion adapter; separate allocation contract |

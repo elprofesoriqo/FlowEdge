@@ -50,7 +50,7 @@ def main(argv=None):
         parser.error("invalid step, iteration, thread, or warmup count")
     torch.set_num_threads(args.threads)
     import flowedge
-    from .cli import _peak_rss_bytes
+    from .cli import peak_rss_bytes
     from .diffusion import FlowEdgeDiffusionPolicy
     from .evaluate import PushTRobot
     from .observation import (
@@ -134,7 +134,7 @@ def main(argv=None):
             file=sys.stderr,
         )
     measurements = {}
-    rss = _peak_rss_bytes()
+    rss = peak_rss_bytes()
     for name, startup_ms in (
         ("flowedge", native_startup),
         ("lerobot", reference_startup),
