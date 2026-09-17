@@ -6,13 +6,12 @@
 <!-- Why is this change required? What problem does it solve? -->
 
 ## How Has This Been Tested?
-<!-- Please describe in detail how you tested your changes. -->
-<!-- Include details of your testing environment, and the tests you ran to -->
-<!-- see how your change affects other areas of the code, etc. -->
+<!-- Local Grok Bot gate: scripts/verify_all.sh or scripts/verify_local.ps1 -->
+<!-- GitHub Actions is compile + ctest, not ULP/convert/diffusion parity. -->
 
 ## Checklist:
 - [ ] My code follows the code style of this project.
 - [ ] I have updated the documentation accordingly (if applicable).
 - [ ] I have added tests to cover my changes.
-- [ ] All new and existing tests passed.
+- [ ] Grok Bot ran local verification (`verify_all.sh` or `verify_local.ps1`).
 - [ ] I have checked for dynamic memory allocations in the hot path.

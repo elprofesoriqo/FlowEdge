@@ -1,0 +1,52 @@
+name: Parity (manual)
+
+# PyTorch ULP, convert round-trip, and diffusion python gates.
+# Default PR CI does not run these; Grok Bot runs them locally.
+# Dispatch this workflow when you want a runner copy of the same commands.
+on:
+  workflow_dispatch:
+
+jobs:
+  parity:
+    name: ULP and convert
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-llvm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Configure and build
+        run: |
+          cmake -B build -S . -DFLOWEDGE_RELAY=ON -DFLOWEDGE_TESTS=ON -DFLOWEDGE_PYTHON=ON -DFLOWEDGE_BACKEND=cpu
+          cmake --build build --config Release -j 4
+      - name: Download smoke checkpoint
+        run: |
+          mkdir -p models
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSL \
+            "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
+            -o models/mamba_flow.safetensors
+      - name: Verify ULP vs PyTorch
+        env:
+          PYTHONPATH: build
+        run: |
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
+          python tools/verification/verify_ulp.py models/mamba_flow.safetensors
+      - name: Verify convert round-trip
+        env:
+          PYTHONPATH: build
+        run: |
+          python convert/convert.py models/mamba_flow.safetensors models/converted.safetensors
+          python - <<'PY'
+          import numpy as np, flowedge
+          a = flowedge.Engine("models/mamba_flow.safetensors")
+          b = flowedge.Engine("models/converted.safetensors")
+          tokens = np.array([1, 2, 3, 4], dtype=np.int32)
+          noise = np.zeros(a.action_dim, dtype="float32")
+          xa = a.sample(tokens, noise, 10, "euler")
+          xb = b.sample(tokens, noise, 10, "euler")
+          assert np.allclose(xa, xb, atol=1e-6), (xa, xb)
+          print("convert round-trip OK", xa[:3])
+          PY
+          python tools/verification/verify_external_head.py
+          python tools/verification/verify_diffusion.py build

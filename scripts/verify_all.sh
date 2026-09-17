@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Complete local release verification. Set FLOWEDGE_VERIFY_BENCH_ITERS to shorten/extend benches.
+# Complete local release verification (Grok Bot gate). Set FLOWEDGE_VERIFY_BENCH_ITERS to shorten/extend benches.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
