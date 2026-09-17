@@ -1,0 +1,20 @@
+{
+  "checkpoint": "models/diffusion_pusht.flowedge.safetensors",
+  "elapsed_ms": 13093.6901,
+  "evaluation_kind": "edge_dp_rollout",
+  "machine": "AMD64",
+  "max_ms": 833.7098,
+  "missed_deadlines": 20,
+  "on_miss": "hold",
+  "p50_ms": 655.16345,
+  "p99_ms": 812.1315949999998,
+  "peak_rss_bytes": 2039775232,
+  "period_ms": 10.0,
+  "platform": "Windows-10-10.0.26200-SP0",
+  "processor": "Intel64 Family 6 Model 158 Stepping 13, GenuineIntel",
+  "python": "3.10.11",
+  "startup_ms": 2291.54890000018,
+  "steps": 20,
+  "stopped": true,
+  "threads": 4
+}
