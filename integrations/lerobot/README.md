@@ -8,8 +8,8 @@ does not change `src/core` or `src/relay`, and it does not replace LeRobot's obs
 - Converted `lerobot/diffusion_pusht` checkpoints.
 - Encoded conditions, or source visual observations with the supported RGB encoder and statistics.
 - FlowEdge DDIM/DDPM inference and LeRobot action-horizon slicing.
-- Experimental SmolVLA cached-expert chunks: LeRobot/source code produces the VLM cache and
-  FlowEdge executes the seeded native action expert.
+- Experimental SmolVLA cached-expert chunks via `--policy.type=flowedge_smolvla`:
+  LeRobot produces the VLM cache and FlowEdge executes the seeded native action expert.
 - Deployment-only Python adapter; training remains in LeRobot.
 
 The adapter follows the same action contract documented by FlowEdge's Diffusion Policy guide:
@@ -23,8 +23,7 @@ for `input_mode`, source checkpoint setup, matched replay, PushT, and periodic d
 
 ## Experimental SmolVLA cache boundary
 
-`FlowEdgeSmolVLACachedExpert` and `LeRobotSmolVLACacheProvider` are programmatic
-hybrid adapters, not a registered `--policy.type` and not native full SmolVLA.
+`FlowEdgeSmolVLACachedExpert` is also registered as `--policy.type=flowedge_smolvla`.
 Install the optional source stack with `pip install -e 'integrations/lerobot[smolvla]'`.
 The provider follows an instantiated source-compatible LeRobot VLM to produce
 its batch-one, RoPE-applied K/V cache; the adapter then runs the
@@ -74,7 +73,7 @@ python -m unittest discover -s integrations/lerobot/tests
 ```
 
 The plugin is intentionally independent from LeRobot's release cycle. It registers `--policy.type=flowedge`
-and accepts a converted checkpoint through `checkpoint_path`; it is inference-only, so training remains in
+and `--policy.type=flowedge_smolvla`. Both are inference-only, so training remains in
 LeRobot. The
 `flowedge-lerobot-rollout` command provides a bounded simulator smoke test; hardware validation
 and processor parity remain tracked in issue #65 and its subissues.
