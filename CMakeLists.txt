@@ -75,6 +75,8 @@ if(FLOWEDGE_BENCH)
 
   flowedge_executable(flowedge_kernels_bench bench/kernels/kernels_bench.cc FlowEdge::Core
                       benchmark::benchmark)
+  flowedge_executable(flowedge_diffusion_breakdown bench/kernels/diffusion_breakdown.cc
+                      FlowEdge::Core)
   execute_process(
     COMMAND git rev-parse --short=12 HEAD
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
@@ -172,16 +174,15 @@ if(FLOWEDGE_PYTHON)
   endif()
 
   pybind11_add_module(flowedge python/flowedge_ext.cc)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
     target_compile_options(flowedge PRIVATE -pthread)
-    if(WIN32)
-      # Statically link the C++ runtime; package winpthread beside the extension below.
-      target_link_options(flowedge PRIVATE -static-libgcc -static-libstdc++ "-Wl,--allow-multiple-definition")
-      target_link_libraries(flowedge PRIVATE winpthread)
-    endif()
   endif()
-  target_link_libraries(flowedge PRIVATE FlowEdge::Core)
-  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  if(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
+     AND NOT CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    # MinGW/GNU-ABI Clang: statically link the C++ runtime and ship winpthread.
+    target_link_options(flowedge PRIVATE
+      -static-libgcc -static-libstdc++ "-Wl,--allow-multiple-definition")
+    target_link_libraries(flowedge PRIVATE winpthread)
     find_file(FLOWEDGE_WINPTHREAD_DLL NAMES libwinpthread-1.dll HINTS $ENV{PATH})
     if(NOT FLOWEDGE_WINPTHREAD_DLL)
       message(FATAL_ERROR "libwinpthread-1.dll is required to package the MinGW Python extension")
@@ -191,6 +192,7 @@ if(FLOWEDGE_PYTHON)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${FLOWEDGE_WINPTHREAD_DLL}" "$<TARGET_FILE_DIR:flowedge>")
   endif()
+  target_link_libraries(flowedge PRIVATE FlowEdge::Core)
   install(TARGETS flowedge LIBRARY DESTINATION . RUNTIME DESTINATION .) # wheel root: pip install .
 endif()
 

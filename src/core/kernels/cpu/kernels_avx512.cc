@@ -135,6 +135,12 @@ void softplus(std::span<float> x) noexcept
     x[i] = std::log1p(std::exp(x[i]));
 }
 
+void mish(std::span<float> x) noexcept
+{
+  for (float& value : x)
+    value *= std::tanh(std::fmax(value, 0.0F) + std::log1p(std::exp(-std::fabs(value))));
+}
+
 namespace {
 struct MatmulF32Row1Ctx
 {

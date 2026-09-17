@@ -80,6 +80,12 @@ void softplus(std::span<float> x) noexcept
   }
 }
 
+void mish(std::span<float> x) noexcept
+{
+  for (float& value : x)
+    value *= std::tanh(std::fmax(value, 0.0F) + std::log1p(std::exp(-std::fabs(value))));
+}
+
 void matmul(std::span<const float> in, std::span<const float> w, std::span<float> out,
             std::size_t rows, std::size_t in_dim, std::size_t out_dim, ThreadPool* pool) noexcept
 {

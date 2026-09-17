@@ -78,6 +78,7 @@ private:
     std::size_t in_channels{};
     std::size_t out_channels{};
     std::size_t kernel{};
+    bool k_major{};
   };
 
   struct NormWeights

@@ -213,6 +213,9 @@ On Linux:
 ./scripts/verify_all.sh
 ```
 
+Grok Bot runs that last command locally (Windows: `scripts/verify_local.ps1`).
+GitHub Actions does not own ULP or convert parity.
+
 Relay-specific verification and benchmark commands are documented in the [performance](docs/performance.md) and Relay guides.
 
 ### Allocation contract

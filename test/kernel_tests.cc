@@ -172,7 +172,7 @@ TEST(Mish, MatchesReference)
   fe::mish(values);
   for (std::size_t i{0uz}; i < values.size(); ++i) {
     const float softplus = input[i] > 20.0F ? input[i] : std::log1p(std::exp(input[i]));
-    EXPECT_NEAR(values[i], input[i] * std::tanh(softplus), 2e-6F);
+    EXPECT_NEAR(values[i], input[i] * std::tanh(softplus), k_tol);
   }
 }
 
@@ -334,7 +334,7 @@ TEST(DiffusionConvolution, ThreadedSpecializationsMatchCallerThread)
   EXPECT_EQ(threaded, expected);
 
   std::vector<float> packed_t(
-      fe::conv_transpose1d_workspace_floats(channels, channels, input_length));
+      fe::conv_transpose1d_workspace_floats(channels, channels, input_length, 4uz));
   std::vector<float> packed_t_out(expected.size());
   fe::conv_transpose1d(input, transpose_weight, bias, packed_t_out, channels, channels,
                        input_length, upsampled_length, 4uz, 2uz, 1uz, nullptr, packed_t);
@@ -342,6 +342,38 @@ TEST(DiffusionConvolution, ThreadedSpecializationsMatchCallerThread)
   fe::conv_transpose1d(input, transpose_weight, bias, packed_t_out, channels, channels,
                        input_length, upsampled_length, 4uz, 2uz, 1uz, &pool, packed_t);
   expect_near(packed_t_out, expected);
+
+  std::vector<float> k_major(transpose_weight.size());
+  constexpr std::size_t kernel{4uz};
+  for (std::size_t ic{0uz}; ic < channels; ++ic)
+    for (std::size_t oc{0uz}; oc < channels; ++oc)
+      for (std::size_t k{0uz}; k < kernel; ++k)
+        k_major[(((k * channels) + oc) * channels) + ic] =
+            transpose_weight[(((ic * channels) + oc) * kernel) + k];
+  fe::conv_transpose1d(input, k_major, bias, packed_t_out, channels, channels, input_length,
+                       upsampled_length, kernel, 2uz, 1uz, nullptr, packed_t, true);
+  expect_near(packed_t_out, expected);
+}
+
+TEST(DenseConv1d, PackedK5MatchesNaiveShortLength)
+{
+  constexpr std::size_t in_channels{32uz}, out_channels{24uz}, kernel{5uz};
+  for (const std::size_t length : {4uz, 8uz, 16uz}) {
+    const std::vector<float> input = seq(in_channels * length, 0.11F, -0.3F);
+    const std::vector<float> weight = seq(out_channels * in_channels * kernel, 0.09F, 0.2F);
+    const std::vector<float> bias = seq(out_channels, 0.05F, -0.02F);
+    std::vector<float> naive(out_channels * length);
+    std::vector<float> packed_out(naive.size());
+    std::vector<float> workspace(
+        fe::conv1d_workspace_floats(in_channels, out_channels, length, kernel));
+    fe::conv1d(input, weight, bias, naive, in_channels, out_channels, length, length, kernel, 1uz,
+               2uz);
+    fe::conv1d(input, weight, bias, packed_out, in_channels, out_channels, length, length, kernel,
+               1uz, 2uz, nullptr, workspace);
+    ASSERT_EQ(packed_out.size(), naive.size());
+    for (std::size_t i{0uz}; i < naive.size(); ++i)
+      EXPECT_NEAR(packed_out[i], naive[i], 2e-5F) << "L=" << length << " i=" << i;
+  }
 }
 
 TEST(GroupNorm, MatchesReference)

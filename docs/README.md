@@ -9,7 +9,7 @@ The public entry points are intentionally small:
 | LeRobot deployment seam | `integrations/lerobot/`, `docs/guides/lerobot.md` |
 | Core and Relay contracts | `src/`, `docs/architecture/` |
 | Converter and checkpoint checks | `convert/`, `tools/verification/` |
-| Reproducible verification | `scripts/verify_all.sh` |
+| Reproducible verification | local Grok Bot: `scripts/verify_all.sh` / `scripts/verify_local.ps1` |
 
 `scripts/` contains user-facing build, test, benchmark, and demo commands. Maintainer-only
 benchmark and parity helpers live under `tools/`. Examples and benchmarks stay compiled by

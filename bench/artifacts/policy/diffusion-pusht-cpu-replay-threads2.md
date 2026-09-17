@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Captured | `2026-09-16T16:43:09.625545+00:00` |
+| Captured | `2026-09-16T16:56:47.378056+00:00` |
 | Model | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
 | Model SHA-256 | `995d14d35db57d95c35ad9704c3d79c8612b7bc45f3877e5c46c2cdc516856a8` |
 | Processor | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
@@ -14,7 +14,7 @@
 | Observation contract | `2dde368a238be30a27b8a7c243b724c51d7c744946f28e439c2afc625e2904fe`; 2 steps |
 | Action contract | 2 dims x 8 steps; dataset |
 | Run shape | batch 1; 10 inference steps |
-| Host | `Jankowski`; Windows-10-10.0.26200-SP0; Intel64 Family 6 Model 158 Stepping 13, GenuineIntel; 1 threads |
+| Host | `Jankowski`; Windows-10-10.0.26200-SP0; Intel64 Family 6 Model 158 Stepping 13, GenuineIntel; 2 threads |
 | Build | `Clang 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)`; Release |
 | Comparison | FlowEdge native runtime vs LeRobot policy executed with PyTorch |
 | Reference framework | `PyTorch` |
@@ -25,22 +25,22 @@ Encoder and policy are reported separately. End-to-end includes both and is the 
 
 | Backend | Startup | Encoder p50 / p95 / p99 | Policy p50 / p95 / p99 | E2E p50 / p95 / p99 | Throughput | RSS | Setup / hot allocations |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| flowedge | 962.549 ms | 38.596 ms / 40.185 ms / 40.997 ms | 851.228 ms / 865.971 ms / 867.270 ms | 889.243 ms / 906.596 ms / 906.988 ms | 1.122 Hz | 3357.395 MiB | not measured / not measured |
-| lerobot | 1011.828 ms | 38.537 ms / 39.630 ms / 40.013 ms | 1409.156 ms / 1429.392 ms / 1446.317 ms | 1447.994 ms / 1469.475 ms / 1486.018 ms | 0.689 Hz | 3357.395 MiB | not measured / not measured |
+| flowedge | 968.870 ms | 26.608 ms / 27.399 ms / 27.505 ms | 800.149 ms / 807.052 ms / 808.278 ms | 826.436 ms / 833.279 ms / 834.195 ms | 1.210 Hz | 3359.223 MiB | not measured / not measured |
+| lerobot | 1057.298 ms | 25.739 ms / 27.851 ms / 28.117 ms | 1030.915 ms / 1035.851 ms / 1036.566 ms | 1057.270 ms / 1061.569 ms / 1062.143 ms | 0.949 Hz | 3359.223 MiB | not measured / not measured |
 
 ## Relative comparison
 
 | Metric | FlowEdge / LeRobot |
 |---|---:|
-| Policy p50 | 0.604x |
-| End-to-end p50 | 0.614x |
-| Throughput | 1.629x |
+| Policy p50 | 0.776x |
+| End-to-end p50 | 0.782x |
+| Throughput | 1.276x |
 
 ## Commands
 
 ```text
-FlowEdge: C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models\diffusion_pusht.flowedge.safetensors --source models\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 20 --warmup 2 --threads 1 --seed 7 --output bench\artifacts\policy\diffusion-pusht-cpu-replay.json
-LeRobot:  C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models\diffusion_pusht.flowedge.safetensors --source models\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 20 --warmup 2 --threads 1 --seed 7 --output bench\artifacts\policy\diffusion-pusht-cpu-replay.json
+FlowEdge: C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models\diffusion_pusht.flowedge.safetensors --source models\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 10 --warmup 2 --threads 2 --seed 7 --output bench\artifacts\policy\diffusion-pusht-cpu-replay-threads2.json
+LeRobot:  C:\Users\igorj\Desktop\FlowEdge\venv\Scripts\python.exe -m flowedge_lerobot.benchmark models\diffusion_pusht.flowedge.safetensors --source models\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 10 --warmup 2 --threads 2 --seed 7 --output bench\artifacts\policy\diffusion-pusht-cpu-replay-threads2.json
 ```
 
 ## Limits

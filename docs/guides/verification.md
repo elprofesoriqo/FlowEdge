@@ -1,5 +1,12 @@
 # Verification
 
+The merge gate is **local**. Grok Bot runs it on the machine that has the
+Release tree and checkpoints (`AGENTS.md`, `.cursor/skills/verify-local/SKILL.md`).
+GitHub Actions compiles, lints, and runs `ctest`. It does not run PyTorch ULP,
+convert round-trip, or `verify_diffusion.py` on pull requests. Dispatch
+`.github/workflows/parity.yml` only when you want a runner copy of those
+commands.
+
 ## Release gates
 
 | Gate | Proves |
@@ -26,16 +33,16 @@ flowchart LR
 
 ## Run everything
 
-Linux:
+Linux / Git Bash (Grok Bot local execution):
 
 ```bash
 ./scripts/verify_all.sh models/mamba_flow.safetensors
 ```
 
-Windows PowerShell with Git Bash available:
+Windows PowerShell against `build-win-clang`:
 
 ```powershell
-bash scripts/verify_all.sh models/mamba_flow.safetensors
+powershell -File scripts/verify_local.ps1 -BuildDir build-win-clang
 ```
 
 The script builds Core, Relay, tests, benchmarks, every C++ example, generic-job JSONL inspection,

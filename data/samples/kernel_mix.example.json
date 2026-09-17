@@ -1,0 +1,29 @@
+{
+  "tool": "flowedge_diffusion_breakdown",
+  "hardware_concurrency": 12,
+  "checkpoint": "models/diffusion_pusht.flowedge.safetensors",
+  "note": "Committed example from an i7-9750H Clang Release mix. Re-run export_kernel_mix.py on your host before quoting these as current.",
+  "rows": [
+    {"name": "conv 512 L16 K5", "p50_us": 890.0, "calls": 40, "estimated_ms": 35.6, "kind": "conv"},
+    {"name": "conv 512 L8 K5", "p50_us": 420.0, "calls": 30, "estimated_ms": 12.6, "kind": "conv"},
+    {"name": "conv 1024 L8 K5", "p50_us": 1750.0, "calls": 30, "estimated_ms": 52.5, "kind": "conv"},
+    {"name": "conv 1024 L4 K5", "p50_us": 980.0, "calls": 30, "estimated_ms": 29.4, "kind": "conv"},
+    {"name": "conv 2048 L4 K5", "p50_us": 4319.0, "calls": 70, "estimated_ms": 302.3, "kind": "conv"},
+    {"name": "conv 4096->1024 L4 K5", "p50_us": 5700.0, "calls": 10, "estimated_ms": 57.0, "kind": "conv"},
+    {"name": "downsample 512 L16 K3", "p50_us": 410.0, "calls": 10, "estimated_ms": 4.1, "kind": "conv"},
+    {"name": "downsample 1024 L8 K3", "p50_us": 890.0, "calls": 10, "estimated_ms": 8.9, "kind": "conv"},
+    {"name": "upsample 1024 L4->8 K4", "p50_us": 18000.0, "calls": 10, "estimated_ms": 180.0, "kind": "upsample"},
+    {"name": "upsample 512 L8->16 K4", "p50_us": 1600.0, "calls": 10, "estimated_ms": 16.0, "kind": "upsample"},
+    {"name": "upsample 1024 k-major", "p50_us": 852.0, "calls": 10, "estimated_ms": 8.5, "kind": "upsample"},
+    {"name": "upsample 512 k-major", "p50_us": 410.0, "calls": 10, "estimated_ms": 4.1, "kind": "upsample"},
+    {"name": "group_norm 2048 L4", "p50_us": 8.0, "calls": 80, "estimated_ms": 0.6, "kind": "elementwise"},
+    {"name": "mish 8192", "p50_us": 26.0, "calls": 310, "estimated_ms": 8.1, "kind": "elementwise"},
+    {"name": "gemm 4x10240x2048", "p50_us": 4443.0, "calls": 70, "estimated_ms": 311.0, "kind": "gemm"},
+    {"name": "gemm 4x10240x2048 t=2", "p50_us": 3600.0, "calls": 70, "estimated_ms": 252.0, "kind": "gemm"},
+    {"name": "gemm 4x10240x2048 t=4", "p50_us": 2915.0, "calls": 70, "estimated_ms": 204.1, "kind": "gemm"},
+    {"name": "native DDIM x10 t=0 (pool=0)", "p50_us": 810000.0, "calls": 1, "estimated_ms": 810.0, "kind": "native"},
+    {"name": "native DDIM x10 t=2 (pool=2)", "p50_us": 714000.0, "calls": 1, "estimated_ms": 714.0, "kind": "native"},
+    {"name": "native DDIM x10 t=4 (pool=4)", "p50_us": 567000.0, "calls": 1, "estimated_ms": 567.0, "kind": "native"},
+    {"name": "native DDIM x10 t=6 (pool=6)", "p50_us": 565000.0, "calls": 1, "estimated_ms": 565.0, "kind": "native"}
+  ]
+}

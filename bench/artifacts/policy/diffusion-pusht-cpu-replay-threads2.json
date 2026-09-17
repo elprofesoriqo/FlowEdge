@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "captured_at": "2026-09-16T16:43:09.625545+00:00",
+  "captured_at": "2026-09-16T16:56:47.378056+00:00",
   "model": {
     "id": "lerobot/diffusion_pusht",
     "revision": "84a7c23178445c6bbf7e1a884ff497017910f653",
@@ -75,13 +75,13 @@
     "host": "Jankowski",
     "os": "Windows-10-10.0.26200-SP0",
     "cpu": "Intel64 Family 6 Model 158 Stepping 13, GenuineIntel",
-    "threads": 1,
+    "threads": 2,
     "compiler": "Clang 23.1.0 (https://github.com/llvm/llvm-project ea7d852a70e8bdfaf601d6626a760f9771b2c4b4)",
     "build_type": "Release"
   },
   "commands": {
-    "flowedge": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models\\diffusion_pusht.flowedge.safetensors --source models\\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 20 --warmup 2 --threads 1 --seed 7 --output bench\\artifacts\\policy\\diffusion-pusht-cpu-replay.json",
-    "lerobot": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models\\diffusion_pusht.flowedge.safetensors --source models\\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 20 --warmup 2 --threads 1 --seed 7 --output bench\\artifacts\\policy\\diffusion-pusht-cpu-replay.json"
+    "flowedge": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models\\diffusion_pusht.flowedge.safetensors --source models\\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 10 --warmup 2 --threads 2 --seed 7 --output bench\\artifacts\\policy\\diffusion-pusht-cpu-replay-threads2.json",
+    "lerobot": "C:\\Users\\igorj\\Desktop\\FlowEdge\\venv\\Scripts\\python.exe -m flowedge_lerobot.benchmark models\\diffusion_pusht.flowedge.safetensors --source models\\diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 --model-id lerobot/diffusion_pusht --steps 10 --iterations 10 --warmup 2 --threads 2 --seed 7 --output bench\\artifacts\\policy\\diffusion-pusht-cpu-replay-threads2.json"
   },
   "comparison": {
     "candidate": "FlowEdge native runtime",
@@ -92,24 +92,24 @@
   "measurements": {
     "flowedge": {
       "status": "measured",
-      "startup_ms": 962.549,
+      "startup_ms": 968.8702,
       "encoder_ms": {
-        "p50": 38.59585,
-        "p95": 40.18542,
-        "p99": 40.997404
+        "p50": 26.6075,
+        "p95": 27.399265,
+        "p99": 27.505213
       },
       "policy_ms": {
-        "p50": 851.22795,
-        "p95": 865.9710399999999,
-        "p99": 867.269728
+        "p50": 800.1487,
+        "p95": 807.052245,
+        "p99": 808.277649
       },
       "end_to_end_ms": {
-        "p50": 889.24315,
-        "p95": 906.59618,
-        "p99": 906.988036
+        "p50": 826.4362000000001,
+        "p95": 833.2794299999999,
+        "p99": 834.194766
       },
-      "throughput_hz": 1.1224362055806112,
-      "rss_mb": 3357.39453125,
+      "throughput_hz": 1.2102382574273107,
+      "rss_mb": 3359.22265625,
       "rss_reason": "",
       "allocations": {
         "setup": null,
@@ -119,24 +119,24 @@
     },
     "lerobot": {
       "status": "measured",
-      "startup_ms": 1011.8278,
+      "startup_ms": 1057.2984000000001,
       "encoder_ms": {
-        "p50": 38.536950000000004,
-        "p95": 39.63016,
-        "p99": 40.012592
+        "p50": 25.738999999999997,
+        "p95": 27.850704999999998,
+        "p99": 28.116781
       },
       "policy_ms": {
-        "p50": 1409.15605,
-        "p95": 1429.392005,
-        "p99": 1446.317281
+        "p50": 1030.91455,
+        "p95": 1035.85133,
+        "p99": 1036.5657860000001
       },
       "end_to_end_ms": {
-        "p50": 1447.99385,
-        "p95": 1469.4750450000001,
-        "p99": 1486.017889
+        "p50": 1057.26975,
+        "p95": 1061.568585,
+        "p99": 1062.142677
       },
-      "throughput_hz": 0.689055007877983,
-      "rss_mb": 3357.39453125,
+      "throughput_hz": 0.9485601340930135,
+      "rss_mb": 3359.22265625,
       "rss_reason": "",
       "allocations": {
         "setup": null,
@@ -148,138 +148,78 @@
   "raw_samples": {
     "flowedge": {
       "encoder_ms": [
-        38.6394,
-        39.5694,
-        39.2053,
-        37.7824,
-        38.6675,
-        38.5523,
-        41.2004,
-        38.976,
-        39.0716,
-        38.0535,
-        40.132,
-        38.248,
-        38.6548,
-        38.4747,
-        39.2594,
-        38.3046,
-        38.3577,
-        38.3907,
-        38.4437,
-        37.7576
+        26.5141,
+        25.423,
+        26.7009,
+        25.1407,
+        27.2374,
+        25.8396,
+        26.9564,
+        26.882,
+        27.5317,
+        25.0671
       ],
       "policy_ms": [
-        851.981,
-        851.7681,
-        846.6591,
-        851.5651,
-        849.741,
-        842.0986,
-        865.8856,
-        867.5944,
-        859.2294,
-        842.1705,
-        859.2393,
-        850.8908,
-        848.219,
-        848.4198,
-        856.5344,
-        853.009,
-        850.2429,
-        848.1378,
-        856.2446,
-        843.0132
+        797.3339,
+        793.1006,
+        805.1801,
+        799.9891,
+        800.5052,
+        808.584,
+        803.0217,
+        796.9534,
+        800.3083,
+        794.5666
       ],
       "end_to_end_ms": [
-        890.6204,
-        891.3375,
-        885.8644,
-        889.3475,
-        888.4085,
-        880.6509,
-        907.086,
-        906.5704,
-        898.301,
-        880.224,
-        899.3713,
-        889.1388,
-        886.8738,
-        886.8945,
-        895.7938,
-        891.3136,
-        888.6006,
-        886.5285,
-        894.6883,
-        880.7708
+        823.848,
+        818.5236,
+        831.881,
+        825.1298,
+        827.7426,
+        834.4236,
+        829.9781,
+        823.8354,
+        827.84,
+        819.6337
       ]
     },
     "lerobot": {
       "encoder_ms": [
-        38.7996,
-        37.808,
-        38.913,
-        39.2456,
-        39.3367,
-        38.4636,
-        39.0845,
-        39.4512,
-        38.4619,
-        38.5201,
-        38.126,
-        40.1082,
-        39.2972,
-        38.43,
-        38.3742,
-        37.7926,
-        38.4015,
-        38.5538,
-        37.9905,
-        39.605
+        28.1833,
+        25.9362,
+        26.6362,
+        25.1068,
+        26.7407,
+        23.6122,
+        27.4442,
+        25.2403,
+        25.5418,
+        25.2662
       ],
       "policy_ms": [
-        1410.7204,
-        1414.0655,
-        1402.6044,
-        1409.5728,
-        1401.5103,
-        1421.513,
-        1424.8193,
-        1425.3303,
-        1397.2728,
-        1401.2764,
-        1427.5525,
-        1428.2785,
-        1405.0782,
-        1408.7393,
-        1411.739,
-        1402.2721,
-        1401.8947,
-        1403.1302,
-        1402.5774,
-        1450.5486
+        1026.0095,
+        1032.089,
+        1012.725,
+        1020.8049,
+        1033.9508,
+        1034.7598,
+        1030.2983,
+        1023.6738,
+        1036.7444,
+        1031.5308
       ],
       "end_to_end_ms": [
-        1449.52,
-        1451.8735,
-        1441.5174,
-        1448.8184,
-        1440.847,
-        1459.9766,
-        1463.9038,
-        1464.7815,
-        1435.7347,
-        1439.7965,
-        1465.6785,
-        1468.3867,
-        1444.3754,
-        1447.1693,
-        1450.1132,
-        1440.0647,
-        1440.2962,
-        1441.684,
-        1440.5679,
-        1490.1536
+        1054.1928,
+        1058.0252,
+        1039.3612,
+        1045.9117,
+        1060.6915,
+        1058.372,
+        1057.7425,
+        1048.9141,
+        1062.2862,
+        1056.797
       ]
     }
   },
@@ -289,7 +229,7 @@
     "rtol": 0.0001
   },
   "fixture": {
-    "file": "diffusion-pusht-cpu-replay.observations.npz",
+    "file": "diffusion-pusht-cpu-replay-threads2.observations.npz",
     "sha256": "0e2616b6312a6f0682a7307682e4701011499a473f80ee734f570d438cccd60f",
     "seed": 7
   },
@@ -299,7 +239,7 @@
     "gym-pusht": "0.1.5",
     "numpy": "2.2.6"
   },
-  "iterations": 20,
+  "iterations": 10,
   "warmup": 2,
   "limitations": [
     "CPU full-policy replay of one fixed PushT observation history; not closed-loop task success.",
