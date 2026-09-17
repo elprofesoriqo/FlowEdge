@@ -12,13 +12,41 @@ The {download}`captured CPU replay artifact <../bench/artifacts/policy/diffusion
 and its [raw samples](../bench/artifacts/policy/diffusion-pusht-cpu-replay.json) use the pinned
 trained checkpoint, source RGB encoder/normalization, a two-observation PushT history,
 and matched noise with ten DDIM steps. On this Windows/Clang host, the 20-sample
-`threads=1` run measured 1.311 s FlowEdge versus 1.451 s LeRobot median
-preprocessing-to-chunk latency (policy p50 1.271 s vs 1.412 s). FlowEdge is
-faster on this packed-conv replay. The removed generated-weight flow-head
-fixture is not evidence about this policy.
+`threads=1` run measured 889 ms FlowEdge versus 1.448 s LeRobot median
+preprocessing-to-chunk latency (policy p50 851 ms vs 1.409 s). FlowEdge is
+1.66× faster on this packed, k-major-upsample replay. The removed generated-weight
+flow-head fixture is not evidence about this policy.
 Maximum absolute action error was 3.05e-5 in dataset units. The small run characterizes
 this fixture, not stable p99, general task success, or robot suitability. See the artifact
 for raw timings, shared-process memory accounting, versions, and unmeasured allocations.
+
+`flowedge_diffusion_breakdown` times kernels at the U-Net's real shapes and native
+`fe_engine_sample_diffusion` at explicit pool sizes. Caller-only native DDIM is 810 ms;
+two workers 714 ms; four workers 567 ms; six workers 565 ms. The wall is DRAM: the
+2048×L4 GEMM is 4.4 ms on one thread and 2.9 ms on four. A load-time `[K][OC][IC]`
+copy cuts upsample-1024 from ~15 ms to ~1 ms. GroupNorm and Mish stay under 10 ms.
+`tools/benchmark/export_kernel_mix.py` writes that table to `data/` as json/csv/parquet
+for `data/explore.py`.
+
+These replays load `flowedge.Engine` in-process. They do not start Relay.
+
+### Thread sweep
+
+Same checkpoint, processor, noise, and DDIM schedule. `threads=1` is the 20-sample
+headline above. `threads=2` and `threads=4` are 10-sample runs that also give PyTorch
+the same `torch.set_num_threads` budget. Artifacts:
+{download}`threads=2 <../bench/artifacts/policy/diffusion-pusht-cpu-replay-threads2.md>`,
+{download}`threads=4 <../bench/artifacts/policy/diffusion-pusht-cpu-replay-threads4.md>`.
+
+| Threads | FlowEdge policy p50 | LeRobot policy p50 | FlowEdge / LeRobot | Native DDIM p50 |
+|---:|---:|---:|---:|---:|
+| 1 | 851 ms | 1409 ms | 0.60× | 810 ms (pool 0) |
+| 2 | 800 ms | 1031 ms | 0.78× | 714 ms |
+| 4 | 633 ms | 819 ms | 0.77× | 567 ms |
+| 6 | — | — | — | 565 ms |
+
+Four workers is the knee on this 6-core laptop. Extra SMT threads do not move the
+denoiser. The fair single-thread compare remains `threads=1`.
 
 ### Kernel diagnostics
 
@@ -57,7 +85,7 @@ The former C++ diffusion-latency runner embedded zero conditions and generated
 noise, so it was removed rather than presented as policy evidence. The matched
 visual-policy replay above is the sole public end-to-end diffusion measurement.
 These component figures are not a real-time guarantee; the next performance
-milestone is ISA-specialized convolution or a packed-im2col path.
+milestone on this U-Net is the DRAM-bound 2048-channel short-row GEMM.
 
 ### Allocation-conscious inference paths
 
