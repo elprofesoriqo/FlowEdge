@@ -46,9 +46,11 @@ jobs:
           path: dist/*.tar.gz
 
   publish-to-pypi:
+    if: vars.FLOWEDGE_PUBLISH_PYPI == 'true'
     needs: [build_wheels, build_sdist]
     runs-on: ubuntu-latest
-    # Required for Trusted Publishing
+    # Required for Trusted Publishing. Off until FLOWEDGE_PUBLISH_PYPI is set;
+    # v0.1.0 is a GitHub source release plus wheel artifacts.
     environment:
       name: pypi
       url: https://pypi.org/p/flowedge

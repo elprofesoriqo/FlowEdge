@@ -48,6 +48,10 @@ the same `torch.set_num_threads` budget. Artifacts:
 Four workers is the knee on this 6-core laptop. Extra SMT threads do not move the
 denoiser. The fair single-thread compare remains `threads=1`.
 
+The same checkpoint through the fake-robot seam at `--period-ms 10 --on-miss hold`
+misses every control period on this host. That JSON is a deadline count, not a
+second PyTorch compare: {download}`period-aware hold loop <../bench/artifacts/policy/diffusion-pusht-cpu-period10-hold.md>`.
+
 ### Kernel diagnostics
 
 Measured 2026-09-09 on the same Intel i7-9750H WSL2 host with GCC 13.3,
@@ -86,27 +90,13 @@ noise, so it was removed rather than presented as policy evidence. The matched
 visual-policy replay above is the sole public end-to-end diffusion measurement.
 These component figures are not a real-time guarantee.
 
-Dense Conv1D now packs columns through the existing `matmul` when the caller
+Dense Conv1D packs columns through the existing `matmul` when the caller
 supplies a workspace of `conv1d_workspace_floats` (and `IC*K >= 32`).
-ConvTranspose1D packs per kernel tap when `IC >= 32`. The published 8.55×
-replay still used the scalar path on one thread; do not treat packing as a
-beaten-PyTorch result until that artifact is regenerated.
-
-### Four-thread replay
-
-The published replay pinned `threads=1` for both FlowEdge and PyTorch. Re-run
-the same fixture with a declared thread budget on both sides:
-
-```bash
-python tools/benchmark/run_policy_report.py models/diffusion_pusht.flowedge.safetensors \
-  --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
-  --steps 10 --iterations 20 --warmup 5 --threads 4 \
-  --output bench/artifacts/policy/diffusion-pusht-cpu-replay-4t.json
-```
-
-PyTorch will also thread. Until that JSON exists, the public number remains the
-one-thread artifact above. Kernel microbenchmarks with four workers (3.30 ms /
-11.0 ms / 41.3 ms on the 512/1024/2048 Conv1D cases) are not policy latency.
+ConvTranspose1D packs per kernel tap when `IC >= 32`, and the published
+replay uses a load-time `[K][OC][IC]` restripe. These microbenchmarks are
+not the policy number; that is the matched visual-policy replay and thread
+sweep above. Four-worker kernel times (3.30 ms / 11.0 ms / 41.3 ms on the
+512/1024/2048 Conv1D cases) are also not policy latency.
 
 ### Allocation-conscious inference paths
 
