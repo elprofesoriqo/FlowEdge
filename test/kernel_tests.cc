@@ -364,7 +364,8 @@ TEST(DenseConv1d, PackedK5MatchesNaiveShortLength)
     const std::vector<float> bias = seq(out_channels, 0.05F, -0.02F);
     std::vector<float> naive(out_channels * length);
     std::vector<float> packed_out(naive.size());
-    std::vector<float> workspace(fe::conv1d_workspace_floats(in_channels, out_channels, length, kernel));
+    std::vector<float> workspace(
+        fe::conv1d_workspace_floats(in_channels, out_channels, length, kernel));
     fe::conv1d(input, weight, bias, naive, in_channels, out_channels, length, length, kernel, 1uz,
                2uz);
     fe::conv1d(input, weight, bias, packed_out, in_channels, out_channels, length, length, kernel,

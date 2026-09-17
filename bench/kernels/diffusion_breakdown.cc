@@ -15,7 +15,8 @@
 
 namespace {
 
-struct MixRow {
+struct MixRow
+{
   std::string name;
   double p50_us;
   int calls;
@@ -31,8 +32,7 @@ std::vector<float> filled(std::size_t n, float base = 0.03F)
   return v;
 }
 
-template<typename Fn>
-double median_us(Fn fn, int warmup, int iters)
+template<typename Fn> double median_us(Fn fn, int warmup, int iters)
 {
   for (int i{0}; i < warmup; ++i)
     fn();
@@ -147,22 +147,23 @@ int main(int argc, char** argv)
   report("conv 1024 L8 K5", conv(1024uz, 8uz, 5uz, 1uz, 2uz, 8uz), 30);
   report("conv 1024 L4 K5", conv(1024uz, 4uz, 5uz, 1uz, 2uz, 4uz), 30);
   report("conv 2048 L4 K5", conv(2048uz, 4uz, 5uz, 1uz, 2uz, 4uz), 70);
-  report("conv 4096->1024 L4 K5",
-         [&] {
-           constexpr std::size_t in_c = 4096uz, out_c = 1024uz, length = 4uz, kernel = 5uz;
-           const std::vector<float> x = filled(in_c * length);
-           const std::vector<float> w = filled(out_c * in_c * kernel, 0.001F);
-           const std::vector<float> b = filled(out_c);
-           std::vector<float> y(out_c * length);
-           std::vector<float> workspace(fe::conv1d_workspace_floats(in_c, out_c, length, kernel));
-           return median_us(
-               [&] {
-                 fe::conv1d(x, w, b, y, in_c, out_c, length, length, kernel, 1uz, 2uz, nullptr,
-                            workspace);
-               },
-               4, 12);
-         }(),
-         10);
+  report(
+      "conv 4096->1024 L4 K5",
+      [&] {
+        constexpr std::size_t in_c = 4096uz, out_c = 1024uz, length = 4uz, kernel = 5uz;
+        const std::vector<float> x = filled(in_c * length);
+        const std::vector<float> w = filled(out_c * in_c * kernel, 0.001F);
+        const std::vector<float> b = filled(out_c);
+        std::vector<float> y(out_c * length);
+        std::vector<float> workspace(fe::conv1d_workspace_floats(in_c, out_c, length, kernel));
+        return median_us(
+            [&] {
+              fe::conv1d(x, w, b, y, in_c, out_c, length, length, kernel, 1uz, 2uz, nullptr,
+                         workspace);
+            },
+            4, 12);
+      }(),
+      10);
   report("downsample 512 L16 K3", conv(512uz, 16uz, 3uz, 2uz, 1uz, 8uz), 10);
   report("downsample 1024 L8 K3", conv(1024uz, 8uz, 3uz, 2uz, 1uz, 4uz), 10);
 
@@ -209,29 +210,32 @@ int main(int argc, char** argv)
   report("upsample 1024 k-major", upsample_kmajor(1024uz, 4uz, 8uz), 10);
   report("upsample 512 k-major", upsample_kmajor(512uz, 8uz, 16uz), 10);
 
-  report("group_norm 2048 L4",
-         [&] {
-           std::vector<float> x = filled(2048uz * 4uz);
-           const std::vector<float> w = filled(2048uz, 1.0F);
-           const std::vector<float> b = filled(2048uz, 0.01F);
-           return median_us([&] { fe::group_norm(x, w, b, 2048uz, 4uz, 8uz); }, 8, 40);
-         }(),
-         80);
-  report("mish 8192",
-         [&] {
-           std::vector<float> x = filled(8192uz);
-           return median_us([&] { fe::mish(x); }, 8, 40);
-         }(),
-         310);
+  report(
+      "group_norm 2048 L4",
+      [&] {
+        std::vector<float> x = filled(2048uz * 4uz);
+        const std::vector<float> w = filled(2048uz, 1.0F);
+        const std::vector<float> b = filled(2048uz, 0.01F);
+        return median_us([&] { fe::group_norm(x, w, b, 2048uz, 4uz, 8uz); }, 8, 40);
+      }(),
+      80);
+  report(
+      "mish 8192",
+      [&] {
+        std::vector<float> x = filled(8192uz);
+        return median_us([&] { fe::mish(x); }, 8, 40);
+      }(),
+      310);
 
-  report("gemm 4x10240x2048",
-         [&] {
-           const std::vector<float> in = filled(4uz * 10240uz);
-           const std::vector<float> w = filled(2048uz * 10240uz);
-           std::vector<float> out(4uz * 2048uz);
-           return median_us([&] { fe::matmul(in, w, out, 4uz, 10240uz, 2048uz); }, 4, 12);
-         }(),
-         70);
+  report(
+      "gemm 4x10240x2048",
+      [&] {
+        const std::vector<float> in = filled(4uz * 10240uz);
+        const std::vector<float> w = filled(2048uz * 10240uz);
+        std::vector<float> out(4uz * 2048uz);
+        return median_us([&] { fe::matmul(in, w, out, 4uz, 10240uz, 2048uz); }, 4, 12);
+      }(),
+      70);
 
   auto gemm_pool = [&](unsigned threads) {
     std::vector<fe::Task> ring(8uz);

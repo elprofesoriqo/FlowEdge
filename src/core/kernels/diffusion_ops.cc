@@ -247,10 +247,9 @@ void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
               if (padded_index >= padding) {
                 const std::size_t output_index = padded_index - padding;
                 if (output_index < output_length) {
-                  const float wv =
-                      k_major_weights
-                          ? weight[(((k * out_channels) + oc) * in_channels) + ic]
-                          : weight[(((ic * out_channels) + oc) * kernel) + k];
+                  const float wv = k_major_weights
+                                       ? weight[(((k * out_channels) + oc) * in_channels) + ic]
+                                       : weight[(((ic * out_channels) + oc) * kernel) + k];
                   y[(oc * output_length) + output_index] += value * wv;
                 }
               }

@@ -216,8 +216,8 @@ std::size_t DiffusionHead::required_persistent_floats(std::span<const TensorView
     return 0uz;
   std::size_t train_timesteps{0uz};
   std::size_t stages{0uz};
-  if (!size_value(meta->as_f32()[10], train_timesteps) ||
-      !size_value(meta->as_f32()[6], stages) || stages < 2uz || stages > kMaxStages)
+  if (!size_value(meta->as_f32()[10], train_timesteps) || !size_value(meta->as_f32()[6], stages) ||
+      stages < 2uz || stages > kMaxStages)
     return 0uz;
   if (dims == nullptr || !dims->is_f32() || dims->ndim != 1u || dims->shape[0] != stages ||
       !exact_storage(dims, stages, sizeof(float)))

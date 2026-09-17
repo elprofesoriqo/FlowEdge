@@ -105,8 +105,7 @@ FE_FORCE_ALIGN void conv_transpose1d(std::span<const float> x, std::span<const f
                                      std::size_t in_channels, std::size_t out_channels,
                                      std::size_t input_length, std::size_t output_length,
                                      std::size_t kernel, std::size_t stride, std::size_t padding,
-                                     ThreadPool* pool = nullptr,
-                                     std::span<float> workspace = {},
+                                     ThreadPool* pool = nullptr, std::span<float> workspace = {},
                                      bool k_major_weights = false) noexcept;
 
 // GroupNorm over a single [channels][length] sample, with per-channel affine terms.
