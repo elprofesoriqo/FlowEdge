@@ -9,3 +9,6 @@ ab_results.md
 /bench-results/
 __pycache__/
 *.egg-info/
+/data/*.parquet
+/data/*.json
+/data/*.csv

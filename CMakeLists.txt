@@ -75,6 +75,8 @@ if(FLOWEDGE_BENCH)
 
   flowedge_executable(flowedge_kernels_bench bench/kernels/kernels_bench.cc FlowEdge::Core
                       benchmark::benchmark)
+  flowedge_executable(flowedge_diffusion_breakdown bench/kernels/diffusion_breakdown.cc
+                      FlowEdge::Core)
   execute_process(
     COMMAND git rev-parse --short=12 HEAD
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
