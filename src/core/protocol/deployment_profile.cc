@@ -5,6 +5,8 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 
@@ -92,10 +94,17 @@ struct Field
 [[nodiscard]] bool parse_float(std::string_view value, float& output) noexcept
 {
   value = trim(value);
-  if (value.empty())
+  if (value.empty() || value.size() >= 64uz)
     return false;
-  const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), output);
-  return error == std::errc{} && end == value.data() + value.size() && std::isfinite(output);
+  // Apple libc++ marks floating from_chars unavailable before macOS 26.
+  std::array<char, 64> buffer{};
+  std::memcpy(buffer.data(), value.data(), value.size());
+  char* end{};
+  const float parsed = std::strtof(buffer.data(), &end);
+  if (end != buffer.data() + value.size() || !std::isfinite(parsed))
+    return false;
+  output = parsed;
+  return true;
 }
 
 [[nodiscard]] bool parse_float_array(std::string_view value, std::vector<float>& output) noexcept
@@ -167,11 +176,11 @@ void append_uint(std::string& output, std::size_t value)
 void append_float(std::string& output, float value)
 {
   std::array<char, 64> buffer{};
-  const auto [end, error] = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value,
-                                          std::chars_format::general);
-  if (error != std::errc{})
+  const int written =
+      std::snprintf(buffer.data(), buffer.size(), "%.9g", static_cast<double>(value));
+  if (written <= 0 || static_cast<std::size_t>(written) >= buffer.size())
     return;
-  output.append(buffer.data(), static_cast<std::size_t>(end - buffer.data()));
+  output.append(buffer.data(), static_cast<std::size_t>(written));
 }
 
 } // namespace
