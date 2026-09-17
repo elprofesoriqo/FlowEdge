@@ -6,6 +6,10 @@
 #include <limits>
 #include <span>
 
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
+
 namespace fe {
 namespace {
 
@@ -162,7 +166,7 @@ void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
                       std::span<const float> bias, std::span<float> y, std::size_t in_channels,
                       std::size_t out_channels, std::size_t input_length, std::size_t output_length,
                       std::size_t kernel, std::size_t stride, std::size_t padding, ThreadPool* pool,
-                      std::span<float> workspace) noexcept
+                      std::span<float> workspace, bool k_major_weights) noexcept
 {
   if (in_channels == 0uz || out_channels == 0uz || input_length == 0uz || output_length == 0uz ||
       kernel == 0uz || stride == 0uz || x.size() < in_channels * input_length ||
@@ -173,35 +177,61 @@ void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
   const std::size_t x_floats = input_length * in_channels;
   const std::size_t w_floats = out_channels * in_channels;
   const std::size_t gemm_floats = input_length * out_channels;
-  if (workspace.size() >= x_floats + w_floats + gemm_floats && in_channels >= 32uz) {
+  const std::size_t packed_need =
+      k_major_weights ? (x_floats + gemm_floats) : (x_floats + w_floats + gemm_floats);
+  if (workspace.size() >= packed_need && (in_channels >= 32uz || k_major_weights)) {
     std::span<float> x_t = workspace.first(x_floats);
-    std::span<float> w_k = workspace.subspan(x_floats, w_floats);
-    std::span<float> gemm = workspace.subspan(x_floats + w_floats, gemm_floats);
+    std::span<float> w_k{};
+    std::span<float> gemm;
+    if (k_major_weights) {
+      gemm = workspace.subspan(x_floats, gemm_floats);
+    } else {
+      w_k = workspace.subspan(x_floats, w_floats);
+      gemm = workspace.subspan(x_floats + w_floats, gemm_floats);
+    }
     for (std::size_t ic{0uz}; ic < in_channels; ++ic)
       for (std::size_t it{0uz}; it < input_length; ++it)
         x_t[(it * in_channels) + ic] = x[(ic * input_length) + it];
     for (std::size_t oc{0uz}; oc < out_channels; ++oc)
       std::fill_n(y.data() + (oc * output_length), output_length, bias[oc]);
     for (std::size_t k{0uz}; k < kernel; ++k) {
-      for (std::size_t ic{0uz}; ic < in_channels; ++ic)
-        for (std::size_t oc{0uz}; oc < out_channels; ++oc)
-          w_k[(oc * in_channels) + ic] = weight[((ic * out_channels) + oc) * kernel + k];
-      matmul(x_t, w_k, gemm, input_length, in_channels, out_channels, pool);
+      const float* w_src = nullptr;
+      if (k_major_weights) {
+        w_src = weight.data() + (k * out_channels * in_channels);
+      } else {
+        constexpr std::size_t kTile = 16uz;
+        for (std::size_t ic0{0uz}; ic0 < in_channels; ic0 += kTile) {
+          const std::size_t ic_end = std::min(in_channels, ic0 + kTile);
+          for (std::size_t oc0{0uz}; oc0 < out_channels; oc0 += kTile) {
+            const std::size_t oc_end = std::min(out_channels, oc0 + kTile);
+            for (std::size_t ic{ic0}; ic < ic_end; ++ic) {
+              const float* const src = weight.data() + ((ic * out_channels * kernel) + k);
+              float* const dest = w_k.data() + ic;
+              for (std::size_t oc{oc0}; oc < oc_end; ++oc)
+                dest[oc * in_channels] = src[oc * kernel];
+            }
+          }
+        }
+        w_src = w_k.data();
+      }
+      matmul(x_t, std::span<const float>{w_src, w_floats}, gemm, input_length, in_channels,
+             out_channels, pool);
       for (std::size_t it{0uz}; it < input_length; ++it) {
         const std::ptrdiff_t origin =
             static_cast<std::ptrdiff_t>(it * stride + k) - static_cast<std::ptrdiff_t>(padding);
         if (origin < 0 || origin >= static_cast<std::ptrdiff_t>(output_length))
           continue;
         const std::size_t ot = static_cast<std::size_t>(origin);
+        const float* const row = gemm.data() + (it * out_channels);
         for (std::size_t oc{0uz}; oc < out_channels; ++oc)
-          y[(oc * output_length) + ot] += gemm[(it * out_channels) + oc];
+          y[(oc * output_length) + ot] += row[oc];
       }
     }
     return;
   }
 
   const auto operation = [&](std::size_t first, std::size_t last) noexcept {
-    if (kernel == 4uz && stride == 2uz)
+    if (kernel == 4uz && stride == 2uz && !k_major_weights)
       conv_transpose1d_channels<4uz, 2uz>(x, weight, bias, y, in_channels, out_channels,
                                           input_length, output_length, padding, first, last);
     else {
@@ -212,13 +242,17 @@ void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
           const float value = x[(ic * input_length) + it];
           const std::size_t origin = it * stride;
           for (std::size_t oc{first}; oc < last; ++oc) {
-            const std::size_t weight_base = ((ic * out_channels) + oc) * kernel;
             for (std::size_t k{0uz}; k < kernel; ++k) {
               const std::size_t padded_index = origin + k;
               if (padded_index >= padding) {
                 const std::size_t output_index = padded_index - padding;
-                if (output_index < output_length)
-                  y[(oc * output_length) + output_index] += value * weight[weight_base + k];
+                if (output_index < output_length) {
+                  const float wv =
+                      k_major_weights
+                          ? weight[(((k * out_channels) + oc) * in_channels) + ic]
+                          : weight[(((ic * out_channels) + oc) * kernel) + k];
+                  y[(oc * output_length) + output_index] += value * wv;
+                }
               }
             }
           }
@@ -247,8 +281,32 @@ void group_norm(std::span<float> x, std::span<const float> weight, std::span<con
   const std::size_t group_values = channels_per_group * length;
   for (std::size_t group{0uz}; group < groups; ++group) {
     const std::size_t first_channel = group * channels_per_group;
+    float* const block = x.data() + (first_channel * length);
     double sum{0.0};
     double square_sum{0.0};
+#if defined(__AVX2__)
+    std::size_t i{0uz};
+    __m256 vsum = _mm256_setzero_ps();
+    __m256 vsq = _mm256_setzero_ps();
+    for (; i + 8uz <= group_values; i += 8uz) {
+      const __m256 v = _mm256_loadu_ps(block + i);
+      vsum = _mm256_add_ps(vsum, v);
+      vsq = _mm256_fmadd_ps(v, v, vsq);
+    }
+    alignas(32) float tail_sum[8];
+    alignas(32) float tail_sq[8];
+    _mm256_store_ps(tail_sum, vsum);
+    _mm256_store_ps(tail_sq, vsq);
+    for (std::size_t lane{0uz}; lane < 8uz; ++lane) {
+      sum += static_cast<double>(tail_sum[lane]);
+      square_sum += static_cast<double>(tail_sq[lane]);
+    }
+    for (; i < group_values; ++i) {
+      const double value = static_cast<double>(block[i]);
+      sum += value;
+      square_sum += value * value;
+    }
+#else
     for (std::size_t local{0uz}; local < channels_per_group; ++local) {
       const std::size_t base = (first_channel + local) * length;
       for (std::size_t t{0uz}; t < length; ++t) {
@@ -257,18 +315,38 @@ void group_norm(std::span<float> x, std::span<const float> weight, std::span<con
         square_sum += value * value;
       }
     }
+#endif
     const double count = static_cast<double>(group_values);
     const double mean = sum / count;
     const double variance = std::max(0.0, (square_sum / count) - (mean * mean));
     const float inverse_stddev =
         static_cast<float>(1.0 / std::sqrt(variance + static_cast<double>(epsilon)));
     const float mean_f = static_cast<float>(mean);
+#if defined(__AVX2__)
+    for (std::size_t local{0uz}; local < channels_per_group; ++local) {
+      const std::size_t channel = first_channel + local;
+      const float scale = inverse_stddev * weight[channel];
+      const float shift = bias[channel];
+      float* const row = x.data() + (channel * length);
+      std::size_t t{0uz};
+      const __m256 vmean = _mm256_set1_ps(mean_f);
+      const __m256 vscale = _mm256_set1_ps(scale);
+      const __m256 vshift = _mm256_set1_ps(shift);
+      for (; t + 8uz <= length; t += 8uz) {
+        const __m256 v = _mm256_loadu_ps(row + t);
+        _mm256_storeu_ps(row + t, _mm256_fmadd_ps(_mm256_sub_ps(v, vmean), vscale, vshift));
+      }
+      for (; t < length; ++t)
+        row[t] = ((row[t] - mean_f) * scale) + shift;
+    }
+#else
     for (std::size_t local{0uz}; local < channels_per_group; ++local) {
       const std::size_t channel = first_channel + local;
       const std::size_t base = channel * length;
       for (std::size_t t{0uz}; t < length; ++t)
         x[base + t] = ((x[base + t] - mean_f) * inverse_stddev * weight[channel]) + bias[channel];
     }
+#endif
   }
 }
 
@@ -280,8 +358,22 @@ void film(std::span<float> x, std::span<const float> scale, std::span<const floa
     return;
   for (std::size_t channel{0uz}; channel < channels; ++channel) {
     const std::size_t base = channel * length;
+    const float gain = scale[channel];
+    const float shift = bias[channel];
+#if defined(__AVX2__)
+    const __m256 vgain = _mm256_set1_ps(gain);
+    const __m256 vshift = _mm256_set1_ps(shift);
+    std::size_t t{0uz};
+    for (; t + 8uz <= length; t += 8uz) {
+      const __m256 v = _mm256_loadu_ps(x.data() + base + t);
+      _mm256_storeu_ps(x.data() + base + t, _mm256_fmadd_ps(vgain, v, vshift));
+    }
+    for (; t < length; ++t)
+      x[base + t] = (gain * x[base + t]) + shift;
+#else
     for (std::size_t t{0uz}; t < length; ++t)
-      x[base + t] = (scale[channel] * x[base + t]) + bias[channel];
+      x[base + t] = (gain * x[base + t]) + shift;
+#endif
   }
 }
 

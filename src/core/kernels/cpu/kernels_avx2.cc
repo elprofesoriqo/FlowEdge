@@ -298,6 +298,222 @@ inline void matmul_f32_dot2(const float* __restrict__ i0, const float* __restric
   }
 }
 
+inline void matmul_f32_dot4_pair(const float* __restrict__ i0, const float* __restrict__ i1,
+                                 const float* __restrict__ i2, const float* __restrict__ i3,
+                                 const float* __restrict__ wr0, const float* __restrict__ wr1,
+                                 std::size_t in_dim, float* __restrict__ accs0,
+                                 float* __restrict__ accs1) noexcept
+{
+  std::size_t i{0uz};
+  __m256 a00 = _mm256_setzero_ps();
+  __m256 a01 = a00, a02 = a00, a03 = a00;
+  __m256 a10 = a00, a11 = a00, a12 = a00, a13 = a00;
+  for (; i + 32uz <= in_dim; i += 32uz) {
+    __m256 w0 = _mm256_loadu_ps(wr0 + i);
+    __m256 w1 = _mm256_loadu_ps(wr1 + i);
+    a00 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), w0, a00);
+    a01 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), w0, a01);
+    a02 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), w0, a02);
+    a03 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), w0, a03);
+    a10 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), w1, a10);
+    a11 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), w1, a11);
+    a12 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), w1, a12);
+    a13 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), w1, a13);
+    w0 = _mm256_loadu_ps(wr0 + i + 8uz);
+    w1 = _mm256_loadu_ps(wr1 + i + 8uz);
+    a00 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 8uz), w0, a00);
+    a01 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 8uz), w0, a01);
+    a02 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 8uz), w0, a02);
+    a03 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 8uz), w0, a03);
+    a10 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 8uz), w1, a10);
+    a11 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 8uz), w1, a11);
+    a12 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 8uz), w1, a12);
+    a13 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 8uz), w1, a13);
+    w0 = _mm256_loadu_ps(wr0 + i + 16uz);
+    w1 = _mm256_loadu_ps(wr1 + i + 16uz);
+    a00 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 16uz), w0, a00);
+    a01 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 16uz), w0, a01);
+    a02 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 16uz), w0, a02);
+    a03 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 16uz), w0, a03);
+    a10 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 16uz), w1, a10);
+    a11 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 16uz), w1, a11);
+    a12 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 16uz), w1, a12);
+    a13 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 16uz), w1, a13);
+    w0 = _mm256_loadu_ps(wr0 + i + 24uz);
+    w1 = _mm256_loadu_ps(wr1 + i + 24uz);
+    a00 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 24uz), w0, a00);
+    a01 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 24uz), w0, a01);
+    a02 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 24uz), w0, a02);
+    a03 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 24uz), w0, a03);
+    a10 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i + 24uz), w1, a10);
+    a11 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i + 24uz), w1, a11);
+    a12 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i + 24uz), w1, a12);
+    a13 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i + 24uz), w1, a13);
+  }
+  for (; i + 8uz <= in_dim; i += 8uz) {
+    const __m256 w0 = _mm256_loadu_ps(wr0 + i);
+    const __m256 w1 = _mm256_loadu_ps(wr1 + i);
+    a00 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), w0, a00);
+    a01 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), w0, a01);
+    a02 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), w0, a02);
+    a03 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), w0, a03);
+    a10 = _mm256_fmadd_ps(_mm256_loadu_ps(i0 + i), w1, a10);
+    a11 = _mm256_fmadd_ps(_mm256_loadu_ps(i1 + i), w1, a11);
+    a12 = _mm256_fmadd_ps(_mm256_loadu_ps(i2 + i), w1, a12);
+    a13 = _mm256_fmadd_ps(_mm256_loadu_ps(i3 + i), w1, a13);
+  }
+  accs0[0] = hsum8(a00);
+  accs0[1] = hsum8(a01);
+  accs0[2] = hsum8(a02);
+  accs0[3] = hsum8(a03);
+  accs1[0] = hsum8(a10);
+  accs1[1] = hsum8(a11);
+  accs1[2] = hsum8(a12);
+  accs1[3] = hsum8(a13);
+  for (; i < in_dim; ++i) {
+    const float w0 = wr0[i];
+    const float w1 = wr1[i];
+    accs0[0] += i0[i] * w0;
+    accs0[1] += i1[i] * w0;
+    accs0[2] += i2[i] * w0;
+    accs0[3] += i3[i] * w0;
+    accs1[0] += i0[i] * w1;
+    accs1[1] += i1[i] * w1;
+    accs1[2] += i2[i] * w1;
+    accs1[3] += i3[i] * w1;
+  }
+}
+
+inline void matmul_f32_dot4_quad(const float* __restrict__ i0, const float* __restrict__ i1,
+                                 const float* __restrict__ i2, const float* __restrict__ i3,
+                                 const float* __restrict__ wr0, const float* __restrict__ wr1,
+                                 const float* __restrict__ wr2, const float* __restrict__ wr3,
+                                 std::size_t in_dim, float* __restrict__ accs0,
+                                 float* __restrict__ accs1, float* __restrict__ accs2,
+                                 float* __restrict__ accs3) noexcept
+{
+  std::size_t i{0uz};
+  __m256 a00 = _mm256_setzero_ps();
+  __m256 a01 = a00, a02 = a00, a03 = a00;
+  __m256 a10 = a00, a11 = a00, a12 = a00, a13 = a00;
+  __m256 a20 = a00, a21 = a00, a22 = a00, a23 = a00;
+  __m256 a30 = a00, a31 = a00, a32 = a00, a33 = a00;
+  for (; i + 16uz <= in_dim; i += 16uz) {
+    const __m256 x0 = _mm256_loadu_ps(i0 + i);
+    const __m256 x1 = _mm256_loadu_ps(i1 + i);
+    const __m256 x2 = _mm256_loadu_ps(i2 + i);
+    const __m256 x3 = _mm256_loadu_ps(i3 + i);
+    __m256 w = _mm256_loadu_ps(wr0 + i);
+    a00 = _mm256_fmadd_ps(x0, w, a00);
+    a01 = _mm256_fmadd_ps(x1, w, a01);
+    a02 = _mm256_fmadd_ps(x2, w, a02);
+    a03 = _mm256_fmadd_ps(x3, w, a03);
+    w = _mm256_loadu_ps(wr1 + i);
+    a10 = _mm256_fmadd_ps(x0, w, a10);
+    a11 = _mm256_fmadd_ps(x1, w, a11);
+    a12 = _mm256_fmadd_ps(x2, w, a12);
+    a13 = _mm256_fmadd_ps(x3, w, a13);
+    w = _mm256_loadu_ps(wr2 + i);
+    a20 = _mm256_fmadd_ps(x0, w, a20);
+    a21 = _mm256_fmadd_ps(x1, w, a21);
+    a22 = _mm256_fmadd_ps(x2, w, a22);
+    a23 = _mm256_fmadd_ps(x3, w, a23);
+    w = _mm256_loadu_ps(wr3 + i);
+    a30 = _mm256_fmadd_ps(x0, w, a30);
+    a31 = _mm256_fmadd_ps(x1, w, a31);
+    a32 = _mm256_fmadd_ps(x2, w, a32);
+    a33 = _mm256_fmadd_ps(x3, w, a33);
+    const __m256 x0b = _mm256_loadu_ps(i0 + i + 8uz);
+    const __m256 x1b = _mm256_loadu_ps(i1 + i + 8uz);
+    const __m256 x2b = _mm256_loadu_ps(i2 + i + 8uz);
+    const __m256 x3b = _mm256_loadu_ps(i3 + i + 8uz);
+    w = _mm256_loadu_ps(wr0 + i + 8uz);
+    a00 = _mm256_fmadd_ps(x0b, w, a00);
+    a01 = _mm256_fmadd_ps(x1b, w, a01);
+    a02 = _mm256_fmadd_ps(x2b, w, a02);
+    a03 = _mm256_fmadd_ps(x3b, w, a03);
+    w = _mm256_loadu_ps(wr1 + i + 8uz);
+    a10 = _mm256_fmadd_ps(x0b, w, a10);
+    a11 = _mm256_fmadd_ps(x1b, w, a11);
+    a12 = _mm256_fmadd_ps(x2b, w, a12);
+    a13 = _mm256_fmadd_ps(x3b, w, a13);
+    w = _mm256_loadu_ps(wr2 + i + 8uz);
+    a20 = _mm256_fmadd_ps(x0b, w, a20);
+    a21 = _mm256_fmadd_ps(x1b, w, a21);
+    a22 = _mm256_fmadd_ps(x2b, w, a22);
+    a23 = _mm256_fmadd_ps(x3b, w, a23);
+    w = _mm256_loadu_ps(wr3 + i + 8uz);
+    a30 = _mm256_fmadd_ps(x0b, w, a30);
+    a31 = _mm256_fmadd_ps(x1b, w, a31);
+    a32 = _mm256_fmadd_ps(x2b, w, a32);
+    a33 = _mm256_fmadd_ps(x3b, w, a33);
+  }
+  for (; i + 8uz <= in_dim; i += 8uz) {
+    const __m256 x0 = _mm256_loadu_ps(i0 + i);
+    const __m256 x1 = _mm256_loadu_ps(i1 + i);
+    const __m256 x2 = _mm256_loadu_ps(i2 + i);
+    const __m256 x3 = _mm256_loadu_ps(i3 + i);
+    __m256 w = _mm256_loadu_ps(wr0 + i);
+    a00 = _mm256_fmadd_ps(x0, w, a00);
+    a01 = _mm256_fmadd_ps(x1, w, a01);
+    a02 = _mm256_fmadd_ps(x2, w, a02);
+    a03 = _mm256_fmadd_ps(x3, w, a03);
+    w = _mm256_loadu_ps(wr1 + i);
+    a10 = _mm256_fmadd_ps(x0, w, a10);
+    a11 = _mm256_fmadd_ps(x1, w, a11);
+    a12 = _mm256_fmadd_ps(x2, w, a12);
+    a13 = _mm256_fmadd_ps(x3, w, a13);
+    w = _mm256_loadu_ps(wr2 + i);
+    a20 = _mm256_fmadd_ps(x0, w, a20);
+    a21 = _mm256_fmadd_ps(x1, w, a21);
+    a22 = _mm256_fmadd_ps(x2, w, a22);
+    a23 = _mm256_fmadd_ps(x3, w, a23);
+    w = _mm256_loadu_ps(wr3 + i);
+    a30 = _mm256_fmadd_ps(x0, w, a30);
+    a31 = _mm256_fmadd_ps(x1, w, a31);
+    a32 = _mm256_fmadd_ps(x2, w, a32);
+    a33 = _mm256_fmadd_ps(x3, w, a33);
+  }
+  accs0[0] = hsum8(a00);
+  accs0[1] = hsum8(a01);
+  accs0[2] = hsum8(a02);
+  accs0[3] = hsum8(a03);
+  accs1[0] = hsum8(a10);
+  accs1[1] = hsum8(a11);
+  accs1[2] = hsum8(a12);
+  accs1[3] = hsum8(a13);
+  accs2[0] = hsum8(a20);
+  accs2[1] = hsum8(a21);
+  accs2[2] = hsum8(a22);
+  accs2[3] = hsum8(a23);
+  accs3[0] = hsum8(a30);
+  accs3[1] = hsum8(a31);
+  accs3[2] = hsum8(a32);
+  accs3[3] = hsum8(a33);
+  for (; i < in_dim; ++i) {
+    const float w0 = wr0[i];
+    const float w1 = wr1[i];
+    const float w2 = wr2[i];
+    const float w3 = wr3[i];
+    accs0[0] += i0[i] * w0;
+    accs0[1] += i1[i] * w0;
+    accs0[2] += i2[i] * w0;
+    accs0[3] += i3[i] * w0;
+    accs1[0] += i0[i] * w1;
+    accs1[1] += i1[i] * w1;
+    accs1[2] += i2[i] * w1;
+    accs1[3] += i3[i] * w1;
+    accs2[0] += i0[i] * w2;
+    accs2[1] += i1[i] * w2;
+    accs2[2] += i2[i] * w2;
+    accs2[3] += i3[i] * w2;
+    accs3[0] += i0[i] * w3;
+    accs3[1] += i1[i] * w3;
+    accs3[2] += i2[i] * w3;
+    accs3[3] += i3[i] * w3;
+  }
+}
+
 void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
                                     const MatmulF32RowNCtx* ctx) noexcept
 {
@@ -307,18 +523,22 @@ void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
   const std::size_t rows = ctx->rows;
   const std::size_t in_dim = ctx->in_dim;
   const std::size_t out_dim = ctx->out_dim;
-  for (std::size_t o{lo}; o < hi; ++o) {
+  const auto store4 = [out_data, out_dim](std::size_t r0, std::size_t o,
+                                          const float* accs) noexcept {
+    float* const orow = out_data + (r0 * out_dim);
+    orow[o] = accs[0];
+    orow[out_dim + o] = accs[1];
+    orow[(2uz * out_dim) + o] = accs[2];
+    orow[(3uz * out_dim) + o] = accs[3];
+  };
+  const auto one_output = [&](std::size_t o) noexcept {
     const float* __restrict__ wr = w_data + (o * in_dim);
     std::size_t r0{0uz};
     for (; r0 + 4uz <= rows; r0 += 4uz) {
       const float* const i0 = in_data + (r0 * in_dim);
       float accs[4];
       matmul_f32_dot4(i0, i0 + in_dim, i0 + (2uz * in_dim), i0 + (3uz * in_dim), wr, in_dim, accs);
-      float* const orow = out_data + (r0 * out_dim);
-      orow[o] = accs[0];
-      orow[out_dim + o] = accs[1];
-      orow[(2uz * out_dim) + o] = accs[2];
-      orow[(3uz * out_dim) + o] = accs[3];
+      store4(r0, o, accs);
     }
     if (r0 + 2uz <= rows) {
       const float* const i0 = in_data + (r0 * in_dim);
@@ -336,7 +556,49 @@ void FE_FORCE_ALIGN matmul_f32_rown(std::size_t lo, std::size_t hi,
                                  .in_dim = in_dim};
       matmul_f32_row1(0uz, 1uz, &one);
     }
+  };
+
+  std::size_t o{lo};
+  if ((rows % 4uz) == 0uz) {
+    // 4A+4W rows exceed a 256 KiB L2 when K is the 2048-channel im2col width.
+    const bool use_quad = (in_dim * sizeof(float) * 8uz) <= (256uz * 1024uz);
+    if (use_quad) {
+      for (; o + 3uz < hi; o += 4uz) {
+        const float* const wr0 = w_data + (o * in_dim);
+        const float* const wr1 = wr0 + in_dim;
+        const float* const wr2 = wr1 + in_dim;
+        const float* const wr3 = wr2 + in_dim;
+        for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+          const float* const i0 = in_data + (r0 * in_dim);
+          float accs0[4];
+          float accs1[4];
+          float accs2[4];
+          float accs3[4];
+          matmul_f32_dot4_quad(i0, i0 + in_dim, i0 + (2uz * in_dim), i0 + (3uz * in_dim), wr0, wr1,
+                               wr2, wr3, in_dim, accs0, accs1, accs2, accs3);
+          store4(r0, o, accs0);
+          store4(r0, o + 1uz, accs1);
+          store4(r0, o + 2uz, accs2);
+          store4(r0, o + 3uz, accs3);
+        }
+      }
+    }
+    for (; o + 1uz < hi; o += 2uz) {
+      const float* const wr0 = w_data + (o * in_dim);
+      const float* const wr1 = wr0 + in_dim;
+      for (std::size_t r0{0uz}; r0 < rows; r0 += 4uz) {
+        const float* const i0 = in_data + (r0 * in_dim);
+        float accs0[4];
+        float accs1[4];
+        matmul_f32_dot4_pair(i0, i0 + in_dim, i0 + (2uz * in_dim), i0 + (3uz * in_dim), wr0, wr1,
+                             in_dim, accs0, accs1);
+        store4(r0, o, accs0);
+        store4(r0, o + 1uz, accs1);
+      }
+    }
   }
+  for (; o < hi; ++o)
+    one_output(o);
 }
 struct MatmulF32RowNOp
 {

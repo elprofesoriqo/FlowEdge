@@ -137,13 +137,16 @@ void conv_transpose1d_arena(Arena& arena, std::span<const float> x, std::span<co
                             std::span<const float> bias, std::span<float> y,
                             std::size_t in_channels, std::size_t out_channels,
                             std::size_t input_length, std::size_t output_length, std::size_t kernel,
-                            std::size_t stride, std::size_t padding, ThreadPool* pool) noexcept
+                            std::size_t stride, std::size_t padding, ThreadPool* pool,
+                            bool k_major_weights) noexcept
 {
   std::byte* const mark = arena.mark();
   conv_transpose1d(x, weight, bias, y, in_channels, out_channels, input_length, output_length,
                    kernel, stride, padding, pool,
                    arena.alloc_span<float, kSimdAlign>(
-                       conv_transpose1d_workspace_floats(in_channels, out_channels, input_length)));
+                       conv_transpose1d_workspace_floats(in_channels, out_channels, input_length,
+                                                         kernel)),
+                   k_major_weights);
   arena.reset_to(mark);
 }
 
@@ -207,11 +210,35 @@ private:
 std::size_t DiffusionHead::required_persistent_floats(std::span<const TensorView> weights) noexcept
 {
   const TensorView* const meta = find_tensor(weights, "dp.meta");
+  const TensorView* const dims = find_tensor(weights, "dp.dims");
   if (meta == nullptr || !meta->is_f32() || meta->ndim != 1u || meta->shape[0] != kMetaValues ||
       !exact_storage(meta, kMetaValues, sizeof(float)))
     return 0uz;
   std::size_t train_timesteps{0uz};
-  return size_value(meta->as_f32()[10], train_timesteps) ? train_timesteps : 0uz;
+  std::size_t stages{0uz};
+  if (!size_value(meta->as_f32()[10], train_timesteps) ||
+      !size_value(meta->as_f32()[6], stages) || stages < 2uz || stages > kMaxStages)
+    return 0uz;
+  if (dims == nullptr || !dims->is_f32() || dims->ndim != 1u || dims->shape[0] != stages ||
+      !exact_storage(dims, stages, sizeof(float)))
+    return 0uz;
+  std::array<std::size_t, kMaxStages> stage_dims{};
+  for (std::size_t i{0uz}; i < stages; ++i) {
+    if (!size_value(dims->as_f32()[i], stage_dims[i]) || stage_dims[i] == 0uz)
+      return 0uz;
+  }
+  std::size_t total = train_timesteps;
+  // Load-time [K][OC][IC] copies of each upsample kernel; one alignment gap per alloc.
+  for (std::size_t stage{0uz}; stage + 1uz < stages; ++stage) {
+    const std::size_t low = stage_dims[stages - 2uz - stage];
+    std::size_t packed{0uz};
+    if (!checked_mul(low, low, packed) || !checked_mul(packed, 4uz, packed) ||
+        !checked_add(total, packed, total) || !checked_add(total, kAlignmentFloats, total))
+      return 0uz;
+  }
+  if (!checked_add(total, kAlignmentFloats, total))
+    return 0uz;
+  return total;
 }
 
 std::size_t DiffusionHead::required_workspace_floats(std::span<const TensorView> weights) noexcept
@@ -290,7 +317,7 @@ std::size_t DiffusionHead::required_workspace_floats(std::span<const TensorView>
         !residual(concatenated_channels, low, length) || !residual(low, low, length))
       return 0uz;
     if (!checked_mul(length, 2uz, length) || !plan.add_product(low, length) ||
-        !plan.temporary({conv_transpose1d_workspace_floats(low, low, length / 2uz)}))
+        !plan.temporary({conv_transpose1d_workspace_floats(low, low, length / 2uz, 4uz)}))
       return 0uz;
   }
   if (!plan.add_product(stage_dims[0], horizon) || !plan.add(sample_values))
@@ -302,7 +329,7 @@ std::size_t DiffusionHead::required_workspace_floats(std::span<const TensorView>
   const std::size_t pack_conv =
       conv1d_workspace_floats(2uz * max_channels, max_channels, horizon, 5uz);
   const std::size_t pack_transpose =
-      conv_transpose1d_workspace_floats(max_channels, max_channels, horizon);
+      conv_transpose1d_workspace_floats(max_channels, max_channels, horizon, 4uz);
   if (!plan.temporary({std::max(pack_conv, pack_transpose)}))
     return 0uz;
 
@@ -427,6 +454,32 @@ DiffusionHead::DiffusionHead(std::span<const TensorView> weights, Arena& persist
     const std::string_view prefix = indexed_prefix(prefix_buffer, "dp.u", stage, ".us");
     if (prefix.empty() || !load_conv(weights, prefix, low, low, 4uz, up_[stage].upsample))
       return;
+    ConvWeights& conv = up_[stage].upsample;
+    std::size_t packed_floats{0uz};
+    if (!checked_mul(conv.in_channels, conv.out_channels, packed_floats) ||
+        !checked_mul(packed_floats, conv.kernel, packed_floats))
+      return;
+    float* const packed = persistent.alloc_array<float, kSimdAlign>(packed_floats);
+    if (packed == nullptr)
+      return;
+    const float* const src = conv.weight;
+    constexpr std::size_t kTile = 16uz;
+    for (std::size_t k{0uz}; k < conv.kernel; ++k) {
+      for (std::size_t ic0{0uz}; ic0 < conv.in_channels; ic0 += kTile) {
+        const std::size_t ic_end = std::min(conv.in_channels, ic0 + kTile);
+        for (std::size_t oc0{0uz}; oc0 < conv.out_channels; oc0 += kTile) {
+          const std::size_t oc_end = std::min(conv.out_channels, oc0 + kTile);
+          for (std::size_t ic{ic0}; ic < ic_end; ++ic) {
+            const float* const from = src + ((ic * conv.out_channels * conv.kernel) + k);
+            float* const dest = packed + ((k * conv.out_channels * conv.in_channels) + ic);
+            for (std::size_t oc{oc0}; oc < oc_end; ++oc)
+              dest[oc * conv.in_channels] = from[oc * conv.kernel];
+          }
+        }
+      }
+    }
+    conv.weight = packed;
+    conv.k_major = true;
   }
 
   if (!load_conv(weights, "dp.f.c", dims_[0], dims_[0], cfg_.kernel, final_conv_) ||
@@ -689,7 +742,7 @@ bool DiffusionHead::denoise_with_arena(std::span<const float> condition,
     const ConvWeights& weights = up_[stage].upsample;
     conv_transpose1d_arena(arena, x, {weights.weight, channels * channels * weights.kernel},
                            {weights.bias, channels}, output, channels, channels, length,
-                           output_length, weights.kernel, 2uz, 1uz, pool_);
+                           output_length, weights.kernel, 2uz, 1uz, pool_, weights.k_major);
     x = output;
     length = output_length;
   }

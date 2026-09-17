@@ -215,7 +215,7 @@ void BM_diffusion_upsample_512_l8(benchmark::State& state)
   const std::vector<float> b = filled(channels);
   std::vector<float> y(channels * output_length);
   std::vector<float> workspace(
-      fe::conv_transpose1d_workspace_floats(channels, channels, input_length));
+      fe::conv_transpose1d_workspace_floats(channels, channels, input_length, 4uz));
   for (auto _ : state) {
     fe::conv_transpose1d(x, w, b, y, channels, channels, input_length, output_length, kernel, 2uz,
                          1uz, nullptr, workspace);

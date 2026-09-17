@@ -78,8 +78,10 @@ FE_FORCE_ALIGN void conv1d_causal(std::span<const float> x, std::span<const floa
 
 // Workspace for packing ConvTranspose1D: X^T [L_in][IC], W_k [OC][IC], GEMM [L_in][OC].
 [[nodiscard]] constexpr std::size_t conv_transpose1d_workspace_floats(
-    std::size_t in_channels, std::size_t out_channels, std::size_t input_length) noexcept
+    std::size_t in_channels, std::size_t out_channels, std::size_t input_length,
+    std::size_t kernel = 4uz) noexcept
 {
+  (void)kernel;
   return (input_length * in_channels) + (out_channels * in_channels) +
          (input_length * out_channels);
 }
@@ -96,13 +98,16 @@ FE_FORCE_ALIGN void conv1d(std::span<const float> x, std::span<const float> weig
                            std::span<float> workspace = {}) noexcept;
 
 // PyTorch ConvTranspose1d layout: weights are [in_channels][out_channels][kernel].
+// `k_major_weights` selects a load-time [kernel][out_channels][in_channels] copy so
+// each tap is a contiguous [OC][IC] GEMM with no runtime pack.
 FE_FORCE_ALIGN void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
                                      std::span<const float> bias, std::span<float> y,
                                      std::size_t in_channels, std::size_t out_channels,
                                      std::size_t input_length, std::size_t output_length,
                                      std::size_t kernel, std::size_t stride, std::size_t padding,
                                      ThreadPool* pool = nullptr,
-                                     std::span<float> workspace = {}) noexcept;
+                                     std::span<float> workspace = {},
+                                     bool k_major_weights = false) noexcept;
 
 // GroupNorm over a single [channels][length] sample, with per-channel affine terms.
 FE_FORCE_ALIGN void group_norm(std::span<float> x, std::span<const float> weight,
