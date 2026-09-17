@@ -2,7 +2,13 @@
 
 from .contracts import ActionChunkAdapter
 from .diffusion import DiffusionActionContract, FlowEdgeDiffusionPolicy
-from .rollout import MAX_ROLLOUT_STEPS, RolloutResult, RolloutRobot, run_rollout
+from .rollout import (
+    MAX_ROLLOUT_STEPS,
+    DeadlineMissed,
+    RolloutResult,
+    RolloutRobot,
+    run_rollout,
+)
 from .smolvla import (
     FlowEdgeSmolVLACachedExpert,
     LeRobotSmolVLACacheProvider,
@@ -12,6 +18,7 @@ from .smolvla import (
 
 __all__ = [
     "ActionChunkAdapter",
+    "DeadlineMissed",
     "DiffusionActionContract",
     "FlowEdgeDiffusionPolicy",
     "FlowEdgeSmolVLACachedExpert",

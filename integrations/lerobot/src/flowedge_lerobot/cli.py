@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import os
 import platform
+import subprocess
 import time
 from collections.abc import Sequence
 from dataclasses import asdict
+from pathlib import Path
 
 import numpy as np
 
@@ -16,7 +19,7 @@ from .diffusion import FlowEdgeDiffusionPolicy
 from .rollout import RolloutResult, run_rollout
 
 
-def _peak_rss_bytes() -> int | None:
+def peak_rss_bytes() -> int | None:
     """Return process high-water RSS without making a runtime dependency mandatory."""
 
     if platform.system() == "Windows":
@@ -55,6 +58,19 @@ def _peak_rss_bytes() -> int | None:
         return rss if platform.system() == "Darwin" else rss * 1024
     except (ImportError, OSError):
         return None
+
+
+def _cpu_summary() -> str | None:
+    if platform.system() == "Linux" and Path("/proc/cpuinfo").exists():
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    try:
+        return subprocess.check_output(
+            ["lscpu"], text=True, stderr=subprocess.DEVNULL
+        ).splitlines()[0]
+    except (OSError, subprocess.CalledProcessError):
+        return platform.processor() or None
 
 
 class _SimulatedRobot:
@@ -103,6 +119,18 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="deadline period for missed-step counts",
     )
+    parser.add_argument(
+        "--on-miss",
+        choices=("hold", "drop", "raise"),
+        default="hold",
+        help="hold last action, drop the send, or raise when a period is missed",
+    )
+    parser.add_argument(
+        "--host-facts",
+        action="store_true",
+        help="include checkpoint path, thread count, and CPU summary in JSON",
+    )
+    parser.add_argument("--output", type=Path, default=None, help="write JSON to this path")
     return parser
 
 
@@ -114,6 +142,7 @@ def run_simulator(
     scheduler: str,
     seed: int,
     period_ms: float | None = None,
+    on_miss: str = "hold",
 ) -> RolloutResult:
     """Run the built-in simulator seam; hardware adapters stay outside this package."""
 
@@ -127,6 +156,7 @@ def run_simulator(
         diffusion_steps=diffusion_steps,
         scheduler=scheduler,
         period_ms=period_ms,
+        on_miss=on_miss,
     )
 
 
@@ -144,6 +174,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         scheduler=args.scheduler,
         seed=args.seed,
         period_ms=args.period_ms,
+        on_miss=args.on_miss,
     )
     report = asdict(result)
     report.update(
@@ -151,9 +182,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         machine=platform.machine(),
         startup_ms=startup_ms,
         evaluation_kind="synthetic_integration_smoke",
-        peak_rss_bytes=_peak_rss_bytes(),
+        peak_rss_bytes=peak_rss_bytes(),
     )
-    print(json.dumps(report, sort_keys=True))
+    if args.host_facts:
+        report.update(
+            evaluation_kind="edge_dp_rollout",
+            checkpoint=os.path.abspath(args.checkpoint),
+            threads=args.threads,
+            period_ms=args.period_ms,
+            processor=_cpu_summary(),
+            python=platform.python_version(),
+        )
+    encoded = json.dumps(report, sort_keys=True)
+    print(encoded)
+    if args.output is not None:
+        args.output.write_text(encoded + "\n", encoding="utf-8")
     return 0
 
 
