@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 250" width="860" height="250" role="img">
+<title>split the ODE, not the matmul</title>
+<defs>
+<marker id='coop-flow-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">split the ODE, not the matmul</text>
+<g transform="rotate(0.17 140 133)"><rect x="33" y="95" width="220" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="30" y="90" width="220" height="86" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="140" y="139" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">flow_begin</text>
+</g>
+<g transform="rotate(0.21 425 133)"><rect x="303" y="95" width="250" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="300" y="90" width="250" height="86" rx="16" fill="#7B6CF6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="425" y="139" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">flow_advance(N)</text>
+</g>
+<g transform="rotate(-0.15 715 133)"><rect x="603" y="95" width="230" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="600" y="90" width="230" height="86" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="715" y="139" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">publish at NFE=0</text>
+</g>
+<path d="M 250 133 Q 278 127 300 133" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#coop-flow-arr)"/>
+<path d="M 550 133 Q 577 126 600 133" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#coop-flow-arr)"/>
+<g transform="rotate(-0.2 200 196)"><rect x="200" y="196" width="406" height="36" rx="9" fill="#FF9F43" stroke="#2B2118" stroke-width="2.2"/><text x="403" y="220" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">bit-identical to one-shot Euler / Heun / RK4</text></g>
+</svg>

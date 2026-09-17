@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 270" width="860" height="270" role="img">
+<title>two product paths</title>
+<defs>
+<marker id='matrix-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">two product paths</text>
+<g transform="rotate(0.16 140 110)"><rect x="43" y="75" width="200" height="80" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="40" y="70" width="200" height="80" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="140" y="116" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">Mamba</text>
+</g>
+<g transform="rotate(0.14 420 110)"><rect x="303" y="75" width="240" height="80" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="300" y="70" width="240" height="80" rx="16" fill="#7B6CF6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="420" y="116" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">flow matching</text>
+</g>
+<path d="M 240 110 Q 263 108 300 110" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#matrix-arr)"/>
+<g transform="rotate(0.20 140 210)"><rect x="43" y="175" width="200" height="80" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="40" y="170" width="200" height="80" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="140" y="216" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">LeRobot encoder</text>
+</g>
+<g transform="rotate(-0.19 420 210)"><rect x="303" y="175" width="240" height="80" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="300" y="170" width="240" height="80" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="420" y="216" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">DP U-Net</text>
+</g>
+<path d="M 240 210 Q 260 213 300 210" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#matrix-arr)"/>
+<g transform="rotate(-0.31 720 150)"><ellipse cx="720" cy="150" rx="100" ry="50" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/><text x="720" y="155" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">action chunk</text></g>
+<path d="M 540 110 Q 574 133 620 140" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#matrix-arr)"/>
+<path d="M 540 210 Q 584 186 620 170" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#matrix-arr)"/>
+<g transform="rotate(0.4 560 40)"><rect x="560" y="40" width="346" height="36" rx="9" fill="#FFD166" stroke="#2B2118" stroke-width="2.2"/><text x="733" y="64" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">Transformer / π0 / DiT: same contract</text></g>
+</svg>

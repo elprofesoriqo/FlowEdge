@@ -1,10 +1,11 @@
 # Policy evaluation
 
-The companion package separates integration smoke tests, matched full-policy replay,
-and closed-loop PushT evaluation. The last two use the original RGB encoder,
-normalization statistics, observation history, and trained Diffusion Policy weights.
-The first public fixture is `lerobot/diffusion_pusht` revision
-`84a7c23178445c6bbf7e1a884ff497017910f653`.
+```{image} ../_static/figures/verify.svg
+:alt: Same checkpoint, FlowEdge vs PyTorch
+:class: fe-fig
+```
+
+Smoke tests, matched full-policy replay, and closed-loop PushT. Replay uses the original RGB encoder, stats, history, and trained DP weights. Fixture: `lerobot/diffusion_pusht` revision `84a7c23178445c6bbf7e1a884ff497017910f653`.
 
 ## Setup
 
@@ -13,7 +14,7 @@ python -m pip install .
 python -m pip install -e 'integrations/lerobot[evaluation]'
 hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
   --include config.json model.safetensors --local-dir models/diffusion_pusht
-python convert/convert.py models/diffusion_pusht models/diffusion_pusht.flowedge.safetensors \
+python -m flowedge_dev pipeline convert models/diffusion_pusht models/diffusion_pusht.flowedge.safetensors \
   --arch diffusion --dtype f32
 ```
 
@@ -44,7 +45,7 @@ Unsupported source layouts fail during setup; this is not a universal LeRobot ad
 ## Matched replay
 
 ```bash
-python tools/benchmark/run_policy_report.py models/diffusion_pusht.flowedge.safetensors \
+python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors \
   --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
   --steps 10 --iterations 100 --warmup 5 --threads 1 \
   --output bench/artifacts/policy/diffusion-pusht-report.json

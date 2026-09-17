@@ -1,49 +1,46 @@
 # Benchmark map
 
-FlowEdge has separate evidence for kernel speed, runtime predictability, and
-complete policy deployment. Do not use a component number as a control-loop
-claim.
-
-```{mermaid}
-flowchart LR
-  K[Kernel microbench] --> S[Throughput / CPU cost]
-  R[Relay + queue bench] --> T[Tail latency / allocations]
-  P[LeRobot replay] --> C[PyTorch parity + p50/p95/p99]
-  E[PushT episodes] --> Q[Task outcome / deadline evidence]
-  S & T & C & Q --> A[Versioned artifact + host parameters]
+```{image} _static/figures/benches.svg
+:alt: kernels, Relay tail, policy vs PyTorch, period misses
+:class: fe-fig
 ```
 
-| Suite | Location | What it measures | Default evidence |
-|---|---|---|---|
-| Kernels | `bench/kernels/` | Dense kernels and threaded matmul | Google Benchmark JSON |
-| Runtime | `bench/runtime/` | Relay admission, queues, worker pools, delivery, streaming, deadline profile | p50/p95/p99, cancellation, hot allocations |
-| Transformer | `tools/verification/verify_transformer_reference.py` | Real Hugging Face checkpoint against native full-prefix and streaming execution | max error and parity |
-| Diffusion policy | `tools/benchmark/run_policy_report.py` | Same observations, processor, noise, and DDIM schedule through FlowEdge and LeRobot/PyTorch | encoder/policy/end-to-end p50/p95/p99, throughput, RSS, action error |
-| Closed loop | `flowedge_lerobot.evaluate` | Bounded PushT episodes | task result; not a timing proof |
-| SmolVLA | `tools/smolvla_preflight.py`, `verify_smolvla_action_expert.py`, `verify_smolvla_cached_expert.py`, `verify_smolvla_cached_trajectory.py`, `verify_smolvla_hybrid.py`, `benchmark/run_smolvla_hybrid_report.py`, `flowedge-inspect` | Real checkpoint schema, suffix parity, cached expert/Euler replay, source-pipeline-to-native-expert action parity, and prepared-capture stage timing | real-capture parity and p50/p95/p99 artifacts; timing excludes camera/transport/control delivery and still makes no native VLM or control-quality claim |
+| Suite | Location | Measures |
+|---|---|---|
+| Kernels | `bench/kernels/` | Dense ops, including DP Conv1D shapes |
+| Runtime | `bench/runtime/` | Relay admission, queues, delivery |
+| Flow matching vs PyTorch | `python -m flowedge_dev verify ulp` | ULP / rel-error on `mamba_flow` — not a p50 |
+| Diffusion Policy vs PyTorch | `python -m flowedge_dev bench policy` | Same observations, processor, noise, DDIM vs LeRobot |
+| Period loop | `python -m flowedge_dev pipeline rollout` | `--period-ms`, `--on-miss`, RSS on a converted DP or flow checkpoint |
+| Closed loop | `flowedge_lerobot.evaluate` | PushT outcome — not a timing proof |
+| SmolVLA expert | `python -m flowedge_dev verify smolvla` | Cached-VLM expert vs source; VLM stays in PyTorch |
+| Transformer incubator | `python -m flowedge_dev verify transformer` | GPT-2 smoke vs Hugging Face |
+| ONNX companion | `integrations/onnx` | Fixed-shape ORT adapter; measure separately |
+
+The two product heads are flow matching and Diffusion Policy. Without FlowEdge
+you keep them in PyTorch/LeRobot or a graph compiler. With FlowEdge you convert
+the head, pin RSS, and compare against that same PyTorch reference. Mix ULP
+with p50 and the claim is wrong. [Performance](performance).
 
 ## Canonical policy report
 
 ```text
-python tools/benchmark/run_policy_report.py models/policy.safetensors \
+python -m flowedge_dev bench policy models/policy.safetensors \
   --source models/diffusion_pusht \
   --revision <immutable-hf-revision> \
   --steps 10 --iterations 100 --warmup 5 --threads 1 \
   --output bench/artifacts/policy/diffusion-pusht-report.json
 ```
 
-The command writes JSON and Markdown together. The reference backend is the
-actual LeRobot policy executed with PyTorch; the candidate is FlowEdge native.
-The manual workflow `.github/workflows/policy-evaluation.yml` exposes the same
-parameters and can target `ubuntu-latest` or a `self-hosted` hardware runner.
+JSON + Markdown together. Reference is LeRobot/PyTorch; candidate is FlowEdge native.
 
-## Interpretation rules
+## Interpretation
 
-| Claim | Allowed when | Not allowed when |
-|---|---|---|
-| PyTorch speedup | Same checkpoint, processor, host, threads, and schedule | Only a synthetic head or different preprocessing was timed |
-| Real-time suitability | Full control period, delivery path, queue state, and deadline misses are measured | Only p50 or a one-shot component is available |
-| Zero hot allocations | Native path allocation instrumentation is present | Python/PyTorch process counts are unknown |
-| Hardware result | Artifact names board, firmware, driver, compiler, and parameters | A CPU result is presented as Tenstorrent/CUDA evidence |
+| Claim | Allowed when |
+|---|---|
+| PyTorch speedup | Same checkpoint, processor, host, threads, schedule |
+| Real-time | Full period, delivery path, miss counts |
+| Zero hot allocations | Native path instrumentation |
+| Hardware result | Artifact names the board |
 
-Current backend status: **CPU available · Tenstorrent planned · CUDA planned**.
+**CPU available · Tenstorrent planned · CUDA planned**.

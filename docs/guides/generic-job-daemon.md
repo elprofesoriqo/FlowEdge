@@ -4,15 +4,9 @@
 Mamba streaming; custom iterative, streaming, and speculative backends use the same `JobService`
 contract in an embedding process.
 
-```{mermaid}
-flowchart LR
-  A[ML application] -->|JobClient| D[request / result rings]
-  D --> J[flowedge-jobd]
-  C[flowedge-jobctl] -->|separate control rings| J
-  J --> P[EDF + service-class worker pool]
-  P --> W1[Mamba lane 0]
-  P --> W2[Mamba lane 1]
-  J --> O[trace + metrics]
+```{image} ../_static/figures/jobs.svg
+:alt: JobClient, shared rings, EDF pool, Mamba lane
+:class: fe-fig
 ```
 
 ## Run the complete demo

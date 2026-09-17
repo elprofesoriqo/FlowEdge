@@ -1,6 +1,11 @@
 # Add a Backbone
 
-A backbone reads tokens and returns a conditioning vector. It also runs one-token streaming decode with fixed state. Follow Mamba.
+A backbone reads tokens and returns a conditioning vector, plus one-token streaming decode with fixed state. Follow Mamba.
+
+```{image} ../_static/figures/mamba.svg
+:alt: Mamba layer
+:class: fe-fig
+```
 
 ## The contract
 

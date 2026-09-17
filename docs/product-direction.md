@@ -1,50 +1,21 @@
 # Product Direction
 
-FlowEdge owns the deployment boundary between a trained action policy and robot control code. It
-should make that boundary predictable, measurable, and portable without becoming a training or graph
-runtime.
+FlowEdge is the boundary between a *trained* policy and *robot* control: convert once, fixed RSS, a period, a replayable action. Hardware runs the loop. FlowEdge runs the native head. LeRobot (or your stack) trains, encodes observations, and owns e-stop.
 
-## Product rule
-
-| Keep | Leave outside FlowEdge |
-|---|---|
-| Fixed model implementations and shared kernels | Training loops and dataset readers |
-| Checkpoint, memory, timing, and replay contracts | Vision and observation encoders |
-| Local bounded scheduling and transport | Distributed orchestration |
-| C/C++/Python and thin ecosystem adapters | Robot-specific safety controllers |
-
-## Deployment contracts available now
-
-| Surface | User outcome | Start here |
-|---|---|---|
-| Checkpoint preflight | Reject incompatible artifacts before a robot starts | [Preflight](guides/checkpoint-preflight) |
-| Deployment profile | Bind dimensions, units, normalization, and solver limits to weights | [Profile contract](architecture/deployment-profile) |
-| Deadline profile | Gate tail latency and hot-path allocations for one host | [Deadline guide](guides/deadline-profile) |
-| Trace and state capsule | Reproduce actions and migrate compatible state | [Relay proposal](ecosystem/relay-proposal) |
-| LeRobot adapter | Run a converted Diffusion Policy or cached SmolVLA expert through a bounded rollout seam | [LeRobot](guides/lerobot) |
-
-## Active development sequence
-
-The [roadmap](roadmap) is the source of truth: validate the LeRobot visual-policy
-boundary, establish matched replay and task evaluation, implement one exact SmolVLA
-path on Tenstorrent, then evaluate DeadlineFlow. The partner milestones below support
-that sequence; upstream acceptance and hardware access are external dependencies.
-
-```{mermaid}
-flowchart LR
-  P[Publish measured edge artifact] --> H[Run one hardware pilot]
-  H --> U[Propose LeRobot integration]
-  U --> M[Expand model import matrix]
-  M --> B[Add measured hardware backends]
+```{image} _static/figures/purpose.svg
+:alt: Hardware, FlowEdge, LeRobot
+:class: fe-fig
 ```
 
-| Order | Deliverable | Proof |
-|---:|---|---|
-| 1 | Reproducible FlowEdge-versus-LeRobot artifact | Same checkpoint, processor, host, and commands |
-| 2 | SO-100/SO-101 deployment pilot | Deadline, RSS, action shape, and stop behavior captured |
-| 3 | Upstream LeRobot RFC | Narrow adapter boundary accepted by maintainers |
-| 4 | Portable import/backend matrix | Each supported path has conversion and runtime verification |
-| 5 | Accelerator work | Same contract and benchmark pass on the target hardware |
+| Keep | Leave |
+|---|---|
+| Hardware: CPU now; Jetson/ARM via plugin; accelerators planned | Robot e-stop and joint limits |
+| FlowEdge: flow matching, DP U-Net, optional Relay | Training, datasets, graph compilers |
+| LeRobot: plugin, encoders, drivers | Native kernels and the arena |
 
-Success means an external team can convert a policy, verify it in CI, and reproduce a robot-side
-failure without adopting FlowEdge-specific training code.
+The sequence is convert → matched CPU replay vs PyTorch → a period loop on Jetson or SO-100 with miss counts → the same contracts on an accelerator. Success is an external team doing that without FlowEdge training code.
+
+```{image} _static/figures/sequence.svg
+:alt: convert, CPU replay, Jetson or SO-100, same contracts
+:class: fe-fig
+```

@@ -55,9 +55,9 @@ ctest --test-dir "$BUILD_DIR" --output-on-failure
 
 if [[ -n "$PYTHON" ]]; then
   (cd "$ROOT" && "$PYTHON" -m unittest discover -s test -p benchmark_artifact_test.py)
-  "$PYTHON" "$ROOT/tools/benchmark/report_budgets.py" \
+  (cd "$ROOT" && "$PYTHON" -m flowedge_dev bench budgets \
     --build-dir "$BUILD_DIR" --model "$MODEL" --token 1 --token 2 --token 3 --token 4 \
-    --budget "$ROOT/bench/config/budgets.json" --report "$BUILD_DIR/budget-report.md"
+    --budget "$ROOT/bench/config/budgets.json" --report "$BUILD_DIR/budget-report.md")
 else
   echo "note: Python unavailable; skipping size/setup budget report"
 fi
@@ -114,13 +114,13 @@ if [[ "$PYTHON_OPTION" == ON ]]; then
   if "$PYTHON" -c 'import numpy, safetensors' >/dev/null 2>&1; then
     PYTHONPATH="$ROOT/integrations/lerobot/src:$PYTHONPATH" \
       "$PYTHON" -m unittest discover -s "$ROOT/integrations/lerobot/tests" -v
-    "$PYTHON" "$ROOT/tools/verification/verify_external_head.py" "$BUILD_DIR"
+    (cd "$ROOT" && "$PYTHON" -m flowedge_dev verify head "$BUILD_DIR")
   else
     echo "note: Python extension built; numpy+safetensors verification dependencies unavailable"
   fi
   if "$PYTHON" -c 'import numpy, torch, safetensors' >/dev/null 2>&1; then
-    (cd "$ROOT" && "$PYTHON" tools/verification/verify_ulp.py "$MODEL")
-    (cd "$ROOT" && "$PYTHON" tools/verification/verify_diffusion.py "$BUILD_DIR")
+    (cd "$ROOT" && "$PYTHON" -m flowedge_dev verify ulp "$MODEL")
+    (cd "$ROOT" && "$PYTHON" -m flowedge_dev verify diffusion "$BUILD_DIR")
     if "$PYTHON" -c 'import lerobot, torchvision' >/dev/null 2>&1; then
       PYTHONPATH="$ROOT/integrations/lerobot/src:$PYTHONPATH" "$PYTHON" -m flowedge_lerobot.benchmark --help
       PYTHONPATH="$ROOT/integrations/lerobot/src:$PYTHONPATH" "$PYTHON" -m flowedge_lerobot.evaluate --help

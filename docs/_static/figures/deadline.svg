@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 270" width="920" height="270" role="img">
+<title>the period is the product</title>
+<defs>
+<marker id='deadline-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">the period is the product</text>
+<g transform="rotate(-0.08 115 150)"><ellipse cx="115" cy="150" rx="75" ry="60" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/><text x="115" y="155" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">10 ms</text></g>
+<g transform="rotate(0.05 380 148)"><rect x="253" y="105" width="260" height="96" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="250" y="100" width="260" height="96" rx="16" fill="#FF6B6B" stroke="#2B2118" stroke-width="2.6"/>
+<text x="380" y="138" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">sample  ~851 ms</text>
+<text x="380" y="160" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">CPU DDIM p50</text>
+</g>
+<g transform="rotate(0.18 715 148)"><rect x="563" y="105" width="310" height="96" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="560" y="100" width="310" height="96" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="715" y="138" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">on-miss  hold</text>
+<text x="715" y="160" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">last action stays</text>
+</g>
+<path d="M 190 150 Q 224 148 250 148" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#deadline-arr)"/>
+<path d="M 510 148 Q 537 145 560 148" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#deadline-arr)"/>
+<g transform="rotate(-1.6 180 220)"><rect x="180" y="220" width="389" height="36" rx="9" fill="#8EC5FF" stroke="#2B2118" stroke-width="2.2"/><text x="375" y="244" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">faster than PyTorch here  ≠  a 100 Hz loop</text></g>
+</svg>

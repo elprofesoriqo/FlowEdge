@@ -2,13 +2,9 @@
 
 Relay separates event capture from file/network export.
 
-```{mermaid}
-flowchart LR
-  P[Worker pool] -->|fixed 200-byte events| B[Bounded buffer]
-  B -->|drain outside compute| M[JobMetrics]
-  B -->|drain outside compute| T[TraceWriter]
-  M --> X[Prometheus / JSON / OTLP]
-  T --> I[inspect / JSONL]
+```{image} ../_static/figures/observe.svg
+:alt: worker pool events to metrics and trace JSONL
+:class: fe-fig
 ```
 
 ## What is recorded

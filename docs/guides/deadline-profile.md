@@ -4,14 +4,9 @@
 measures external-condition flow inference, reports tail latency and hot-path allocations, and
 returns a non-zero status when the configured period is missed.
 
-```{mermaid}
-flowchart LR
-  C[Checkpoint] --> W[Warmup]
-  W --> M[Timed samples]
-  M --> S[p50 p95 p99 p999 max]
-  S --> G{Budget + baseline}
-  G -->|pass| P[Exit 0]
-  G -->|fail| F[CI failure]
+```{image} ../_static/figures/profile.svg
+:alt: warmup, timed loop, p50 to p999, pass or CI fail
+:class: fe-fig
 ```
 
 ## Run it

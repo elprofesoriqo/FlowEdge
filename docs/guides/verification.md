@@ -22,13 +22,9 @@ commands.
 | Trace round-trip | Canonical bytes for action and generic job records |
 | Install consumer | Installed `FlowEdge::Core` and `FlowEdge::Relay` configure, link, run |
 
-```{mermaid}
-flowchart LR
-  C[Checkpoint] --> F[FlowEdge]
-  C --> P[PyTorch reference]
-  F --> V[ULP + relative error]
-  P --> V
-  V --> T[Unit + process + package gates]
+```{image} ../_static/figures/verify.svg
+:alt: Same checkpoint through FlowEdge and PyTorch, ULP plus relative error
+:class: fe-fig
 ```
 
 ## Run everything
@@ -54,8 +50,11 @@ Python checks run when their dependencies are available.
 | Need | Command |
 |---|---|
 | C++ tests | `ctest --test-dir build --output-on-failure` |
-| PyTorch parity | `python tools/verification/verify_ulp.py models/mamba_flow.safetensors` |
-| External-head + streaming smoke | `python tools/verification/verify_external_head.py build` |
+| PyTorch parity | `python -m flowedge_dev verify ulp models/mamba_flow.safetensors` |
+| External-head + streaming smoke | `python -m flowedge_dev verify head build` |
+| Diffusion python | `python -m flowedge_dev verify diffusion build` |
+| Policy vs LeRobot | `python -m flowedge_dev bench policy ...` |
+| Period rollout | `python -m flowedge_dev pipeline rollout ...` |
 | Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |
 | Formatting/static analysis | `FLOWEDGE_BUILD_DIR=build ./scripts/lint.sh` |
 | Benchmarks | `FLOWEDGE_BUILD_DIR=build ./scripts/bench.sh` |

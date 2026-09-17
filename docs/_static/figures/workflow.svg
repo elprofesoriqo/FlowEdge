@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 270" width="980" height="270" role="img">
+<title>everyday loop</title>
+<defs>
+<marker id='workflow-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">everyday loop</text>
+<g transform="rotate(-0.13 102 128)"><rect x="27" y="83" width="155" height="100" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="24" y="78" width="155" height="100" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="102" y="118" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">convert</text>
+<text x="102" y="140" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">.safetensors</text>
+</g>
+<g transform="rotate(-0.07 292 128)"><rect x="213" y="83" width="165" height="100" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="210" y="78" width="165" height="100" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="292" y="118" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">load arena</text>
+<text x="292" y="140" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">fixed RSS</text>
+</g>
+<path d="M 179 128 Q 197 133 210 128" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#workflow-arr)"/>
+<g transform="rotate(-0.15 498 128)"><rect x="409" y="83" width="185" height="100" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="406" y="78" width="185" height="100" rx="16" fill="#7B6CF6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="498" y="118" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">sample head</text>
+<text x="498" y="140" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">flow or DDIM</text>
+</g>
+<path d="M 375 128 Q 396 126 406 128" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#workflow-arr)"/>
+<g transform="rotate(-0.25 700 128)"><rect x="625" y="83" width="155" height="100" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="622" y="78" width="155" height="100" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="700" y="118" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">period?</text>
+<text x="700" y="140" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">hold / drop</text>
+</g>
+<path d="M 591 128 Q 605 128 622 128" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#workflow-arr)"/>
+<g transform="rotate(-0.17 882 128)"><rect x="811" y="83" width="148" height="100" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="808" y="78" width="148" height="100" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="882" y="118" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">act</text>
+<text x="882" y="140" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">motors</text>
+</g>
+<path d="M 777 128 Q 794 129 808 128" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#workflow-arr)"/>
+<g transform="rotate(-1.5 220 200)"><rect x="220" y="200" width="527" height="36" rx="9" fill="#8EC5FF" stroke="#2B2118" stroke-width="2.2"/><text x="483" y="224" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">same checkpoint every time   ·   miss contract is explicit</text></g>
+</svg>

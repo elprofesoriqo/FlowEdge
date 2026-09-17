@@ -1,63 +1,39 @@
 # convert — checkpoint → FlowEdge `.safetensors`
 
-FlowEdge loads fixed tensor layouts: `backbone.*` for the SSM, `flow.*` for the
-flow-matching action head, and `dp.*` for the Diffusion Policy action head. This
-tool maps supported PyTorch / Hugging Face checkpoints into those layouts.
+![convert once](../docs/_static/figures/convert.svg)
+
+Fixed layouts: `backbone.*` (Mamba), `flow.*` (flow head), `dp.*` (Diffusion Policy U-Net).
 
 ```bash
-pip install torch safetensors huggingface_hub
-python convert/convert.py <source> models/my_model.safetensors \
-  [--arch mamba|transformer|diffusion] [--dtype f32|bf16]
+python -m flowedge_dev pipeline convert <source> models/out.safetensors \
+  --arch mamba|diffusion|transformer [--dtype f32|bf16]
 ```
 
-`<source>` may be a `.safetensors`, `.pt`, `.pth`, or `.bin` state dict. For a
-Diffusion Policy it may also be the downloaded model directory.
+`<source>` is a `.safetensors` / `.pt` / directory. Diffusion may be a LeRobot model dir.
 
-## Supported architectures
+## mamba
 
-- **`mamba`** — Hugging Face `state-spaces/mamba-*`. Names already match
-  FlowEdge, so conversion normalizes the embedding key and drops unused state.
-  `flow.*` tensors, if present, pass through.
+Hugging Face `state-spaces/mamba-*`. Embedding key normalized; unused state dropped. `flow.*` passes through.
 
-- **`transformer`** — GPT-2-style causal decoder checkpoints with learned
-  positions, affine LayerNorm, GELU, and fused QKV attention. The converter
-  transposes Hugging Face GPT-2 `Conv1D` projections into FlowEdge's fixed
-  batch-one/KV-cache contract. It excludes tokenization, LM-head generation,
-  image/language preprocessing, and SmolVLA. SmolVLA needs a separate expert
-  converter because it uses RMSNorm, RoPE, GQA self/cross attention, and SwiGLU.
+## diffusion (LeRobot)
 
-```bash
-hf download sshleifer/tiny-gpt2 --local-dir models/tiny-gpt2
-python convert/convert.py models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
-  --arch transformer
-```
-
-- **`diffusion`** — the LeRobot `diffusion_pusht` `ConditionalUnet1D`. The
-  converter finds `config.json` beside the model or accepts `--config`. It keeps
-  the action U-Net and MIN_MAX action statistics and deliberately drops the
-  ResNet image encoder. Runtime input is the flattened observation condition
-  immediately before LeRobot's U-Net (132 float values for the reference
-  checkpoint). Modern model directories with `policy_postprocessor.json` are
-  detected automatically; their `action.min` and `action.max` tensors are read
-  from the referenced processor state file. Use `--processor` when the sidecar
-  has a non-standard filename.
+`lerobot/diffusion_pusht` `ConditionalUnet1D`. Keeps the action U-Net and MIN_MAX stats; drops the ResNet encoder. Runtime input is the flattened condition (132 floats on the reference checkpoint).
 
 ```bash
 hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
   --local-dir models/diffusion_pusht
-python convert/convert.py models/diffusion_pusht \
+python -m flowedge_dev pipeline convert models/diffusion_pusht \
   models/diffusion_pusht.flowedge.safetensors --arch diffusion --dtype f32
+python -m flowedge_dev pipeline inspect models/diffusion_pusht --json
 ```
 
-The initial diffusion path supports `squaredcos_cap_v2`, epsilon prediction,
-FiLM scale modulation, GroupNorm, fixed horizons, and MIN_MAX action
-normalization. Legacy embedded statistics and modern processor sidecars are
-supported; converted diffusion checkpoints carry a deployment profile so
-`flowedge-inspect` can validate the action contract before deployment. Other
-normalization modes fail conversion with a targeted error.
+Supports `squaredcos_cap_v2`, epsilon prediction, FiLM, GroupNorm, MIN_MAX. Converted files carry a deployment profile for `flowedge-inspect`.
 
-Validate a downloaded LeRobot policy directory before conversion:
+## transformer (incubator)
+
+GPT-2-style decoder for kernel work. Not a product policy. Excludes tokenization, LM head, and SmolVLA (RMSNorm / RoPE / GQA / SwiGLU need the expert path).
 
 ```bash
-python convert/policy_inspect.py models/diffusion_pusht --json
+python -m flowedge_dev pipeline convert models/tiny-gpt2 \
+  models/tiny-gpt2.flowedge.safetensors --arch transformer
 ```

@@ -2,6 +2,11 @@
 
 Reads a `.safetensors` file with no dependencies.
 
+```{image} ../_static/figures/convert.svg
+:alt: convert once into the Engine
+:class: fe-fig
+```
+
 1. mmap the file.
 2. Parse the JSON header with a hand-written scan.
 3. Copy each tensor into the arena while preserving its F32 or BF16 representation.

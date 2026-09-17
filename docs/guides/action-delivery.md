@@ -2,13 +2,9 @@
 
 Use `ActionDeliveryGate` between Relay output and the controller.
 
-```{mermaid}
-flowchart LR
-  R[ActionMessage] --> C[Chunk view]
-  C --> F[Model + session + freshness]
-  F --> O[Timed overlap]
-  O --> S[Bounds + rate limit]
-  S --> A[Controller action]
+```{image} ../_static/figures/delivery.svg
+:alt: chunk, freshness, overlap, bounds, motor
+:class: fe-fig
 ```
 
 | Input | Gate behavior |

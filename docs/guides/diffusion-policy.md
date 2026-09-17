@@ -1,25 +1,32 @@
 # Diffusion Policy
 
-FlowEdge supports the LeRobot `diffusion_pusht` action head as a fixed-memory
-`ConditionalUnet1D`. The first supported contract is intentionally narrow:
+A diffusion policy treats the **action horizon** as the thing being denoised.
+LeRobot trains a Conv1D U-Net that predicts noise given a noisy chunk, a
+timestep, and an observation condition. FlowEdge runs that U-Net in a fixed
+arena (DDIM by default, seeded DDPM for reference) and un-normalizes with the
+checkpoint MIN_MAX stats. The RGB encoder stays in LeRobot.
 
-- fixed horizon, action dimension, and U-Net stage widths;
-- Conv1D downsampling and ConvTranspose1D upsampling;
-- GroupNorm, Mish, sinusoidal timestep embedding, and FiLM scale/bias;
-- `squaredcos_cap_v2` with epsilon prediction;
-- deterministic DDIM and seeded DDPM;
-- MIN_MAX action un-normalization.
+```{image} ../_static/figures/policies.svg
+:alt: Flow matching ODE versus Diffusion Policy DDIM
+:class: fe-fig
+```
 
-The reference checkpoint configuration is horizon 16, action dimension 2,
-action steps 8, observation steps 2, U-Net widths 512/1024/2048, timestep width
-128, and 100 training timesteps.
+Fixed-memory `diffusion_pusht` contract below. For the matched PyTorch p50 and
+the 10 ms miss count, see [Performance](../performance.md).
 
-The documented conversion command is pinned to the legacy public checkpoint
-revision `84a7c23178445c6bbf7e1a884ff497017910f653`. Newer LeRobot migrations
-may move action normalization statistics into processor configuration. The
-converter accepts `policy_postprocessor.json` and its referenced state file,
-reading `action.min` and `action.max` from the `unnormalizer_processor` step.
-Only the existing MIN_MAX action contract is supported.
+```{image} ../_static/figures/convert.svg
+:alt: convert a checkpoint once
+:class: fe-fig
+```
+
+```{image} ../_static/figures/workflow.svg
+:alt: convert, load arena, integrate, period, act
+:class: fe-fig
+```
+
+Contract: fixed horizon / action dim / U-Net widths; Conv1D + ConvTranspose1D; GroupNorm, Mish, sinusoidal timestep, FiLM; `squaredcos_cap_v2` epsilon; DDIM / seeded DDPM; MIN_MAX un-normalize.
+
+Reference: horizon 16, action dim 2, action steps 8, observation steps 2, widths 512/1024/2048, timestep 128, 100 train steps. Pinned revision `84a7c23178445c6bbf7e1a884ff497017910f653`. Newer LeRobot migrations may put action stats in `policy_postprocessor.json`; the converter reads `action.min` / `action.max` from `unnormalizer_processor`. MIN_MAX only.
 
 ## Observation boundary
 
@@ -38,7 +45,7 @@ projection rather than hard-coding it.
 ```bash
 hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
   --local-dir models/diffusion_pusht
-python convert/convert.py models/diffusion_pusht \
+python -m flowedge_dev pipeline convert models/diffusion_pusht \
   models/diffusion_pusht.flowedge.safetensors --arch diffusion
 ./build/diffusion_sample models/diffusion_pusht.flowedge.safetensors 10
 ```
@@ -54,15 +61,15 @@ units. LeRobot normally executes only `n_action_steps`, beginning at index
 
 ## Verify and benchmark
 
-`tools/verification/verify_diffusion.py` creates a small LeRobot-shaped checkpoint, runs the
+`tools/verification/verify_diffusion.py` (`python -m flowedge_dev verify diffusion`) creates a small LeRobot-shaped checkpoint, runs the
 converter, loads the Python extension, and checks denoiser, DDIM, DDPM,
 determinism, metadata, and un-normalization against an independent PyTorch
 reference. Current explicit tolerances are `2e-4` for one denoiser pass, `4e-4`
 for DDIM, and `8e-4` for seeded DDPM; observed errors are printed.
 
 ```bash
-PYTHONPATH=build python tools/verification/verify_diffusion.py build
-PYTHONPATH=build python tools/verification/verify_diffusion_public.py \
+PYTHONPATH=build python -m flowedge_dev verify diffusion build
+PYTHONPATH=build python -m flowedge_dev verify diffusion-public \
   models/diffusion_pusht/model.safetensors \
   models/diffusion_pusht.flowedge.safetensors --build build
 ```

@@ -1,5 +1,10 @@
 # DeadlineFlow execution plans
 
+```{image} ../_static/figures/deadline.svg
+:alt: period vs sample, on-miss hold
+:class: fe-fig
+```
+
 `protocol/deadline_flow.h` implements an allocation-free C++ selector with at most 32
 plans and one selector per execution lane. Python exposes `ExecutionPlan`, `PlanContext`,
 and `DeadlineFlow`. Each plan represents a complete, validated integration schedule with
