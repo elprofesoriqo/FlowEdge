@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 220" width="900" height="220" role="img">
+<title>convert once</title>
+<defs>
+<marker id='convert-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">convert once</text>
+<g transform="rotate(0.16 114 121)"><rect x="27" y="83" width="180" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="24" y="78" width="180" height="86" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="114" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">HF / torch</text>
+</g>
+<g transform="rotate(0.19 328 121)"><rect x="251" y="83" width="160" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="248" y="78" width="160" height="86" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="328" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">map names</text>
+</g>
+<g transform="rotate(0.18 537 121)"><rect x="455" y="83" width="170" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="452" y="78" width="170" height="86" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="537" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">validate</text>
+</g>
+<g transform="rotate(-0.13 768 121)"><rect x="671" y="83" width="200" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="668" y="78" width="200" height="86" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="768" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">Engine</text>
+</g>
+<path d="M 204 121 Q 233 129 248 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#convert-arr)"/>
+<path d="M 408 121 Q 438 123 452 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#convert-arr)"/>
+<path d="M 622 121 Q 654 119 668 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#convert-arr)"/>
+<g transform="rotate(1.1 300 178)"><rect x="300" y="178" width="295" height="36" rx="9" fill="#8EC5FF" stroke="#2B2118" stroke-width="2.2"/><text x="447" y="202" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">layouts the arena already knows</text></g>
+</svg>

@@ -16,16 +16,12 @@ $$
 x_{t+\Delta} = x_t + \Delta\, v_\theta(x_t, t \mid c) \qquad \text{(Euler)}
 $$
 
-```{mermaid}
-%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
-graph LR
-  Z["x = noise"] --> V["v(x, t, cond)"]
-  V --> STEP["x += dt mul v"]
-  STEP -->|"next step"| V
-  STEP -->|"t = 1"| OUT[action]
+```{image} ../_static/figures/flow-matching.svg
+:alt: Flow matching ODE from noise x0 to action x1
+:class: fe-fig
 ```
 
-Heun uses two evaluations per step and RK4 uses four. The conditioning $c$ is projected once and reused across every step.
+Heun uses two evaluations per step and RK4 uses four. Conditioning $c$ is projected once and reused.
 
 The flow head can be loaded without a backbone and driven directly by an external condition vector.
 That makes the solver usable behind vision-language-action models, observation encoders, and model
@@ -38,30 +34,26 @@ action is bit-identical to a monolithic solve on the same backend.
 
 ## Why this way
 
-The head's cost comes down to one number, the count of velocity-net evaluations, or NFE, since the total time is NFE times a single net eval. Euler spends one eval per step, Heun two, RK4 four. A deterministic flow ODE reaches the action in roughly ten evals, where a diffusion head denoises over dozens of stochastic steps. On a fixed loop budget that gap decides whether the step lands inside the period, which is why flow matching is the first head.
+A robot period is a budget of velocity-net evaluations (NFE). Flow matching is a straight-path ODE: about ten evals, no RNG, condition \(c\) projected once. A diffusion head often spends dozens of stochastic steps on the same action. That is why flow matching is the default, and why DP is the other first-class head only when that is the trained checkpoint.
 
-Solver order is a second lever on the same budget. A higher-order step like RK4 cuts the discretization error of each step, so the same accuracy needs fewer of them. You trade evals per step against step count and pick whatever fits.
+PyTorch can run both. It does not give you a slab sized at load or a miss contract. Split at solver steps (`flow_begin` / `flow_advance`), never inside a matmul. [Cooperative execution](cooperative-execution).
 
-Because $c$ is projected once and held fixed for the whole integration, the backbone and prefix cost is paid once per action rather than once per step, and only the small velocity net runs inside the loop. The loop carries no RNG, so the same observation always yields the same action, which is what a controller needs.
-
-Cooperative steps add a scheduling boundary at a mathematically safe point. A control process can
-service I/O, enforce a deadline, or cancel stale work between solver steps without exposing partial
-matrix operations or allocating a task graph. See [Cooperative execution](cooperative-execution).
-
-Source: `src/core/heads/flow/`. See [ADR 0004](../decisions/0004-decouple-head).
+Source: `src/core/heads/flow/`. [ADR 0004](../decisions/0004-decouple-head).
 
 ## Diffusion Policy
 
-The fixed-shape `ConditionalUnet1D` head consumes a complete normalized action
-horizon and an external observation condition. It implements the LeRobot
-Conv1D U-Net, GroupNorm, Mish, timestep embedding, and FiLM scale/bias blocks.
-DDIM is the low-NFE deterministic path; seeded DDPM is available for reference.
-Both reuse one arena-sized workspace and apply checkpoint MIN_MAX statistics
-after the final scheduler step.
+The head is an epsilon network \(\epsilon_\theta(x_t, t \mid c)\) on a noisy
+action horizon \(x_t\). Training is the usual noise-prediction objective.
+Sampling inverts that process. **DDIM** is a deterministic reverse walk (no
+RNG; NFE equals the step count). **DDPM** keeps the stochastic term and is
+seeded for reference. After the last step, checkpoint MIN_MAX statistics map
+the horizon back to dataset action units. Each DDIM step is one U-Net forward
+plus a closed-form scheduler update; \(c\) is reused.
 
-The observation encoder remains outside the runtime. This keeps the action head
-usable behind LeRobot, a VLA, TensorRT, or another vision service without adding
-a graph runtime. See the [Diffusion Policy guide](../guides/diffusion-policy).
+The fixed-shape `ConditionalUnet1D` is the LeRobot Conv1D U-Net: GroupNorm,
+Mish, sinusoidal timestep embedding, FiLM scale/bias. Observation encoding
+stays outside Core so the same head can sit behind LeRobot, a VLA, or
+TensorRT. See the [Diffusion Policy guide](../guides/diffusion-policy).
 
 ## ACT and others
 

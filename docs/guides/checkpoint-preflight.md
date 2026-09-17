@@ -1,11 +1,12 @@
 # Checkpoint preflight
 
+```{image} ../_static/figures/convert.svg
+:alt: convert once
+:class: fe-fig
+```
+
 `flowedge-inspect` validates a `.safetensors` checkpoint before it reaches an
-inference service or robot. It reads the tensor header, reports the supported
-model family and dimensions, and estimates runtime memory. Diffusion Policy
-reports also run the fixed-shape head setup checks against temporary validation
-storage; no worker threads are started and the storage is released before the
-command exits.
+inference service or robot.
 
 ```bash
 flowedge-inspect models/mamba_flow.safetensors

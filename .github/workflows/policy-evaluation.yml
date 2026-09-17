@@ -69,10 +69,10 @@ jobs:
         run: |
           hf download "$MODEL_ID" --revision "$REVISION" \
             --include config.json model.safetensors --local-dir models/diffusion_pusht
-          python convert/convert.py models/diffusion_pusht models/policy.safetensors --arch diffusion --dtype f32
+          python -m flowedge_dev pipeline convert models/diffusion_pusht models/policy.safetensors --arch diffusion --dtype f32
       - name: Verify complete policy replay and capture measurements
         run: |
-          python tools/benchmark/run_policy_report.py models/policy.safetensors \
+          python -m flowedge_dev bench policy models/policy.safetensors \
             --source models/diffusion_pusht --revision "$REVISION" --model-id "$MODEL_ID" \
             --threads "$THREADS" --iterations "$ITERATIONS" --warmup "$WARMUP" \
             --steps "$INFERENCE_STEPS" --output bench-results/replay.json

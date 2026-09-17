@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 250" width="900" height="250" role="img">
+<title>one sample</title>
+<defs>
+<marker id='dataflow-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">one sample</text>
+<g transform="rotate(-0.15 95 129)"><rect x="23" y="91" width="150" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="20" y="86" width="150" height="86" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="95" y="119" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">tokens</text>
+<text x="95" y="141" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">or condition</text>
+</g>
+<g transform="rotate(-0.22 290 129)"><rect x="213" y="91" width="160" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="210" y="86" width="160" height="86" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="290" y="135" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">backbone</text>
+</g>
+<g transform="rotate(0.23 510 129)"><rect x="413" y="91" width="200" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="410" y="86" width="200" height="86" rx="16" fill="#7B6CF6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="510" y="119" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">flow ODE</text>
+<text x="510" y="141" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">x0 → x1</text>
+</g>
+<g transform="rotate(-0.23 760 129)"><rect x="653" y="91" width="220" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="650" y="86" width="220" height="86" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="760" y="135" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">action chunk</text>
+</g>
+<path d="M 170 129 Q 195 132 210 129" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#dataflow-arr)"/>
+<path d="M 370 129 Q 392 128 410 129" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#dataflow-arr)"/>
+<path d="M 610 129 Q 639 133 650 129" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#dataflow-arr)"/>
+<g transform="rotate(0.2 250 190)"><rect x="250" y="190" width="389" height="36" rx="9" fill="#8EC5FF" stroke="#2B2118" stroke-width="2.2"/><text x="445" y="214" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">caller may skip the backbone and hand in c</text></g>
+</svg>

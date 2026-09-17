@@ -87,27 +87,9 @@ over-reported progress, early completion, incompatible state, and work beyond th
 
 ## Route and observe
 
-```{mermaid}
-sequenceDiagram
-  participant App
-  participant Client as JobClient
-  participant Service as JobService
-  participant Pool as JobWorkerPool
-  participant Lane as Frozen adapter lane
-  participant Events as JobEventBuffer
-  App->>Client: try_submit(request)
-  Client->>Service: checksummed shared-memory ring
-  Service->>Pool: submit(request, now)
-  Pool->>Pool: identity + freshness + EDF admission
-  Pool->>Lane: prepare(payload)
-  loop bounded work
-    Pool->>Lane: advance(quantum)
-  end
-  Lane-->>Pool: JobResultMessage
-  Pool-->>Events: lifecycle + timing
-  Pool-->>Service: ready_result()
-  Service-->>Client: result ring
-  Client-->>App: try_receive(result)
+```{image} ../_static/figures/jobs.svg
+:alt: JobClient, shared rings, EDF pool, Mamba lane
+:class: fe-fig
 ```
 
 Provision one backend and frozen registry per lane:

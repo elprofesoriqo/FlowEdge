@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 250" width="860" height="250" role="img">
+<title>same checkpoint, two engines</title>
+<defs>
+<marker id='verify-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">same checkpoint, two engines</text>
+<g transform="rotate(0.16 430 71)"><rect x="313" y="49" width="240" height="54" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="310" y="44" width="240" height="54" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="430" y="77" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">.safetensors</text>
+</g>
+<g transform="rotate(0.14 175 176)"><rect x="53" y="145" width="250" height="72" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="50" y="140" width="250" height="72" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="175" y="182" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">FlowEdge</text>
+</g>
+<g transform="rotate(-0.18 685 176)"><rect x="563" y="145" width="250" height="72" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="560" y="140" width="250" height="72" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="685" y="182" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">PyTorch ref</text>
+</g>
+<g transform="rotate(0.01 430 197)"><rect x="283" y="180" width="300" height="44" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="280" y="175" width="300" height="44" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="430" y="203" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">ULP  +  rel-error</text>
+</g>
+<path d="M 370 98 Q 263 122 175 140" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#verify-arr)"/>
+<path d="M 490 98 Q 582 114 685 140" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#verify-arr)"/>
+</svg>

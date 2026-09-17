@@ -2,13 +2,9 @@
 
 One header declares every kernel, and each backend implements it.
 
-```{mermaid}
-%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
-graph TD
-  I["kernels.h"]
-  I --> CPU["cpu: avx2 / neon / scalar"]
-  I -.-> CU["CUDA (design target)"]
-  I -.-> TT["Tenstorrent (design target)"]
+```{image} ../_static/figures/kernels.svg
+:alt: kernels.h dispatching to AVX2, NEON, scalar
+:class: fe-fig
 ```
 
 The production backend is picked at build time:
@@ -20,8 +16,8 @@ cmake -B build -DFLOWEDGE_BACKEND=cpu
 `cpu` selects AVX2, NEON, or scalar code for the host. `avx512` is an explicit x86 build option.
 `scalar` explicitly selects the portable implementation for compatibility builds, differential
 testing, sanitizers, and CPUs where an AVX2 deployment baseline is unsuitable.
-CUDA, Metal, Vulkan, and Tenstorrent files are placeholders for future ports and are rejected by
-CMake until they implement the complete kernel interface.
+CUDA, Vulkan, and Tenstorrent (Metal / TT-Metalium) are planned. CMake only
+offers `cpu`, `avx512`, and `scalar` today.
 
 The CPU backend splits by ISA. `kernels_avx2.cc`, `kernels_neon.cc`, and
 `kernels_scalar.cc` all implement the same public surface, and CMake picks the

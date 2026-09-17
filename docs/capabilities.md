@@ -1,86 +1,59 @@
 # Capabilities
 
-**Core** runs supported models in-process. **Relay** adds bounded scheduling, process transport,
-cooperative jobs, replay, and telemetry.
+**Core** is the in-process engine: convert a policy, pin RSS, sample an action. **Relay** is an optional sidecar for deadline-aware IPC. Neither replaces LeRobot training, cameras, or e-stop.
+
+```{image} _static/figures/purpose.svg
+:alt: Hardware runs the loop, FlowEdge runs the policy, LeRobot trains and drives the robot
+:class: fe-fig
+```
+
+Use Core when the policy and the controller share a process. Use Relay when a sensor or VLA process must hand a condition across a ring and still meet a deadline. The default Diffusion Policy replay loads `flowedge.Engine` in-process and does not start Relay.
+
+```{image} _static/figures/stack.svg
+:alt: Layers from plugin down to the arena
+:class: fe-fig
+```
 
 ## Choose a path
 
-| Goal | Start here | Result |
-|---|---|---|
-| Run a Mamba + flow policy | `flow_sample` | Tokens to deterministic action chunk |
-| Keep an existing VLA encoder | `external_flow_sample` | Condition vector to FlowEdge action head |
-| Decode incrementally | `mamba_forward` | Persistent Mamba recurrence state |
-| Move model state | `streaming_snapshot` | Exact continuation in another engine |
-| Migrate a live Mamba job | `mamba_relay_stream` | Resume tokens on another Relay lane |
-| Serve actions across processes | `scripts/relay_demo.sh` | Client, daemon, deadlines, replay, metrics |
-| Feed a faster control loop | `action_delivery_sample` | Freshness, overlap, bounds, rate limits |
-| Adapt custom stateful work | `cooperative_job_sample` | Iterative, streaming, or speculative job |
-| Serve custom work across processes | `routed_job_sample` | Typed result, lifecycle metrics, trace |
-| Run managed Mamba streams | `scripts/job_demo.sh` | QoS, lane recovery, trace, metrics |
-| Evaluate a policy | [Performance](performance) | Captured replay and its explicit scope |
-
-## Execution map
-
-```{mermaid}
-flowchart LR
-  A[Application] --> C[FlowEdge Core]
-  A --> R[Relay client]
-  R --> D[flowedge-relayd]
-  D --> C
-  R --> G[Action delivery gate]
-  G --> K[Controller]
-  A --> J[JobClient]
-  J --> S[Shared-memory rings]
-  S --> V[flowedge-jobd / JobService]
-  Q[JobControlClient] --> V
-  V --> P[JobWorkerPool]
-  P --> B[Mamba or caller-owned backend]
-  P --> E[Bounded event buffer]
-  E --> T[Trace]
-  E --> M[Metrics]
-```
+| Goal | Start here |
+|---|---|
+| Flow matching | `flow_sample` |
+| LeRobot Diffusion Policy, period, `--on-miss` | `python -m flowedge_dev pipeline rollout` |
+| Keep an existing encoder | `external_flow_sample` |
+| Streaming Mamba | `mamba_forward` |
+| Snapshot / restore | `streaming_snapshot` |
+| Cross-process actions | `scripts/relay_demo.sh` |
+| Faster control loop | `action_delivery_sample` |
+| vs PyTorch | `python -m flowedge_dev bench policy` |
 
 ## Available now
 
 | Area | Capabilities |
 |---|---|
-| Models | Mamba streaming; flow head with Euler, Heun, RK4; fixed LeRobot Diffusion Policy head; cached SmolVLA action expert |
-| Weights | FP32/BF16 `.safetensors`; shared immutable worker weights |
-| CPU | Scalar, AVX2, NEON; adaptive threads; compact/spread placement |
-| State | Versioned snapshots; canonical job capsules; exact restore |
-| Relay | Shared memory; EDF; 1–8 workers; cancellation; safe action delivery |
-| Generic jobs | Iterative, streaming, speculative; QoS reservations; drain, quarantine, recovery |
-| Observability | Portable traces; JSONL inspection; fixed-memory Prometheus/JSON/OTLP metrics |
-| APIs | C, C++ CMake targets, Python |
-| LeRobot | Encoded conditions or the supported source visual Diffusion Policy encoder; seeded chunk consumption; `--on-miss` hold/drop/raise; `--policy.type=flowedge` and `flowedge_smolvla` |
-| Evaluation | Matched visual-policy replay; PushT closed-loop runner; periodic inference with underrun/freshness telemetry |
-| DeadlineFlow | Fixed-capacity calibrated-plan selector; CPU DDIM bridge; accelerator plans remain future work |
-| External runtime | Optional fixed-shape ONNX Runtime companion adapter; separate allocation contract |
+| Backends | CPU scalar / AVX2 / NEON. CUDA, Vulkan, Tenstorrent (Metal) planned |
+| Backbones | Mamba. Transformer incubator |
+| Heads | flow matching (Euler / Heun / RK4); Diffusion Policy (DDIM / DDPM); SmolVLA expert soon |
+| Models | `mamba_flow`; `diffusion_pusht`. π0 / DiT / native VLM no |
+| Precisions | FP32 / BF16. INT8 no |
+| Weights | `.safetensors`; shared immutable worker weights |
+| State | Versioned snapshots; exact restore |
+| Relay | Shared memory; EDF; 1–8 workers; action delivery |
+| Jobs | Iterative, streaming, speculative; drain / quarantine |
+| APIs | C, C++, Python |
+| LeRobot | `--on-miss hold\|drop\|raise`; `--policy.type=flowedge` / `flowedge_smolvla` |
+| Evaluation | Matched replay; period misses; PushT runner |
 
-## Runtime guarantees
+## Contracts
 
 | Contract | Expectation |
 |---|---|
-| Allocation | Supported compute, scheduling, migration, and metric recording allocate nothing after setup |
-| Mutable state | One model/backend instance per concurrent lane |
-| Identity | Model digest + state schema must match before restore or dispatch |
-| Freshness | Lower generations cannot publish as current work |
-| Action delivery | Model/session binding, timed overlap, bounds, per-step delta |
-| Deadlines | Admission is predictive, not an OS hard-real-time guarantee |
-| QoS | Deadlines dominate; class orders ties and protects reserved queue slots |
-| Recovery | Repeatedly failing lanes drain and require an explicit recovery command |
+| Allocation | Nothing after setup on supported hot paths |
+| Mutable state | One engine per concurrent lane |
+| Action delivery | Binding, overlap, bounds, per-step delta |
+| Deadlines | Predictive admission, not an OS hard guarantee |
 | Transport | Shared-memory rings are SPSC |
 
-## Not available yet
+## Not yet
 
-| Area | Status |
-|---|---|
-| External runtime plugins | TensorRT, general PyTorch, llama.cpp/vLLM adapters are planned |
-| Transformer and KV cache | Experimental fixed-shape GPT-style CPU baseline and KV cache; real GPT-2 conversion smoke-tested, policy parity remains pending |
-| Diffusion Policy | LeRobot `diffusion_pusht` head is available; DiT and π0 remain planned |
-| CUDA, Metal, Vulkan, TTNN | Planned backends |
-| ROS 2 and Zenoh | Optional Relay adapters after the production model service |
-| Distributed scheduling | Deferred until local traces justify it |
-
-FlowEdge is not an arbitrary graph runtime, training framework, or safety controller. Validate your
-model and deadline on the deployment CPU.
+CUDA / Vulkan / Tenstorrent (Metal) · π0 / DiT · native VLM · ROS 2. FlowEdge is not a graph runtime, trainer, or safety controller.

@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 400" width="1180" height="400" role="img">
+<title>who owns what</title>
+<defs>
+<marker id='purpose-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">who owns what</text>
+<text x="590" y="58" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">one robot loop  ·  three owners  ·  not a pipeline</text>
+<g transform="rotate(-0.08 211 188)"><rect x="39" y="83" width="350" height="220" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="36" y="78" width="350" height="220" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+</g>
+<g stroke="#2B2118" stroke-width="2" fill="#FFF1C2"><rect x="191" y="96" width="34" height="28" rx="4"/><rect x="199" y="103" width="18" height="14" rx="2" fill="#2EC4B6"/><line x1="191" y1="104" x2="183" y2="104"/><line x1="191" y1="116" x2="183" y2="116"/><line x1="225" y1="104" x2="233" y2="104"/><line x1="225" y1="116" x2="233" y2="116"/></g>
+<text x="211" y="156" text-anchor="middle" font-size="24" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">Hardware</text>
+<text x="211" y="188" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">owns the period</text>
+<text x="211" y="208" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">CPU / Jetson / SO-100</text>
+<text x="211" y="228" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">motors on the wire</text>
+<text x="211" y="266" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#1B4B6B">not e-stop, not cameras</text>
+<g transform="rotate(0.24 589 188)"><rect x="417" y="83" width="350" height="220" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="414" y="78" width="350" height="220" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+</g>
+<g stroke="#2B2118" stroke-width="2.2" fill="#8EC5FF"><rect x="571" y="94" width="36" height="28" rx="6"/><circle cx="583" cy="106" r="3.2" fill="#2B2118"/><circle cx="595" cy="106" r="3.2" fill="#2B2118"/><rect x="579" y="122" width="8" height="10" rx="2" fill="#2EC4B6"/><rect x="591" y="122" width="8" height="10" rx="2" fill="#2EC4B6"/><line x1="589" y1="94" x2="589" y2="84"/><circle cx="589" cy="82" r="3.4" fill="#FF6B6B"/></g>
+<text x="589" y="156" text-anchor="middle" font-size="24" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">FlowEdge</text>
+<text x="589" y="188" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">Mamba + flow ODE</text>
+<text x="589" y="208" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">or DP U-Net</text>
+<text x="589" y="228" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">fixed RSS, no malloc</text>
+<text x="589" y="266" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#1B4B6B">not training, not safety</text>
+<g transform="rotate(0.10 967 188)"><rect x="795" y="83" width="350" height="220" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="792" y="78" width="350" height="220" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+</g>
+<g stroke="#2B2118" stroke-width="2" fill="#FF8FAB"><rect x="947" y="102" width="40" height="24" rx="6"/><circle cx="967" cy="114" r="8" fill="#FFFEF8"/><circle cx="967" cy="114" r="4" fill="#1B4B6B"/><rect x="975" y="96" width="12" height="8" rx="2" fill="#FFD166"/></g>
+<text x="967" y="156" text-anchor="middle" font-size="24" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">LeRobot</text>
+<text x="967" y="188" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">train the policy</text>
+<text x="967" y="208" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">cameras + encoder</text>
+<text x="967" y="228" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">driver, limits, e-stop</text>
+<text x="967" y="266" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#1B4B6B">not native kernels</text>
+<g transform="rotate(0.9 70 312)"><rect x="70" y="312" width="148" height="36" rx="9" fill="#8EC5FF" stroke="#2B2118" stroke-width="2.2"/><text x="144" y="336" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">the 10 ms tick</text></g>
+<g transform="rotate(-1.4 470 312)"><rect x="470" y="312" width="174" height="36" rx="9" fill="#FF9F43" stroke="#2B2118" stroke-width="2.2"/><text x="557" y="336" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">replayable action</text></g>
+<g transform="rotate(-1.4 848 312)"><rect x="848" y="312" width="174" height="36" rx="9" fill="#FF6B6B" stroke="#2B2118" stroke-width="2.2"/><text x="935" y="336" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">plugin calls Core</text></g>
+<text x="590" y="378" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">LeRobot observes  →  FlowEdge infers  →  Hardware actuates</text>
+</svg>

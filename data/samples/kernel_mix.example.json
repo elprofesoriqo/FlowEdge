@@ -2,7 +2,7 @@
   "tool": "flowedge_diffusion_breakdown",
   "hardware_concurrency": 12,
   "checkpoint": "models/diffusion_pusht.flowedge.safetensors",
-  "note": "Committed example from an i7-9750H Clang Release mix. Re-run export_kernel_mix.py on your host before quoting these as current.",
+  "note": "Committed CPU Clang Release mix. Re-run python -m flowedge_dev bench mix on your host before quoting these as current.",
   "rows": [
     {"name": "conv 512 L16 K5", "p50_us": 890.0, "calls": 40, "estimated_ms": 35.6, "kind": "conv"},
     {"name": "conv 512 L8 K5", "p50_us": 420.0, "calls": 30, "estimated_ms": 12.6, "kind": "conv"},

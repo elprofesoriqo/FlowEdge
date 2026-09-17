@@ -2,86 +2,93 @@
 
 <img class="fe-hero-img" src="_static/hero.png" alt="FlowEdge" />
 
-<p class="fe-lede">FlowEdge is a C++23 engine for fixed flow-matching and diffusion action policies. Supported native compute and Relay hot paths use preallocated memory. Python adapters, observation encoders, and robot drivers have separate allocation and timing behavior.</p>
+<p class="fe-lede">FlowEdge is a C++23 inference engine for two real-time robotics policy heads: <strong>flow matching</strong> (a short ODE from noise to action) and <strong>Diffusion Policy</strong> (DDIM on a Conv1D U-Net). It loads a converted checkpoint into a fixed memory arena and produces an action chunk under a control period. LeRobot still owns training, cameras, and the robot driver.</p>
 
-## What it is
+## The problem
 
-The native Mamba path maps a prefix to a condition vector and integrates a flow head into an action chunk. The visual Diffusion Policy adapter uses the source LeRobot encoder outside Core. Measure the complete deployment path against its control period; native component speed alone does not establish real-time suitability.
+A manipulator or mobile base does not care about median throughput. It cares whether *this* cycle finished before the next tick. If the policy is late, the controller still has to send an action, and you have to be able to explain which action that was.
 
-It is not a training framework and not a graph runtime. It is a fixed set of hand-written architectures that share one kernel library. Every weight and every scratch buffer comes from a single arena, sized once at load, so the runtime path allocates nothing.
+The usual deploy path is “export the training graph and hope”: PyTorch or a general compiler, heap traffic after warmup, a dispatcher, sometimes a KV cache that grows with the horizon. That stack is the right tool for training and for broad model zoos. It is the wrong contract for a 10 ms loop with a replayable miss policy.
+
+## How FlowEdge solves it
+
+1. **Convert once.** Map a pinned Hugging Face / LeRobot checkpoint into layouts the engine already knows (`backbone.*`, `flow.*`, `dp.*`).
+2. **Load into one arena.** Weights, decode state, ODE scratch, and the thread pool are carved from a slab sized at load. Supported hot paths do not call `malloc`.
+3. **Sample the head.** Flow matching integrates \(dx/dt = v(x,t \mid c)\) from noise to action (Euler / Heun / RK4). Diffusion Policy denoises an action horizon with DDIM; the RGB encoder stays outside Core. Same miss contract for both.
+4. **Honor the period.** `--period-ms` plus `--on-miss hold|drop|raise`. Limits and e-stop are not in this library.
+
+```{image} _static/figures/purpose.svg
+:alt: Hardware runs the loop, FlowEdge runs the policy, LeRobot trains and drives the robot
+:class: fe-fig
+```
+
+```{image} _static/figures/big-flow.svg
+:alt: Whole FlowEdge flow from checkpoint to motors
+:class: fe-fig
+```
+
+```{image} _static/figures/relay.svg
+:alt: Optional Relay flow from sensor or VLA through shared-memory rings to Core
+:class: fe-fig
+```
+
+## Why not the alternatives
+
+```{image} _static/figures/why-this.svg
+:alt: Instead of PyTorch-in-the-loop, TensorRT/ONNX, a growing KV cache, long DDIM, or model servers — FlowEdge runs this flow or DP head in a sized arena with a miss contract
+:class: fe-fig
+```
+
+| Tool | Use it for | Not as |
+|---|---|---|
+| LeRobot / PyTorch | Train, encode RGB, drive the robot, compare parity | The malloc-free period loop |
+| TensorRT, ONNX, ExecuTorch | General DAGs on a given backend | This flow or DP head’s arena, miss contract, and native kernels |
+| LLM / VLA servers | Throughput, batching, GPUs | Newest valid action before a physical deadline |
+| A Transformer KV cache | Language and long context | An open-ended robot horizon on a bounded RSS |
+
+Flow matching is the default head because a short deterministic ODE is cheaper, in NFE, than a long DDIM walk. Diffusion Policy is first-class when that is the trained checkpoint. Mamba is the default backbone for the flow path because its state does not grow with time.
+
+```{image} _static/figures/policies.svg
+:alt: Flow matching ODE versus Diffusion Policy DDIM
+:class: fe-fig
+```
+
+```{image} _static/flowedge.gif
+:alt: Flow matching Euler steps from noise to action, malloc = 0
+:class: fe-fig
+```
+
+Matched PushT **Diffusion Policy** replay, CPU, `threads=1`: policy p50 **851 ms** vs LeRobot/PyTorch **1409 ms**. Not a 10 ms loop. **Flow matching** matches the same PyTorch reference on ULP (~1e-6 rel); that is not a policy p50. [Performance](performance).
+
+```{image} _static/perf.gif
+:alt: Matched PushT replay bars, FlowEdge 851 ms vs PyTorch 1409 ms
+:class: fe-fig
+```
+
+```{image} _static/figures/workflow.svg
+:alt: convert, load arena, sample flow or DDIM, period, act
+:class: fe-fig
+```
+
+Not a trainer. Not a graph runtime. Not a safety controller.
 
 ## What you can use today
 
 | Goal | Entry point |
 |---|---|
-| Run a complete Mamba + flow policy | [Getting Started](getting-started) |
-| Keep an existing encoder and use only the action head | [Capabilities](capabilities) |
-| Run deadline-aware inference between processes | [Relay quickstart](guides/relay-quickstart) |
-| Deliver safe multi-rate action chunks | [Action delivery](guides/action-delivery) |
-| Run managed streaming jobs | [Generic job daemon](guides/generic-job-daemon) |
-| Migrate streaming or custom model state | [Cooperative jobs](guides/cooperative-jobs) |
-| Compare FlowEdge with PyTorch | [Performance](performance) |
-| Convert or port a supported checkpoint | [Converter](guides/converter) |
-| Deploy a supported LeRobot policy | [LeRobot adapter](guides/lerobot) |
-| Choose a model artifact path | [Model import](guides/model-import) |
-| Preflight a checkpoint before deployment | [Checkpoint preflight](guides/checkpoint-preflight) |
-
-## Repository map
-
-| Area | Contents |
-|---|---|
-| `src/core/` | Allocation-free model and solver runtime |
-| `src/relay/` | Optional local scheduling and transport |
-| `python/` and `integrations/lerobot/` | Python API and LeRobot deployment adapter |
-| `convert/` and `tools/` | Checkpoint conversion and inspection |
-| `examples/` | Small C++ and Python entry-point samples |
-| `scripts/` | Build, test, verification, and maintainer benchmarks |
-| `bench/` | Categorized kernel/runtime sources and evidence artifacts; see [benchmark map](benchmarks) |
-| `cmake/` | Installed-package export template; generated `CMakeFiles/` is ignored |
+| Run flow matching | [Getting Started](getting-started) |
+| Deploy LeRobot Diffusion Policy | [LeRobot adapter](guides/lerobot) |
+| Numbers vs PyTorch | [Performance](performance) |
+| Convert a checkpoint | [Converter](guides/converter) |
+| Keep your encoder, run only the head | [Capabilities](capabilities) |
+| Optional local IPC + deadlines | [Relay quickstart](guides/relay-quickstart) |
+| Cached SmolVLA expert (VLM in LeRobot) | [Transformer / SmolVLA](guides/transformer-backbone) |
 
 ## Implementation status
 
-<div class="fe-grid">
-  <div class="fe-card">
-    <h4>Backbones</h4>
-    <ul><li class="done">Mamba SSM</li><li>Experimental Transformer decoder baseline</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Heads</h4>
-    <ul><li class="done">Flow matching</li><li class="done">Diffusion Policy</li><li>DiT (planned)</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Solvers</h4>
-    <ul><li class="done">Euler</li><li class="done">Heun</li><li class="done">RK4</li><li class="done">DDIM / DDPM</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Precision</h4>
-    <ul><li class="done">FP32</li><li class="done">BF16</li><li>INT8 (planned)</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Backends</h4>
-    <ul><li class="done">CPU (AVX2 / NEON)</li><li>CUDA (planned)</li><li>Tenstorrent (planned)</li></ul>
-  </div>
-  <div class="fe-card">
-    <h4>Interfaces</h4>
-    <ul><li class="done">C-ABI</li><li class="done">Python</li><li class="done">Converter</li></ul>
-  </div>
-</div>
-
-## How it fits
-
-```{mermaid}
-%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
-graph TD
-  W[".safetensors"] --> L[Loader]
-  L --> A[Arena]
-  T[tokens] --> B[Backbone]
-  A --> B
-  B --> C[conditioning vector]
-  C --> H[Head]
-  H --> ACT[action chunk]
-  K["Kernels: CPU"] -.-> B
-  K -.-> H
+```{image} _static/figures/status.svg
+:alt: Backends, backbones, heads, models, precisions
+:class: fe-fig
 ```
 
 ```{toctree}
@@ -90,10 +97,8 @@ graph TD
 Overview <self>
 getting-started
 capabilities
+guides/lerobot
 guides/policy-evaluation
-guides/transformer-backbone
-guides/deadline-flow
-tenstorrent-program
 performance
 benchmarks
 ```
@@ -128,7 +133,7 @@ guides/add-a-backbone
 guides/converter
 guides/checkpoint-preflight
 guides/diffusion-policy
-guides/lerobot
+guides/transformer-backbone
 guides/model-import
 guides/edge-benchmarks
 guides/deadline-profile
@@ -146,6 +151,8 @@ guides/generic-job-daemon
 :caption: Reference
 roadmap
 product-direction
+guides/deadline-flow
+tenstorrent-program
 FlowEdge Relay <ecosystem/relay-proposal>
 LeRobot edge-inference RFC draft <ecosystem/lerobot-rfc>
 ```

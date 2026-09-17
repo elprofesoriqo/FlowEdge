@@ -1,5 +1,10 @@
 # Model import paths
 
+```{image} ../_static/figures/convert.svg
+:alt: convert once
+:class: fe-fig
+```
+
 | Artifact | Path | Runtime | Allocation contract | Status |
 |---|---|---|---|---|
 | Mamba / supported flow checkpoint | `convert/convert.py` → `.safetensors` | FlowEdge Core | Zero after setup | Supported |

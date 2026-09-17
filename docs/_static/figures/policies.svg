@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 340" width="980" height="340" role="img">
+<title>two ways to turn noise into an action</title>
+<defs>
+<marker id='policies-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">two ways to turn noise into an action</text>
+<g transform="rotate(0.09 256 175)"><rect x="39" y="75" width="440" height="210" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="36" y="70" width="440" height="210" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+</g>
+<text x="256" y="108" text-anchor="middle" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">Flow matching</text>
+<text x="256" y="142" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">dx/dt = v(x, t | c)</text>
+<text x="256" y="162" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">x0 noise  →  x1 action</text>
+<text x="256" y="182" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">Euler / Heun / RK4   ·   short NFE</text>
+<text x="256" y="202" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">c from Mamba, or your encoder</text>
+<g transform="rotate(0.07 724 175)"><rect x="507" y="75" width="440" height="210" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="504" y="70" width="440" height="210" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+</g>
+<text x="724" y="108" text-anchor="middle" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">Diffusion Policy</text>
+<text x="724" y="142" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">epsilon U-Net on a noisy horizon</text>
+<text x="724" y="162" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">x_T noise  →  x0 action chunk</text>
+<text x="724" y="182" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">DDIM (or seeded DDPM)   ·   more NFE</text>
+<text x="724" y="202" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">c from LeRobot RGB encoder</text>
+<text x="490" y="310" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">same arena, same miss contract  ·  pick the head you trained</text>
+</svg>

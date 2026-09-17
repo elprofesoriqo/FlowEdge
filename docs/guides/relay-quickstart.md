@@ -1,7 +1,11 @@
 # Relay quickstart
 
-This guide runs one complete local Relay lifecycle: start the inference daemon, submit an action-head
-request from another process, receive a typed result, and stop cleanly.
+```{image} ../_static/figures/relay.svg
+:alt: Optional Relay flow from sensor or VLA through shared-memory rings to Core
+:class: fe-fig
+```
+
+Local Relay lifecycle: start the daemon, submit a head request from another process, get a typed result, stop.
 
 ## Before you start
 

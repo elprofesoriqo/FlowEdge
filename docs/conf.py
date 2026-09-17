@@ -5,7 +5,6 @@ release = "0.1.0"
 
 extensions = [
     "myst_parser",
-    "sphinxcontrib.mermaid",
     "sphinx.ext.mathjax",
 ]
 

@@ -4,5 +4,5 @@ set -euo pipefail
 
 checkpoint=${1:?usage: $0 <converted.safetensors> [extra args]}
 shift || true
-python tools/verification/run_edge_dp_rollout.py "$checkpoint" \
+python -m flowedge_dev pipeline rollout "$checkpoint" \
   --steps 20 --threads 4 --period-ms 10 --on-miss hold "$@"

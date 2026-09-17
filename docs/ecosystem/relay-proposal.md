@@ -25,15 +25,9 @@ state, preemption, and fair scheduling of long-lived sessions.
 
 ## Shape
 
-```{mermaid}
-graph LR
-  S[Sensor / prompt] --> E[Encoder or VLA service]
-  E -->|condition + timestamp| R[FlowEdge Relay]
-  R -->|shared memory| H[FlowEdge head workers]
-  H -->|candidate chunk| R
-  R --> C[Freshness and deadline gate]
-  C --> A[Robot adapter]
-  R --> X[Replay capsules and metrics]
+```{image} ../_static/figures/relay.svg
+:alt: Optional Relay flow from sensor or VLA through shared-memory rings to Core
+:class: fe-fig
 ```
 
 The current MVP provides:

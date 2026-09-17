@@ -31,12 +31,12 @@ jobs:
           PYTHONPATH: build
         run: |
           pip install --extra-index-url https://download.pytorch.org/whl/cpu torch numpy safetensors
-          python tools/verification/verify_ulp.py models/mamba_flow.safetensors
+          python -m flowedge_dev verify ulp models/mamba_flow.safetensors
       - name: Verify convert round-trip
         env:
           PYTHONPATH: build
         run: |
-          python convert/convert.py models/mamba_flow.safetensors models/converted.safetensors
+          python -m flowedge_dev pipeline convert models/mamba_flow.safetensors models/converted.safetensors
           python - <<'PY'
           import numpy as np, flowedge
           a = flowedge.Engine("models/mamba_flow.safetensors")
@@ -48,5 +48,5 @@ jobs:
           assert np.allclose(xa, xb, atol=1e-6), (xa, xb)
           print("convert round-trip OK", xa[:3])
           PY
-          python tools/verification/verify_external_head.py
-          python tools/verification/verify_diffusion.py build
+          python -m flowedge_dev verify head
+          python -m flowedge_dev verify diffusion build

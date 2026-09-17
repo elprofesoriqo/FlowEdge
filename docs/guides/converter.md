@@ -4,26 +4,21 @@ FlowEdge loads fixed tensor layouts: `backbone.*` for the backbone, `flow.*` for
 the flow head, and `dp.*` for the Diffusion Policy head. The converter maps a
 PyTorch or Hugging Face checkpoint into those layouts.
 
-```{mermaid}
-%%{init: {'theme':'base','flowchart':{'htmlLabels':false,'nodeSpacing':28,'rankSpacing':34,'useMaxWidth':false},'themeVariables':{'primaryColor':'#f6ead0','primaryBorderColor':'#7b2733','lineColor':'#7b2733','primaryTextColor':'#2b2521','secondaryColor':'#eaddbf','tertiaryColor':'#faf3e2','fontFamily':'system-ui, -apple-system, Segoe UI, Roboto, sans-serif','fontSize':'13px'}}}%%
-graph LR
-  SRC["torch / HF checkpoint"] --> MAP["arch mapping"]
-  MAP --> VAL["validate required tensors"]
-  VAL --> ST[".safetensors"]
-  ST --> ENG[Engine]
+```{image} ../_static/figures/convert.svg
+:alt: HF/torch to map names to validate to Engine
+:class: fe-fig
 ```
 
 ```bash
-python convert/convert.py <source> models/out.safetensors --arch mamba
+python -m flowedge_dev pipeline convert <source> models/out.safetensors --arch mamba
 ```
 
-Convert a real GPT-2-style decoder into the experimental fixed-shape Transformer
-baseline:
+GPT-2-style decoder into the experimental Transformer baseline (kernel incubator):
 
 ```bash
 hf download sshleifer/tiny-gpt2 --local-dir models/tiny-gpt2
-python convert/convert.py models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
-  --arch transformer
+python -m flowedge_dev pipeline convert models/tiny-gpt2 \
+  models/tiny-gpt2.flowedge.safetensors --arch transformer
 ```
 
 This maps learned positions, affine LayerNorm, GELU MLPs, and GPT-2 fused QKV
@@ -33,7 +28,7 @@ SmolVLA action expert.
 Extract only the action head for an external encoder:
 
 ```bash
-python convert/convert.py models/full.safetensors models/head.safetensors \
+python -m flowedge_dev pipeline convert models/full.safetensors models/head.safetensors \
   --arch mamba --component head --dtype bf16
 ```
 
@@ -78,7 +73,7 @@ read both `model.safetensors` and `config.json`:
 ```bash
 hf download lerobot/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
   --local-dir models/diffusion_pusht
-python convert/convert.py models/diffusion_pusht \
+python -m flowedge_dev pipeline convert models/diffusion_pusht \
   models/diffusion_pusht.flowedge.safetensors --arch diffusion
 ```
 

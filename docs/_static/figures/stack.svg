@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 390" width="760" height="390" role="img">
+<title>one arena, many layers</title>
+<defs>
+<marker id='stack-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">one arena, many layers</text>
+<g transform="rotate(-0.05 380 84)"><rect x="73" y="63" width="620" height="52" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="70" y="58" width="620" height="52" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="380" y="90" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">C  /  Python  /  LeRobot plugin</text>
+</g>
+<g transform="rotate(-0.18 380 144)"><rect x="73" y="123" width="620" height="52" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="70" y="118" width="620" height="52" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="380" y="150" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">runtime   ·   fe_engine_sample</text>
+</g>
+<g transform="rotate(-0.02 220 204)"><rect x="73" y="183" width="300" height="52" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="70" y="178" width="300" height="52" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="220" y="210" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">Mamba backbone</text>
+</g>
+<g transform="rotate(0.18 540 204)"><rect x="393" y="183" width="300" height="52" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="390" y="178" width="300" height="52" rx="16" fill="#7B6CF6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="540" y="210" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">flow / DP / expert head</text>
+</g>
+<g transform="rotate(-0.09 380 264)"><rect x="73" y="243" width="620" height="52" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="70" y="238" width="620" height="52" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="380" y="270" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">kernels.h    AVX2  /  NEON  /  scalar</text>
+</g>
+<g transform="rotate(-0.01 380 324)"><rect x="73" y="303" width="620" height="52" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="70" y="298" width="620" height="52" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="380" y="330" text-anchor="middle" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">arena slab    weights + scratch    no malloc</text>
+</g>
+</svg>

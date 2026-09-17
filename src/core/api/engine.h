@@ -58,12 +58,7 @@ enum
   FE_STATUS_CORRUPT_STATE = 10,
 };
 /**
- * @brief Returns the last error message encountered by the engine on the current thread.
- *
- * The returned pointer is never NULL and remains valid until the next FlowEdge C ABI call on
- * the same thread. Error storage is thread-local; copy the string if it must outlive that call.
- * Successful operations clear the current-thread error.
- * @return A null-terminated string describing the error, or an empty string if no error occurred.
+ * Last C ABI error on this thread. Valid until the next ABI call; never NULL.
  */
 const char* fe_engine_last_error(void);
 

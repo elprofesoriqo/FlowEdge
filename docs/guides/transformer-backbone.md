@@ -1,5 +1,15 @@
 # Fixed-shape Transformer baseline
 
+```{image} ../_static/figures/matrix.svg
+:alt: Mamba+flow and LeRobot encoder+DP U-Net, both to an action chunk
+:class: fe-fig
+```
+
+The product heads are flow matching and Diffusion Policy. This page is the
+GPT-2 incubator and the cached SmolVLA expert (VLM stays in LeRobot). Everyday
+benches: `python -m flowedge_dev`. Numbers vs PyTorch for the two product heads:
+[Performance](../performance.md).
+
 FlowEdge has an experimental general causal Transformer decoder beside Mamba.
 It is a fixed-shape, batch-one CPU baseline for the GPT-style contract in
 [issue #10](https://github.com/elprofesoriqo/FlowEdge/issues/10). It is not a

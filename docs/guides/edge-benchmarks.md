@@ -1,18 +1,18 @@
 # Reproducible policy reports
 
-```{mermaid}
-flowchart LR
-  M[Model + immutable revision] --> X[Same processor and observation history]
-  X --> T[LeRobot / PyTorch]
-  X --> F[FlowEdge native]
-  T & F --> J[Validated JSON]
-  J --> R[Markdown report + raw samples]
+Matched **Diffusion Policy** p50 vs LeRobot/PyTorch is this recipe. Flow matching
+ULP and graph compilers live on [Performance](../performance.md) — do not mix
+those rows.
+
+```{image} ../_static/figures/benches.svg
+:alt: kernels, Relay tail, policy vs PyTorch, period misses
+:class: fe-fig
 ```
 
 ## Run one report
 
 ```bash
-python tools/benchmark/run_policy_report.py models/policy.safetensors \
+python -m flowedge_dev bench policy models/policy.safetensors \
   --source models/diffusion_pusht --revision <revision> \
   --steps 10 --iterations 100 --warmup 5 --threads 1 \
   --output bench/artifacts/policy/diffusion-pusht-report.json
@@ -44,7 +44,7 @@ iterative sampling; it excludes camera capture, IPC, and robot delivery.
 Validate an existing artifact with:
 
 ```bash
-python tools/benchmark/benchmark_artifact.py \
+python -m flowedge_dev bench artifact \
   bench/artifacts/policy/diffusion-pusht-report.json \
   --report bench/artifacts/policy/diffusion-pusht-report.md
 ```

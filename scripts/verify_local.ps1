@@ -41,9 +41,9 @@ if (-not (Test-Path $ModelPath)) {
     exit 0
 }
 
-python tools/verification/verify_external_head.py $BuildDir
+python -m flowedge_dev verify head $BuildDir
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-python tools/verification/verify_diffusion.py $BuildDir
+python -m flowedge_dev verify diffusion $BuildDir
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $ErrorActionPreference = "Continue"
@@ -51,7 +51,7 @@ python -c "import torch, numpy, safetensors"
 $HasTorch = ($LASTEXITCODE -eq 0)
 $ErrorActionPreference = "Stop"
 if ($HasTorch) {
-    python tools/verification/verify_ulp.py $ModelPath
+    python -m flowedge_dev verify ulp $ModelPath
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } else {
     Write-Host "note: PyTorch ULP dependencies unavailable"

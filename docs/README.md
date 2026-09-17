@@ -1,28 +1,21 @@
 # Repository and docs map
 
-The public entry points are intentionally small:
+![convert, load arena, integrate ODE, period, act](_static/figures/workflow.svg)
 
 | Need | Location |
 |---|---|
-| Build and run a C++ sample | `README.md`, `examples/` |
-| Python API | `python/`, `docs/api/python.md` |
-| LeRobot deployment seam | `integrations/lerobot/`, `docs/guides/lerobot.md` |
-| Core and Relay contracts | `src/`, `docs/architecture/` |
-| Converter and checkpoint checks | `convert/`, `tools/verification/` |
-| Reproducible verification | local Grok Bot: `scripts/verify_all.sh` / `scripts/verify_local.ps1` |
+| Build and run a sample | `README.md`, `examples/` |
+| Python API | `python/flowedge_ext.cc`, `docs/api/python.md` |
+| LeRobot plugin / hardware seam | `integrations/lerobot/`, `docs/guides/lerobot.md` |
+| Core and Relay | `src/`, `docs/architecture/` |
+| Convert, bench, verify, rollout | `python -m flowedge_dev` (`flowedge_dev/`, `convert/`, `tools/`) |
+| Local Grok Bot gate | `scripts/verify_all.sh` / `scripts/verify_local.ps1` |
 
-`scripts/` contains user-facing build, test, benchmark, and demo commands. Maintainer-only
-benchmark and parity helpers live under `tools/`. Examples and benchmarks stay compiled by
-`CMakeLists.txt` and exercised by the verification gate.
-
-`cmake/FlowEdgeConfig.cmake.in` is the install/export template. `CMakeFiles/`, `build*/`,
-and `docs/_build/` are generated output and ignored.
-
-## Building the docs
+`scripts/` is user-facing. `flowedge_dev` is the maintainer front door. CMake still builds examples and C++ benches.
 
 ```bash
 pip install -r requirements.txt
 sphinx-build -b html . _build/html
 ```
 
-Open `_build/html/index.html`. CI builds on every pull request and deploys to GitHub Pages on push to `main`. Warnings are errors.
+Open `_build/html/index.html`. CI treats warnings as errors.

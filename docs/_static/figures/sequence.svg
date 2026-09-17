@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 210" width="940" height="210" role="img">
+<title>what we ship next</title>
+<defs>
+<marker id='sequence-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">what we ship next</text>
+<g transform="rotate(-0.22 101 112)"><rect x="19" y="79" width="170" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="16" y="74" width="170" height="76" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="101" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">convert</text>
+</g>
+<g transform="rotate(0.10 311 112)"><rect x="219" y="79" width="190" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="216" y="74" width="190" height="76" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="311" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">CPU replay</text>
+</g>
+<g transform="rotate(-0.23 546 112)"><rect x="439" y="79" width="220" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="436" y="74" width="220" height="76" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="546" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">Jetson / SO-100</text>
+</g>
+<g transform="rotate(-0.02 801 112)"><rect x="689" y="79" width="230" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="686" y="74" width="230" height="76" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="801" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">same contracts</text>
+</g>
+<path d="M 186 112 Q 202 120 216 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#sequence-arr)"/>
+<path d="M 406 112 Q 416 108 436 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#sequence-arr)"/>
+<path d="M 656 112 Q 662 106 686 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#sequence-arr)"/>
+</svg>

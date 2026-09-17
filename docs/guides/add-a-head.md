@@ -1,6 +1,11 @@
 # Add a Head
 
-A head consumes a conditioning vector and returns an action. It is one module under `src/core/heads/`. Follow the flow head.
+A head consumes a conditioning vector and returns an action. Follow the flow head.
+
+```{image} ../_static/figures/flow-matching.svg
+:alt: Flow matching ODE
+:class: fe-fig
+```
 
 ## The contract
 

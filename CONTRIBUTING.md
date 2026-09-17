@@ -15,16 +15,16 @@ For large features or architectural changes, please open or comment on an issue 
 
 ## Development loop
 
-```text
+![convert, CPU replay, hardware, same contracts](docs/_static/figures/sequence.svg)
+
 issue → research comment → follow-up issues → one PR → review → evidence on main
-```
 
 1. **Issue.** State the problem, the smallest useful scope, what is out of scope, and the evidence that would close it. Use the research template when the design is not yet obvious.
 2. **Research.** Comment on the issue with pinned checkpoints, shapes, hot kernels, and open questions. Do not open a PR yet. Split child issues if the parent is still too large.
 3. **Implement.** One PR per issue, from `main`. Runtime changes must keep the zero-allocation hot path.
 4. **Evidence.** Model work includes a parity command. Performance work includes same-host before/after medians. User-path changes update the relevant guide.
 
-Current product focus is a faster Diffusion Policy drop-in and a SmolVLA cached-expert LeRobot path. New CUDA, Metal, Vulkan, π0, or Relay features need an issue that explains why they outrank that work.
+Current product: CPU Core (Mamba + flow, Diffusion Policy, cached SmolVLA expert), LeRobot plugin, optional Relay. Hardware pilots use the plugin period loop. New CUDA, Vulkan, Tenstorrent (Metal), π0, or Relay features need an issue that explains why they outrank that work.
 
 ## Code bar
 

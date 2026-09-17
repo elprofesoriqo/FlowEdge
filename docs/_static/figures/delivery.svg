@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 210" width="940" height="210" role="img">
+<title>action delivery gate</title>
+<defs>
+<marker id='delivery-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">action delivery gate</text>
+<g transform="rotate(0.15 91 112)"><rect x="19" y="79" width="150" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="16" y="74" width="150" height="76" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="91" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">chunk</text>
+</g>
+<g transform="rotate(0.20 276 112)"><rect x="199" y="79" width="160" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="196" y="74" width="160" height="76" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="276" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">freshness</text>
+</g>
+<g transform="rotate(-0.19 461 112)"><rect x="389" y="79" width="150" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="386" y="74" width="150" height="76" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="461" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">overlap</text>
+</g>
+<g transform="rotate(-0.22 641 112)"><rect x="569" y="79" width="150" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="566" y="74" width="150" height="76" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="641" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">bounds</text>
+</g>
+<g transform="rotate(0.24 826 112)"><rect x="749" y="79" width="160" height="76" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="746" y="74" width="160" height="76" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="826" y="118" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">motor</text>
+</g>
+<path d="M 166 112 Q 186 108 196 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#delivery-arr)"/>
+<path d="M 356 112 Q 375 109 386 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#delivery-arr)"/>
+<path d="M 536 112 Q 550 107 566 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#delivery-arr)"/>
+<path d="M 716 112 Q 727 117 746 112" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#delivery-arr)"/>
+</svg>

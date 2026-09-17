@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 400" width="1180" height="400" role="img">
+<title>optional Relay flow</title>
+<defs>
+<marker id='relay-arr' markerWidth='10' markerHeight='10' refX='8' refY='3.2' orient='auto'><path d='M0,0 L10,3.2 L0,6.4 Z' fill='#2B2118'/></marker>
+</defs>
+<rect width="100%" height="100%" rx="22" fill="#FFF6DC" stroke="#E8D7A8" stroke-width="3"/>
+<text x="28" y="38" font-size="22" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">optional Relay flow</text>
+<text x="36" y="64" text-anchor="start" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">across processes</text>
+<g transform="rotate(0.04 119 121)"><rect x="27" y="83" width="190" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="24" y="78" width="190" height="86" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="119" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">sensor / VLA</text>
+</g>
+<g transform="rotate(-0.18 351 121)"><rect x="249" y="83" width="210" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="246" y="78" width="210" height="86" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="351" y="111" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">condition ring</text>
+<text x="351" y="133" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">checksum SPSC</text>
+</g>
+<g transform="rotate(-0.22 593 121)"><rect x="491" y="83" width="210" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="488" y="78" width="210" height="86" rx="16" fill="#FF6B6B" stroke="#2B2118" stroke-width="2.6"/>
+<text x="593" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">flowedge-relayd</text>
+</g>
+<g transform="rotate(-0.02 830 121)"><rect x="733" y="83" width="200" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="730" y="78" width="200" height="86" rx="16" fill="#2EC4B6" stroke="#2B2118" stroke-width="2.6"/>
+<text x="830" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">Core flow head</text>
+</g>
+<g transform="rotate(0.11 1057 121)"><rect x="965" y="83" width="190" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="962" y="78" width="190" height="86" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="1057" y="127" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">action ring</text>
+</g>
+<path d="M 214 121 Q 221 126 246 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<path d="M 456 121 Q 476 126 488 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<path d="M 698 121 Q 714 123 730 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<path d="M 930 121 Q 942 121 962 121" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<text x="36" y="194" text-anchor="start" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">then the same period contract</text>
+<g transform="rotate(-0.18 119 253)"><rect x="27" y="215" width="190" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="24" y="210" width="190" height="86" rx="16" fill="#FF8FAB" stroke="#2B2118" stroke-width="2.6"/>
+<text x="119" y="259" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">controller</text>
+</g>
+<g transform="rotate(-0.07 331 253)"><rect x="249" y="215" width="170" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="246" y="210" width="170" height="86" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<text x="331" y="259" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">period?</text>
+</g>
+<g transform="rotate(-0.10 563 253)"><rect x="451" y="215" width="230" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="448" y="210" width="230" height="86" rx="16" fill="#FF9F43" stroke="#2B2118" stroke-width="2.6"/>
+<text x="563" y="243" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">on-miss</text>
+<text x="563" y="265" text-anchor="middle" font-size="15" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="600" fill="#2B2118">hold / drop / raise</text>
+</g>
+<g transform="rotate(-0.00 805 253)"><rect x="713" y="215" width="190" height="86" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="710" y="210" width="190" height="86" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
+<text x="805" y="259" text-anchor="middle" font-size="18" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">motors</text>
+</g>
+<path d="M 214 253 Q 233 253 246 253" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<path d="M 416 253 Q 435 257 448 253" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<path d="M 678 253 Q 685 260 710 253" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#relay-arr)"/>
+<g stroke="#2B2118" stroke-width="2.2" fill="#FFD166"><circle cx="980" cy="236" r="18"/><line x1="980" y1="236" x2="980" y2="225"/><line x1="980" y1="236" x2="989" y2="240"/></g>
+<g transform="rotate(0.3 36 314)"><rect x="36" y="314" width="277" height="36" rx="9" fill="#FF9F43" stroke="#2B2118" stroke-width="2.2"/><text x="175" y="338" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">DP replay does not start this</text></g>
+<text x="590" y="372" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">local shared memory  ·  Core has no Relay dependency  ·  same --on-miss</text>
+</svg>

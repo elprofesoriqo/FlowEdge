@@ -1,5 +1,10 @@
 # Roadmap
 
+```{image} _static/figures/sequence.svg
+:alt: convert, CPU replay, Jetson or SO-100, same contracts
+:class: fe-fig
+```
+
 ## Current stack
 
 | Layer | Complete |
@@ -13,18 +18,17 @@
 
 ## Active development sequence
 
-FlowEdge prioritizes a validated trained LeRobot policy, SmolVLA execution on
-Tenstorrent, then DeadlineFlow experiments. CPU Mamba remains a supported reference.
+FlowEdge prioritizes a measured LeRobot policy on CPU/ARM hardware, then SmolVLA expert
+quality, then Tenstorrent. CPU Mamba + flow stays a complete included path.
 
 | Order | Deliverable | Acceptance evidence |
 |---:|---|---|
-| 1 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks, reset tests |
-| 2 | Matched replay and task evaluation | Raw timings, checkpoint/processor hashes, PushT episode outcomes |
-| 3 | Exact SmolVLA reference contract | Pinned checkpoint preflight and suffix parity; captured-VLM expert replay parity and source-encoder parity still required |
-| 4 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers, complete Euler integration |
-| 5 | Accelerator optimization | Profile-driven layouts, traces or kernels; reproducible hardware records |
-| 6 | DeadlineFlow research evaluation | Fixed/adaptive baselines, quality/deadline curves, underruns, ablations |
-| 7 | Broader support | Second hardware generation/model after the first path passes its gates |
+| 1 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks |
+| 2 | Matched replay and a period loop | PyTorch p50 plus `--period-ms` miss counts |
+| 3 | One Jetson or SO-100 recorded loop | Issue #70 JSON; limits stay in the adapter |
+| 4 | Cached SmolVLA expert contract | Captured-VLM replay; VLM remains in LeRobot |
+| 5 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers |
+| 6 | DeadlineFlow research | Quality vs miss rate; not a shipping backend |
 
 The first DeadlineFlow selector and CPU DDIM bridge are experimental. Full SmolVLA and
 Tenstorrent execution remain unimplemented; the cached-VLM action expert is an explicit

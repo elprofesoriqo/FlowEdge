@@ -24,14 +24,19 @@ h3 { font-size: 1.3rem; }
 
 article { line-height: 1.72; }
 
-.fe-hero-img {
+.fe-hero-img,
+.fe-fig,
+img.fe-fig,
+.figure img {
   width: 100%;
+  max-width: 960px;
   display: block;
-  border-radius: 14px;
+  border-radius: 16px;
   border: 1px solid var(--color-background-border);
-  box-shadow: 0 16px 44px rgba(43, 31, 20, 0.30);
-  margin: 0.3rem 0 1.5rem;
+  box-shadow: 0 14px 40px rgba(43, 31, 20, 0.18);
+  margin: 0.4rem auto 1.6rem;
 }
+.fe-hero-img { box-shadow: 0 16px 44px rgba(43, 31, 20, 0.30); }
 
 .fe-lede { font-size: 1.22rem; line-height: 1.6; color: var(--color-foreground-secondary); }
 .fe-lede::first-letter {
@@ -116,20 +121,6 @@ code.literal { border-radius: 5px; padding: 0.1em 0.4em; border: 1px solid var(-
 
 a.reference { text-decoration: none; border-bottom: 1px solid transparent; }
 a.reference:hover { border-bottom-color: currentColor; }
-
-.mermaid {
-  text-align: center;
-  margin: 1.9rem 0;
-  padding: 1.25rem;
-  background: var(--color-background-secondary);
-  border: 1px solid var(--color-background-border);
-  border-radius: 12px;
-  overflow-x: auto;
-}
-.mermaid svg { width: auto !important; max-width: 100% !important; height: auto !important; }
-.mermaid text, .mermaid .nodeLabel, .mermaid .edgeLabel, .mermaid foreignObject div {
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important;
-}
 
 blockquote {
   border-left: 3px solid var(--color-brand-primary);
