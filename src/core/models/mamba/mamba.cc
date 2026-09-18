@@ -213,9 +213,8 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
                 host.conv_w != nullptr && host.conv_b != nullptr && host.a_neg != nullptr &&
                 host.d != nullptr && host.dt_b != nullptr;
   }
-  if (!layers_ok ||
-      !cuda_->load(cfg_.n_layers, cfg_.d_model, cfg_.d_inner, cfg_.d_state, cfg_.d_conv,
-                   cfg_.dt_rank, norm_f_, hosts)) {
+  if (!layers_ok || !cuda_->load(cfg_.n_layers, cfg_.d_model, cfg_.d_inner, cfg_.d_state,
+                                 cfg_.d_conv, cfg_.dt_rank, norm_f_, hosts)) {
     cuda_->release();
     cuda_ = nullptr;
     ok_ = false;

@@ -110,11 +110,10 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
   const std::size_t mamba_dt_rank =
       mamba_x_out > (2uz * d_state) ? mamba_x_out - (2uz * d_state) : 0uz;
   const std::size_t mamba_upload =
-      has_backbone
-          ? (sizeof(CudaMambaResident) / sizeof(float)) + 64uz +
-                (64uz * ((2uz * d_inner * d_model) + (mamba_x_out * d_inner) +
-                         (d_inner * mamba_dt_rank) + (d_model * d_inner)))
-          : 0uz;
+      has_backbone ? (sizeof(CudaMambaResident) / sizeof(float)) + 64uz +
+                         (64uz * ((2uz * d_inner * d_model) + (mamba_x_out * d_inner) +
+                                  (d_inner * mamba_dt_rank) + (d_model * d_inner)))
+                   : 0uz;
 #else
   const std::size_t flow_upload = 0uz;
   const std::size_t mamba_upload = 0uz;
