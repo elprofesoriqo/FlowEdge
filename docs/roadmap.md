@@ -31,6 +31,7 @@ not Tenstorrent-first. Jetson/ARM (#70) still needs a board JSON.
 | 5 | Matched GPU replay | GTX 1650 JSON vs PyTorch CUDA ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)); LeRobot CUDA period log ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) |
 | 5b | Device-resident Mamba | Persistent device weights/scratch; no `cudaMalloc` after load ([#172](https://github.com/elprofesoriqo/FlowEdge/issues/172)) |
 | 5c | CUDA DP conv occupancy | PushT-shape `flowedge_cuda_dp_mix` before/after; native DDIM median ([#174](https://github.com/elprofesoriqo/FlowEdge/issues/174)) |
+| 5d | CUDA DP split-K conv | L=4 warp split-K; `conv 2048` and native DDIM medians ([#176](https://github.com/elprofesoriqo/FlowEdge/issues/176)) |
 | 6 | Jetson / ARM replay | Device JSON for [#70](https://github.com/elprofesoriqo/FlowEdge/issues/70); x86 JSON is not ARM evidence |
 | 7 | Tenstorrent / π0 / ACT | After CUDA evidence; see deferred table |
 

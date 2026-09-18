@@ -64,8 +64,8 @@ int grid(int n)
   return (n + 255) / 256;
 }
 
-// One thread per output channel. PushT L is 4/8/16, so the K taps reuse one weight
-// row instead of reloading it once per time index.
+// Short L keeps threadIdx.x on the time axis so stores coalesce; ty fills a 256-thread
+// block. Split-K below is for large IC, where this 2D grid still serializes the reduction.
 void dense_conv_grid(int output_length, int out_channels, dim3& block, dim3& grid_dim)
 {
   int tx = 16;
@@ -264,6 +264,65 @@ __global__ void conv1d_dense_fixed_kernel(const float* x, const float* weight, c
     }
   }
   y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
+}
+
+// One warp (or a few) per output channel on L=4. Lanes split IC; K taps stay in
+// registers across the four times. L=8/16 stay on the 2D launch; split-K lost there.
+template<int Kernel, int Stride, int Length>
+__global__ void conv1d_splitk_kernel(const float* x, const float* weight, const float* bias, float* y,
+                                     int in_channels, int out_channels, int input_length, int padding)
+{
+  const int oc = blockIdx.x;
+  if (oc >= out_channels)
+    return;
+  const int lane = threadIdx.x & 31;
+  const int warp = threadIdx.x >> 5;
+  const int ic_stride = blockDim.x;
+  __shared__ float partial[4 * 16];
+  float acc[Length];
+#pragma unroll
+  for (int ot = 0; ot < Length; ++ot)
+    acc[ot] = 0.0f;
+  for (int ic = threadIdx.x; ic < in_channels; ic += ic_stride) {
+    const float* input = x + (static_cast<std::size_t>(ic) * static_cast<std::size_t>(input_length));
+    const float* wr = weight + (static_cast<std::size_t>((oc * in_channels) + ic) *
+                                static_cast<std::size_t>(Kernel));
+    float wk[Kernel];
+#pragma unroll
+    for (int k = 0; k < Kernel; ++k)
+      wk[k] = wr[k];
+#pragma unroll
+    for (int ot = 0; ot < Length; ++ot) {
+      const int origin = ot * Stride - padding;
+#pragma unroll
+      for (int k = 0; k < Kernel; ++k) {
+        const int index = origin + k;
+        if (static_cast<unsigned>(index) < static_cast<unsigned>(input_length))
+          acc[ot] += input[index] * wk[k];
+      }
+    }
+  }
+  const int warps = ic_stride >> 5;
+#pragma unroll
+  for (int ot = 0; ot < Length; ++ot) {
+    float v = acc[ot];
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1)
+      v += __shfl_down_sync(0xffffffffu, v, offset);
+    if (lane == 0)
+      partial[(warp * Length) + ot] = v;
+  }
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    const float shift = bias[oc];
+#pragma unroll
+    for (int ot = 0; ot < Length; ++ot) {
+      float sum = shift;
+      for (int w = 0; w < warps; ++w)
+        sum += partial[(w * Length) + ot];
+      y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(Length)) + ot] = sum;
+    }
+  }
 }
 
 __global__ void conv1d_dense_kernel(const float* x, const float* weight, const float* bias, float* y,
@@ -963,6 +1022,21 @@ void conv1d_device(const float* x, const float* weight, const float* bias, float
   const int in_len = static_cast<int>(input_length);
   const int out_len = static_cast<int>(output_length);
   const int pad = static_cast<int>(padding);
+  if (ic >= 32) {
+    const int workers = ic >= 128 ? 128 : 32;
+    if (kernel == 5 && stride == 1 && output_length == 4) {
+      conv1d_splitk_kernel<5, 1, 4><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
+      return;
+    }
+    if (kernel == 3 && stride == 2 && output_length == 4) {
+      conv1d_splitk_kernel<3, 2, 4><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
+      return;
+    }
+    if (kernel == 1 && stride == 1 && output_length == 4) {
+      conv1d_splitk_kernel<1, 1, 4><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
+      return;
+    }
+  }
   dim3 block;
   dim3 grid_dim;
   dense_conv_grid(out_len, oc, block, grid_dim);

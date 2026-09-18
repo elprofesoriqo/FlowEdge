@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Captured | `2026-09-18T10:58:33.525438+00:00` |
+| Captured | `2026-09-18T12:52:38.795231+00:00` |
 | Model | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
 | Model SHA-256 | `995d14d35db57d95c35ad9704c3d79c8612b7bc45f3877e5c46c2cdc516856a8` |
 | Processor | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
@@ -19,7 +19,7 @@
 | Comparison | FlowEdge native runtime vs LeRobot policy executed with PyTorch |
 | Reference framework | `PyTorch` |
 | Scope | matched observation encoder, history, noise, and DDIM schedule on CUDA; FlowEdge engine is freed before the PyTorch U-Net is loaded; not TensorRT/ONNX; not Jetson/ARM |
-| Max abs error | 4.57764e-05 (atol=0.001, rtol=0.0001) |
+| Max abs error | 7.62939e-05 (atol=0.001, rtol=0.0001) |
 
 ## Measurements
 
@@ -27,16 +27,16 @@ Encoder and policy are reported separately. End-to-end includes both and is the 
 
 | Backend | Startup | Encoder p50 / p95 / p99 | Policy p50 / p95 / p99 | E2E p50 / p95 / p99 | Throughput | RSS | Setup / hot allocations |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| flowedge | 48967.123 ms | 4.917 ms / 6.233 ms / 6.418 ms | 419.862 ms / 422.626 ms / 422.692 ms | 425.005 ms / 428.860 ms / 429.110 ms | 2.351 Hz | 3150.074 MiB | not measured / not measured |
-| lerobot | 31228.195 ms | 5.383 ms / 6.176 ms / 6.222 ms | 345.782 ms / 350.680 ms / 351.765 ms | 351.822 ms / 356.503 ms / 357.814 ms | 2.842 Hz | 3150.074 MiB | not measured / not measured |
+| flowedge | 31494.321 ms | 6.001 ms / 7.447 ms / 7.492 ms | 153.491 ms / 155.381 ms / 155.475 ms | 159.454 ms / 162.131 ms / 162.520 ms | 6.258 Hz | 3144.398 MiB | not measured / not measured |
+| lerobot | 32203.443 ms | 5.493 ms / 13.240 ms / 14.507 ms | 361.247 ms / 370.623 ms / 370.740 ms | 367.935 ms / 377.494 ms / 377.899 ms | 2.717 Hz | 3144.398 MiB | not measured / not measured |
 
 ## Relative comparison
 
 | Metric | FlowEdge / LeRobot |
 |---|---:|
-| Policy p50 | 1.214x |
-| End-to-end p50 | 1.208x |
-| Throughput | 0.827x |
+| Policy p50 | 0.425x |
+| End-to-end p50 | 0.433x |
+| Throughput | 2.303x |
 
 ## Commands
 

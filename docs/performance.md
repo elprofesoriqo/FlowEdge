@@ -72,12 +72,12 @@ NVIDIA GeForce GTX 1650 is the headline, not `threads=1`. Same observation file 
 
 | | FlowEdge CUDA | PyTorch CUDA |
 |---|---:|---:|
-| Policy p50 | **420 ms** | **346 ms** |
-| Preprocess-to-chunk p50 | 425 ms | 352 ms |
-| Max abs action error | 4.58e-5 | — |
-| FlowEdge / LeRobot | 1.21× | |
+| Policy p50 | **153 ms** | **361 ms** |
+| Preprocess-to-chunk p50 | 159 ms | 368 ms |
+| Max abs action error | 7.63e-5 | — |
+| FlowEdge / LeRobot | 0.43× | |
 
-A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the PyTorch U-Net. PyTorch CUDA is faster on this device; the CPU `threads=1` 851 vs 1409 ms figure is unchanged.
+A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the PyTorch U-Net. Same observation file as the CPU replay. The CPU `threads=1` 851 vs 1409 ms figure is unchanged. Not TensorRT/ONNX. Not Jetson/ARM.
 
 {download}`CUDA period 10 ms hold <../bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.md>`
 · [JSON](../bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.json)
@@ -86,7 +86,7 @@ A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the
 |---|---|---:|---|
 | 10 ms | hold | 20 / 20 | 589 / 1571 / 1795 ms |
 
-Synthetic encoded zeros, no warmup, GTX 1650. Miss counts, not task success. Not Jetson/ARM.
+Synthetic encoded zeros, no warmup, GTX 1650. Miss counts, not task success. Not Jetson/ARM. This period JSON is the [#164](https://github.com/elprofesoriqo/FlowEdge/issues/164) log, not the split-K replay.
 
 Native 10-step DDIM on the same GTX 1650, same checkpoint, `flowedge_cuda_dp_mix`
 (`cudaEvent` p50, not policy p50, not vs PyTorch):
@@ -99,7 +99,18 @@ Native 10-step DDIM on the same GTX 1650, same checkpoint, `flowedge_cuda_dp_mix
 | upsample 1024 k-major | 1684 us | 386 us | 3.9 |
 | native DDIM ×10 | 448 ms | **321 ms** | 321 |
 
-Short-horizon launch (`block.x` matches `L`) and closed-form `conv_transpose1d`. The remaining dollar is still `conv 2048 L4 K5`. Matched policy p50 420 vs 346 is unchanged; this mix is not a new replay.
+Short-horizon launch (`block.x` matches `L`) and closed-form `conv_transpose1d` ([#174](https://github.com/elprofesoriqo/FlowEdge/issues/174)).
+
+Warp split-K on **L=4 only** (lanes split `IC`, one warp-group per output channel). L=8/16 stay on the 2D launch; split-K lost there.
+
+| Kernel | #174 p50 | split-K p50 | ms/sample |
+|---|---:|---:|---:|
+| conv 512 L16 K5 | 215 us | 215 us | 8.6 |
+| conv 1024 L4 K5 | 686 us | 235 us | 7.0 |
+| conv 2048 L4 K5 | 2486 us | **885 us** | 62 |
+| native DDIM ×10 | 321 ms | **152 ms** | 152 |
+
+Matched policy p50 is **153 ms vs 361 ms** on this same host after split-K (replay JSON regenerated; encoder still in LeRobot).
 
 ### How to get them
 
