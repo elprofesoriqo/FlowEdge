@@ -12,6 +12,9 @@
 namespace fe {
 
 class ThreadPool;
+#ifdef FLOWEDGE_CUDA
+class CudaDiffusionResident;
+#endif
 
 struct DiffusionConfig
 {
@@ -44,6 +47,11 @@ public:
   };
 
   DiffusionHead(std::span<const TensorView> weights, Arena& persistent) noexcept;
+  ~DiffusionHead();
+  DiffusionHead(const DiffusionHead&) = delete;
+  DiffusionHead(DiffusionHead&&) = delete;
+  DiffusionHead& operator=(const DiffusionHead&) = delete;
+  DiffusionHead& operator=(DiffusionHead&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const DiffusionConfig& config() const noexcept { return cfg_; }
@@ -154,6 +162,9 @@ private:
   std::size_t workspace_floats_{};
   ThreadPool* pool_{};
   bool ok_{};
+#ifdef FLOWEDGE_CUDA
+  CudaDiffusionResident* cuda_{};
+#endif
 };
 
 } // namespace fe

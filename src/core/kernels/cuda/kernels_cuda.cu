@@ -333,6 +333,66 @@ __global__ void diffusion_timestep_kernel(float timestep, float* out, int half, 
   out[half + i] = cosf(phase);
 }
 
+__global__ void add_bias_kernel(float* x, const float* bias, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n)
+    return;
+  x[i] += bias[i];
+}
+
+__global__ void layout_horizon_to_channel_kernel(const float* in, float* out, int horizon,
+                                                 int action_dim)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int c = blockIdx.y * blockDim.y + threadIdx.y;
+  if (t >= horizon || c >= action_dim)
+    return;
+  out[(static_cast<std::size_t>(c) * static_cast<std::size_t>(horizon)) + t] =
+      in[(static_cast<std::size_t>(t) * static_cast<std::size_t>(action_dim)) + c];
+}
+
+__global__ void layout_channel_to_horizon_kernel(const float* in, float* out, int horizon,
+                                                 int action_dim)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int c = blockIdx.y * blockDim.y + threadIdx.y;
+  if (t >= horizon || c >= action_dim)
+    return;
+  out[(static_cast<std::size_t>(t) * static_cast<std::size_t>(action_dim)) + c] =
+      in[(static_cast<std::size_t>(c) * static_cast<std::size_t>(horizon)) + t];
+}
+
+__global__ void ddim_update_kernel(float* x, const float* eps, int n, float sqrt_alpha_t,
+                                   float sqrt_beta_t, float sqrt_alpha_prev,
+                                   float sqrt_one_minus_prev, int clip, float clip_range)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n)
+    return;
+  float predicted_original = (x[i] - (sqrt_beta_t * eps[i])) / sqrt_alpha_t;
+  if (clip)
+    predicted_original = fminf(clip_range, fmaxf(-clip_range, predicted_original));
+  x[i] = (sqrt_alpha_prev * predicted_original) + (sqrt_one_minus_prev * eps[i]);
+}
+
+__global__ void ddpm_update_kernel(float* x, const float* eps, const float* noise, int n,
+                                   float sqrt_alpha_t, float sqrt_beta_t,
+                                   float original_coefficient, float sample_coefficient,
+                                   float sqrt_variance, int clip, float clip_range)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n)
+    return;
+  float predicted_original = (x[i] - (sqrt_beta_t * eps[i])) / sqrt_alpha_t;
+  if (clip)
+    predicted_original = fminf(clip_range, fmaxf(-clip_range, predicted_original));
+  float next = (original_coefficient * predicted_original) + (sample_coefficient * x[i]);
+  if (noise != nullptr)
+    next += sqrt_variance * noise[i];
+  x[i] = next;
+}
+
 } // namespace
 
 bool device_available() noexcept
@@ -715,6 +775,147 @@ void diffusion_timestep_embedding(float timestep, float* out, std::size_t n) noe
   diffusion_timestep_kernel<<<grid(static_cast<int>(half)), 256>>>(
       timestep, static_cast<float*>(dst), static_cast<int>(half), factor);
   download(out, dst, n * sizeof(float));
+}
+
+bool device_copy_d2d(void* dst, const void* src, std::size_t bytes) noexcept
+{
+  return dst != nullptr && src != nullptr &&
+         cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToDevice) == cudaSuccess;
+}
+
+void mish_device(float* x, std::size_t n) noexcept
+{
+  if (n == 0 || x == nullptr)
+    return;
+  mish_kernel<<<grid(static_cast<int>(n)), 256>>>(x, static_cast<int>(n));
+}
+
+void add_bias_device(float* x, const float* bias, std::size_t n) noexcept
+{
+  if (n == 0 || x == nullptr || bias == nullptr)
+    return;
+  add_bias_kernel<<<grid(static_cast<int>(n)), 256>>>(x, bias, static_cast<int>(n));
+}
+
+void conv1d_device(const float* x, const float* weight, const float* bias, float* y,
+                   std::size_t in_channels, std::size_t out_channels, std::size_t input_length,
+                   std::size_t output_length, std::size_t kernel, std::size_t stride,
+                   std::size_t padding) noexcept
+{
+  if (in_channels == 0 || out_channels == 0 || input_length == 0 || output_length == 0 ||
+      kernel == 0 || stride == 0 || x == nullptr || weight == nullptr || bias == nullptr ||
+      y == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((output_length + 15) / 16),
+                static_cast<unsigned>((out_channels + 15) / 16));
+  conv1d_dense_kernel<<<grid_dim, block>>>(
+      x, weight, bias, y, static_cast<int>(in_channels), static_cast<int>(out_channels),
+      static_cast<int>(input_length), static_cast<int>(output_length), static_cast<int>(kernel),
+      static_cast<int>(stride), static_cast<int>(padding));
+}
+
+void conv_transpose1d_device(const float* x, const float* weight, const float* bias, float* y,
+                             std::size_t in_channels, std::size_t out_channels,
+                             std::size_t input_length, std::size_t output_length, std::size_t kernel,
+                             std::size_t stride, std::size_t padding, bool k_major_weights) noexcept
+{
+  if (in_channels == 0 || out_channels == 0 || input_length == 0 || output_length == 0 ||
+      kernel == 0 || stride == 0 || x == nullptr || weight == nullptr || bias == nullptr ||
+      y == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((output_length + 15) / 16),
+                static_cast<unsigned>((out_channels + 15) / 16));
+  conv_transpose1d_kernel<<<grid_dim, block>>>(
+      x, weight, bias, y, static_cast<int>(in_channels), static_cast<int>(out_channels),
+      static_cast<int>(input_length), static_cast<int>(output_length), static_cast<int>(kernel),
+      static_cast<int>(stride), static_cast<int>(padding), k_major_weights ? 1 : 0);
+}
+
+void group_norm_device(float* x, const float* weight, const float* bias, std::size_t channels,
+                       std::size_t length, std::size_t groups, float epsilon) noexcept
+{
+  if (channels == 0 || length == 0 || groups == 0 || channels % groups != 0 || x == nullptr ||
+      weight == nullptr || bias == nullptr)
+    return;
+  group_norm_kernel<<<grid(static_cast<int>(groups)), 256>>>(
+      x, weight, bias, static_cast<int>(channels), static_cast<int>(length),
+      static_cast<int>(groups), epsilon);
+}
+
+void film_device(float* x, const float* scale, const float* bias, std::size_t channels,
+                 std::size_t length) noexcept
+{
+  if (channels == 0 || length == 0 || x == nullptr || scale == nullptr || bias == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((length + 15) / 16),
+                static_cast<unsigned>((channels + 15) / 16));
+  film_kernel<<<grid_dim, block>>>(x, scale, bias, static_cast<int>(channels),
+                                   static_cast<int>(length));
+}
+
+void diffusion_timestep_device(float timestep, float* out, std::size_t n) noexcept
+{
+  if (n == 0 || n % 2 != 0 || out == nullptr)
+    return;
+  const std::size_t half = n / 2;
+  if (half == 1) {
+    const float host[2] = {sinf(timestep), cosf(timestep)};
+    static_cast<void>(device_copy_h2d(out, host, 2 * sizeof(float)));
+    return;
+  }
+  const float factor = logf(10000.0f) / static_cast<float>(half - 1);
+  diffusion_timestep_kernel<<<grid(static_cast<int>(half)), 256>>>(
+      timestep, out, static_cast<int>(half), factor);
+}
+
+void layout_horizon_to_channel_device(const float* in, float* out, std::size_t horizon,
+                                      std::size_t action_dim) noexcept
+{
+  if (horizon == 0 || action_dim == 0 || in == nullptr || out == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((horizon + 15) / 16),
+                static_cast<unsigned>((action_dim + 15) / 16));
+  layout_horizon_to_channel_kernel<<<grid_dim, block>>>(in, out, static_cast<int>(horizon),
+                                                        static_cast<int>(action_dim));
+}
+
+void layout_channel_to_horizon_device(const float* in, float* out, std::size_t horizon,
+                                      std::size_t action_dim) noexcept
+{
+  if (horizon == 0 || action_dim == 0 || in == nullptr || out == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((horizon + 15) / 16),
+                static_cast<unsigned>((action_dim + 15) / 16));
+  layout_channel_to_horizon_kernel<<<grid_dim, block>>>(in, out, static_cast<int>(horizon),
+                                                        static_cast<int>(action_dim));
+}
+
+void ddim_update_device(float* x, const float* eps, std::size_t n, float sqrt_alpha_t,
+                        float sqrt_beta_t, float sqrt_alpha_prev, float sqrt_one_minus_prev,
+                        bool clip, float clip_range) noexcept
+{
+  if (n == 0 || x == nullptr || eps == nullptr)
+    return;
+  ddim_update_kernel<<<grid(static_cast<int>(n)), 256>>>(
+      x, eps, static_cast<int>(n), sqrt_alpha_t, sqrt_beta_t, sqrt_alpha_prev, sqrt_one_minus_prev,
+      clip ? 1 : 0, clip_range);
+}
+
+void ddpm_update_device(float* x, const float* eps, const float* noise, std::size_t n,
+                        float sqrt_alpha_t, float sqrt_beta_t, float original_coefficient,
+                        float sample_coefficient, float sqrt_variance, bool clip,
+                        float clip_range) noexcept
+{
+  if (n == 0 || x == nullptr || eps == nullptr)
+    return;
+  ddpm_update_kernel<<<grid(static_cast<int>(n)), 256>>>(
+      x, eps, noise, static_cast<int>(n), sqrt_alpha_t, sqrt_beta_t, original_coefficient,
+      sample_coefficient, sqrt_variance, clip ? 1 : 0, clip_range);
 }
 
 } // namespace fe::cuda_ops

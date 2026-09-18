@@ -50,6 +50,10 @@ python -m flowedge_dev pipeline convert models/diffusion_pusht \
 ./build/diffusion_sample models/diffusion_pusht.flowedge.safetensors 10
 ```
 
+`FLOWEDGE_BACKEND=cuda` keeps the U-Net and DDIM scratch on device after load.
+Compare that `diffusion_sample` binary to a CPU build on the same checkpoint and
+noise. Do not publish a CUDA vs PyTorch policy p50.
+
 For a non-standard processor filename, pass it explicitly with
 `--processor path/to/policy_postprocessor.json`. Observation preprocessing
 remains outside FlowEdge; only action un-normalization statistics are imported

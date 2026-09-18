@@ -31,7 +31,7 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 
 | Area | Capabilities |
 |---|---|
-| Backends | CPU scalar / AVX2 / NEON. `FLOWEDGE_BACKEND=cuda` (nvcc): flow head device-resident; Mamba/DP still host-span. Vulkan / Tenstorrent (Metal) planned |
+| Backends | CPU scalar / AVX2 / NEON. `FLOWEDGE_BACKEND=cuda` (nvcc): flow and DP heads device-resident; Mamba still host-span. Vulkan / Tenstorrent (Metal) planned |
 | Backbones | Mamba. Transformer CPU decoder fixture (not a policy) |
 | Heads | flow matching (Euler / Heun / RK4); Diffusion Policy (DDIM / DDPM); SmolVLA expert soon |
 | Models | `mamba_flow`; `diffusion_pusht`. π0 / DiT / native VLM no |
@@ -56,4 +56,4 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 
 ## Not yet
 
-Device-resident Diffusion Policy ([#162](https://github.com/elprofesoriqo/FlowEdge/issues/162)) · matched GPU replay ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)) · π0 / DiT · native VLM · ROS 2. The Transformer decoder fixture is not a robotics policy. FlowEdge is not a graph runtime, trainer, or safety controller.
+Matched GPU replay ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)) · LeRobot CUDA ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) · π0 / DiT · native VLM · ROS 2. The Transformer decoder fixture is not a robotics policy. FlowEdge is not a graph runtime, trainer, or safety controller.

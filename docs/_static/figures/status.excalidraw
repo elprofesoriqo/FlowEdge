@@ -31,7 +31,7 @@
       "type": "rectangle",
       "x": 278,
       "y": 80,
-      "width": 200,
+      "width": 220,
       "height": 56,
       "angle": 0,
       "strokeColor": "#2B2118",
@@ -52,7 +52,7 @@
     {
       "id": "fe8377be76",
       "type": "rectangle",
-      "x": 490,
+      "x": 510,
       "y": 80,
       "width": 140,
       "height": 56,
@@ -75,7 +75,7 @@
     {
       "id": "fe5cf0956c",
       "type": "rectangle",
-      "x": 642,
+      "x": 662,
       "y": 80,
       "width": 260,
       "height": 56,
