@@ -60,6 +60,7 @@ GitHub Actions also runs `.github/workflows/bench.yml` for short CPU kernel JSON
 | PyTorch parity | `python -m flowedge_dev verify ulp models/mamba_flow.safetensors` |
 | External-head + streaming smoke | `python -m flowedge_dev verify head build` |
 | Diffusion python | `python -m flowedge_dev verify diffusion build` |
+| CUDA DP mix | `./build-cuda/flowedge_cuda_dp_mix models/diffusion_pusht.flowedge.safetensors` |
 | Policy vs LeRobot | `python -m flowedge_dev bench policy ...` |
 | Period rollout | `python -m flowedge_dev pipeline rollout ...` |
 | Relay lifecycle | `FLOWEDGE_BUILD_DIR=build ./scripts/relay_demo.sh models/mamba_flow.safetensors` |

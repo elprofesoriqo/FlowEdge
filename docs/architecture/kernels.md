@@ -22,7 +22,8 @@ on device after load; `sample` / `sampler_advance` do not `cudaMalloc` after
 that. The diffusion head keeps `dp.*` weights and U-Net/DDIM scratch on device
 after load; `denoise` / `sample` do not `cudaMalloc` after that. Dense Diffusion
 Policy ops (`conv1d`, `conv_transpose1d`, `group_norm`, `mish`, `film`,
-timestep embedding) also live in the CUDA TU as host-span launches. Mamba host
+timestep embedding) also live in the CUDA TU as host-span launches. Short
+horizons use a launch that matches `L`; transpose is closed-form. Mamba host
 `std::span` arguments still copy in and out. See [CUDA](cuda).
 Metal here is Tenstorrent TT-Metal, not Apple. Vulkan remains unimplemented.
 
