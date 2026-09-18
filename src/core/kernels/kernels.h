@@ -145,6 +145,9 @@ inline void layer_norm(std::span<const float> in, std::span<const float> weight,
                        std::span<const float> bias, std::span<float> out, std::size_t rows,
                        std::size_t dim, float epsilon = 1e-5F) noexcept
 {
+  if (dim == 0uz || in.size() < rows * dim || out.size() < rows * dim || weight.size() < dim ||
+      bias.size() < dim)
+    return;
   for (std::size_t r{}; r < rows; ++r) {
     const float* const input = in.data() + (r * dim);
     float* const output = out.data() + (r * dim);
