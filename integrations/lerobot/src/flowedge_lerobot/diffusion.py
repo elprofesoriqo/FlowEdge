@@ -85,6 +85,7 @@ class FlowEdgeDiffusionPolicy:
     """
 
     def __init__(self, engine: DiffusionEngine):
+        self._engine = engine
         self.contract = DiffusionActionContract.from_metadata(engine.diffusion_metadata)
         self._horizon = np.empty(
             (self.contract.horizon, self.contract.action_dim), dtype=np.float32

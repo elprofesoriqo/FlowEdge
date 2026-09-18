@@ -1,7 +1,8 @@
-"""CPU observation path for the supported LeRobot visual Diffusion Policy.
+"""Observation path for the supported LeRobot visual Diffusion Policy.
 
 The source directory supplies the original encoder and normalization statistics.
 Native FlowEdge still owns only the converted denoiser and action unnormalization.
+The RGB encoder may run on CPU or CUDA; Core still sees a host condition vector.
 """
 
 from collections import deque
@@ -46,7 +47,9 @@ def validate_source_pair(converted, directory):
         )
 
 
-def source_config(directory):
+def source_config(directory, device="cpu"):
+    if device not in {"cpu", "cuda"} and not str(device).startswith("cuda"):
+        raise ValueError("observation encoder device must be cpu or cuda")
     directory = Path(directory)
     raw = json.loads((directory / "config.json").read_text(encoding="utf-8"))
     if raw.get("type") != "diffusion":
@@ -62,7 +65,7 @@ def source_config(directory):
     args["normalization_mapping"] = {
         k: NormalizationMode(v) for k, v in raw["normalization_mapping"].items()
     }
-    args.update(device="cpu", pretrained_backbone_weights=None, compile_model=False)
+    args.update(device=str(device), pretrained_backbone_weights=None, compile_model=False)
     config = DiffusionConfig(**args)
     config.validate_features()
     if config.use_separate_rgb_encoder_per_camera:
@@ -146,10 +149,11 @@ def observation_processor(directory, dataset_stats=None):
 
 
 class DiffusionObservationEncoder:
-    def __init__(self, directory):
-        self.config = source_config(directory)
+    def __init__(self, directory, device="cpu"):
+        self.device = torch.device(device)
+        self.config = source_config(directory, device=str(self.device))
         self.processor = observation_processor(directory)
-        self.rgb_encoder = DiffusionRgbEncoder(self.config).eval()
+        self.rgb_encoder = DiffusionRgbEncoder(self.config).eval().to(self.device)
         with safe_open(
             Path(directory) / "model.safetensors", framework="numpy"
         ) as weights:
@@ -160,6 +164,7 @@ class DiffusionObservationEncoder:
                 if k.startswith(prefix)
             }
         self.rgb_encoder.load_state_dict(state, strict=True)
+        self.rgb_encoder.to(self.device)
         self.history = deque(maxlen=self.config.n_obs_steps)
 
     def reset(self):
@@ -186,14 +191,17 @@ class DiffusionObservationEncoder:
     def condition(self):
         if not self.history:
             raise ValueError("observe must precede condition")
-        features = [torch.stack([f["observation.state"] for f in self.history], dim=1)]
+        device = getattr(self, "device", torch.device("cpu"))
+        features = [
+            torch.stack([f["observation.state"] for f in self.history], dim=1).to(device)
+        ]
         images = torch.stack(
             [
                 torch.stack([f[k] for k in self.config.image_features], dim=1)
                 for f in self.history
             ],
             dim=1,
-        )
+        ).to(device)
         n = self.config.n_obs_steps
         encoded = self.rgb_encoder(images.flatten(0, 2)).reshape(1, n, -1)
         features.append(encoded)
@@ -201,6 +209,8 @@ class DiffusionObservationEncoder:
             features.append(
                 torch.stack(
                     [f["observation.environment_state"] for f in self.history], dim=1
-                )
+                ).to(device)
             )
-        return np.ascontiguousarray(torch.cat(features, dim=-1).flatten().numpy())
+        return np.ascontiguousarray(
+            torch.cat(features, dim=-1).flatten().detach().cpu().numpy()
+        )

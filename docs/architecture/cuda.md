@@ -24,8 +24,10 @@ cmake --build build-cuda -j
 ```
 
 Same checkpoint, same noise: compare those binaries to CPU `flow_sample` /
-`diffusion_sample`. Do not publish a CUDA vs PyTorch policy p50 (that is
-[#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)).
+`diffusion_sample`. Matched full-policy CUDA vs PyTorch CUDA on GTX 1650 is
+{download}`diffusion-pusht-cuda-replay.md <../../bench/artifacts/policy/diffusion-pusht-cuda-replay.md>`:
+policy p50 420 ms vs 346 ms, max abs 4.58e-5, same CPU observation file.
+Not TensorRT/ONNX. Not Jetson/ARM.
 
 WSL2, nvcc 12.0, GTX 1650 (`sm_75`): `FlowHead.*` and `DiffusionHead.*` including
 `CudaResidentDoesNotMallocAfterLoad` pass. Same `mamba_flow` checkpoint and

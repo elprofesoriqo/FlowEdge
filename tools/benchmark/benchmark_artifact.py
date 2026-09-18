@@ -120,6 +120,15 @@ def validate(document: Any) -> dict[str, Any]:
         _text(hardware.get(field), f"hardware.{field}")
     if not isinstance(hardware.get("threads"), int) or hardware["threads"] <= 0:
         raise ArtifactError("hardware.threads must be a positive integer")
+    accelerator = hardware.get("accelerator")
+    if accelerator is not None:
+        _text(accelerator, "hardware.accelerator")
+        if accelerator not in {"cpu", "cuda"}:
+            raise ArtifactError("hardware.accelerator must be cpu or cuda")
+    if hardware.get("cuda_device") is not None:
+        _text(hardware.get("cuda_device"), "hardware.cuda_device")
+        if accelerator != "cuda":
+            raise ArtifactError("hardware.cuda_device requires accelerator=cuda")
     commands = root["commands"]
     for field in BACKENDS:
         _text(commands.get(field), f"commands.{field}")
@@ -190,6 +199,13 @@ def _comparison(measurements: dict[str, Any]) -> list[str]:
     return rows
 
 
+def _cuda_host(hardware: dict[str, Any]) -> str:
+    device = hardware.get("cuda_device")
+    if not device:
+        return ""
+    return f"; CUDA `{device}`"
+
+
 def render(document: dict[str, Any]) -> str:
     measurements = document["measurements"]
     model, processor = document["model"], document["processor"]
@@ -216,10 +232,20 @@ def render(document: dict[str, Any]) -> str:
         f"| Observation contract | `{contract['observation_schema_hash']}`; {contract['observation_steps']} steps |",
         f"| Action contract | {contract['action_dim']} dims x {contract['action_steps']} steps; {contract['action_units']} |",
         f"| Run shape | batch {contract['batch_size']}; {contract['inference_steps']} inference steps |",
-        f"| Host | `{hardware['host']}`; {hardware['os']}; {hardware['cpu']}; {hardware['threads']} threads |",
+        f"| Host | `{hardware['host']}`; {hardware['os']}; {hardware['cpu']}; {hardware['threads']} threads{_cuda_host(hardware)} |",
         f"| Build | `{hardware['compiler']}`; {hardware['build_type']} |",
         f"| Comparison | {comparison.get('candidate', 'FlowEdge')} vs {comparison.get('reference', 'LeRobot reference')} |",
         f"| Reference framework | `{comparison.get('reference_framework', 'unspecified')}` |",
+    ]
+    if comparison.get("scope"):
+        rows.append(f"| Scope | {comparison['scope']} |")
+    parity = document.get("parity") or {}
+    if isinstance(parity, dict) and "max_abs_error" in parity:
+        rows.append(
+            f"| Max abs error | {parity['max_abs_error']:.6g} "
+            f"(atol={parity.get('atol')}, rtol={parity.get('rtol')}) |"
+        )
+    rows += [
         "",
         "## Measurements",
         "",

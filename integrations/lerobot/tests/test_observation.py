@@ -41,6 +41,12 @@ class ObservationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             encoder.condition()
 
+    def test_source_config_rejects_unknown_device(self):
+        from flowedge_lerobot.observation import source_config
+
+        with self.assertRaisesRegex(ValueError, "cpu or cuda"):
+            source_config("unused", device="metal")
+
     def test_normalization_requires_complete_valid_statistics(self):
         from lerobot.configs.types import FeatureType, NormalizationMode
         from flowedge_lerobot.observation import validate_stats

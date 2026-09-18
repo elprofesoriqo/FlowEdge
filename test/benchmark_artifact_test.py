@@ -78,6 +78,28 @@ class BenchmarkArtifactTest(unittest.TestCase):
         self.assertIn("| lerobot | not measured", report)
         self.assertNotIn("Relative comparison", report)
 
+    def test_cuda_device_is_rendered_and_requires_cuda_accelerator(self):
+        document = measured()
+        document["hardware"]["accelerator"] = "cuda"
+        document["hardware"]["cuda_device"] = "NVIDIA GeForce GTX 1650"
+        document["comparison"] = {
+            "candidate": "FlowEdge native runtime",
+            "reference": "LeRobot policy executed with PyTorch",
+            "reference_framework": "PyTorch",
+            "scope": (
+                "matched observation encoder, history, noise, and DDIM schedule on CUDA; "
+                "not TensorRT/ONNX; not Jetson/ARM"
+            ),
+        }
+        document["parity"] = {"max_abs_error": 3.05e-5, "atol": 1e-3, "rtol": 1e-4}
+        report = benchmark_artifact.render(benchmark_artifact.validate(document))
+        self.assertIn("CUDA `NVIDIA GeForce GTX 1650`", report)
+        self.assertIn("not TensorRT/ONNX; not Jetson/ARM", report)
+        self.assertIn("Max abs error | 3.05e-05", report)
+        document["hardware"]["accelerator"] = "cpu"
+        with self.assertRaises(benchmark_artifact.ArtifactError):
+            benchmark_artifact.validate(document)
+
 
 if __name__ == "__main__":
     unittest.main()

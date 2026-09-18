@@ -42,7 +42,7 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 | Jobs | Iterative, streaming, speculative; drain / quarantine |
 | APIs | C, C++, Python |
 | LeRobot | `--on-miss hold\|drop\|raise`; `--policy.type=flowedge` / `flowedge_smolvla` |
-| Evaluation | Matched replay; period misses; PushT runner |
+| Evaluation | Matched CPU and CUDA replay; period misses; PushT runner |
 
 ## Contracts
 
@@ -56,4 +56,4 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 
 ## Not yet
 
-Matched GPU replay ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)) · LeRobot CUDA ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) · π0 / DiT · native VLM · ROS 2. The Transformer decoder fixture is not a robotics policy. FlowEdge is not a graph runtime, trainer, or safety controller.
+LeRobot CUDA ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) · π0 / DiT · native VLM · ROS 2. The Transformer decoder fixture is not a robotics policy. FlowEdge is not a graph runtime, trainer, or safety controller.

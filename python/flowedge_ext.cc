@@ -748,6 +748,11 @@ PYBIND11_MODULE(flowedge, m)
 #else
   m.attr("build_type") = "Debug";
 #endif
+#ifdef FLOWEDGE_CUDA
+  m.attr("cuda") = true;
+#else
+  m.attr("cuda") = false;
+#endif
   py::class_<fe::ExecutionPlan>(m, "ExecutionPlan")
       .def(py::init<>())
       .def_readwrite("id", &fe::ExecutionPlan::id)
