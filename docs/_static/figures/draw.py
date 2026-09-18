@@ -660,7 +660,7 @@ def status() -> None:
         150,
         [
             (200, GREEN, "done", "Mamba"),
-            (240, CREAM, "soon", "Transformer"),
+            (240, GREEN, "done", "Transformer"),
         ],
     )
     row(

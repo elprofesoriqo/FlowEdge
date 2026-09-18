@@ -24,7 +24,7 @@ issue → research comment → follow-up issues → one PR → review → eviden
 3. **Implement.** One PR per issue, from `main`. Runtime changes must keep the zero-allocation hot path.
 4. **Evidence.** Model work includes a parity command. Performance work includes same-host before/after medians. User-path changes update the relevant guide.
 
-Current product: CPU Core (Mamba + flow, Diffusion Policy, cached SmolVLA expert), LeRobot plugin, optional Relay. Hardware pilots use the plugin period loop. New CUDA, Vulkan, Tenstorrent (Metal), π0, or Relay features need an issue that explains why they outrank that work.
+Current product: CPU Core (Mamba + flow, Diffusion Policy, Transformer decoder fixture, cached SmolVLA expert), LeRobot plugin, optional Relay. Hardware pilots use the plugin period loop. New CUDA, Vulkan, Tenstorrent (Metal), π0, or Relay features need an issue that explains why they outrank that work.
 
 ## Code bar
 

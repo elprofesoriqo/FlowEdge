@@ -27,9 +27,9 @@
 </g>
 <circle cx="54" cy="200" r="11" fill="#6BCB77" stroke="#2B2118" stroke-width="2"/><text x="54" y="205" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">✓</text>
 <text x="146" y="204" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">Mamba</text>
-<g transform="rotate(0.06 368 200)"><rect x="251" y="177" width="240" height="56" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="248" y="172" width="240" height="56" rx="16" fill="#FFF1C2" stroke="#2B2118" stroke-width="2.6"/>
+<g transform="rotate(0.06 368 200)"><rect x="251" y="177" width="240" height="56" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="248" y="172" width="240" height="56" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
 </g>
-<circle cx="266" cy="200" r="11" fill="#FFD166" stroke="#2B2118" stroke-width="2"/><text x="266" y="205" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">◐</text>
+<circle cx="266" cy="200" r="11" fill="#6BCB77" stroke="#2B2118" stroke-width="2"/><text x="266" y="205" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">✓</text>
 <text x="378" y="204" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">Transformer</text>
 <text x="36" y="242" text-anchor="start" font-size="16" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">Heads</text>
 <g transform="rotate(-0.05 141 292)"><rect x="39" y="269" width="210" height="56" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="36" y="264" width="210" height="56" rx="16" fill="#7B6CF6" stroke="#2B2118" stroke-width="2.6"/>

@@ -45,7 +45,7 @@ Transformer conversion and a cached SmolVLA expert are incubators, not those hea
 - **Loader.** Zero-dep `.safetensors` mmap. F32 and BF16.
 - **Runtime.** `engine_runtime` owns persistent state, model assembly, SPMC pool. C ABI is a thin adapter.
 - **Kernels.** One header. CPU today. CUDA / Vulkan / Tenstorrent (Metal) stay behind the same calls.
-- **Backbone.** Prefix → condition. Mamba today (constant-size state). Transformer is an incubator.
+- **Backbone.** Prefix → condition. Mamba today (constant-size state). Transformer is a CPU decoder fixture, not a policy.
 - **Head.** Condition + noise → action. Flow matching or Diffusion Policy. An external encoder can skip the backbone.
 
 Split the ODE with `flow_begin` / `flow_advance` if the robot has to yield. [Cooperative execution](cooperative-execution). Model code calls `matmul` and `discretize_and_scan`, never a device API. Footprint is computed at load.

@@ -20,6 +20,7 @@ from transformers import GPT2Model
 
 
 DEFAULT_REVISION = "5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be"
+DEFAULT_MODEL_ID = "sshleifer/tiny-gpt2"
 
 
 def sha256(path: Path) -> str:
@@ -28,6 +29,14 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(4 * 1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def source_weight_digest(source: Path) -> str:
+    for name in ("pytorch_model.bin", "model.safetensors", "model.bin"):
+        candidate = source / name
+        if candidate.is_file():
+            return sha256(candidate)
+    raise OSError(f"no pytorch_model.bin or model.safetensors in {source}")
 
 
 def runtime_path(path: Path, executable: Path) -> str:
@@ -74,6 +83,12 @@ def main() -> int:
         "--binary", type=Path, required=True, help="built transformer_forward executable"
     )
     parser.add_argument("--revision", default=DEFAULT_REVISION)
+    parser.add_argument(
+        "--model-id",
+        default=DEFAULT_MODEL_ID,
+        help="Hugging Face id recorded in the JSON (tiny-gpt2 is the CI fixture; "
+        "openai-community/gpt2 is optional local evidence)",
+    )
     parser.add_argument("--tolerance", type=float, default=5e-6)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -100,9 +115,9 @@ def main() -> int:
     max_error = max(prefill_error, streaming_error, parity_error)
     report = {
         "schema_version": 1,
-        "model": "sshleifer/tiny-gpt2",
+        "model": args.model_id,
         "revision": args.revision,
-        "source_sha256": sha256(args.source / "pytorch_model.bin"),
+        "source_sha256": source_weight_digest(args.source),
         "converted_sha256": sha256(args.converted),
         "prefix": prefix,
         "hidden_values": len(reference),

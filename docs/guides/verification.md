@@ -43,13 +43,17 @@ powershell -File scripts/verify_local.ps1 -BuildDir build-win-clang
 
 The script builds Core, Relay, tests, benchmarks, every C++ example, generic-job JSONL inspection,
 the Relay lifecycle demo, action replay, all metric formats, installation, and a downstream consumer.
-Python checks run when their dependencies are available.
+Python checks run when their dependencies are available. Transformer HF parity runs when
+`models/tiny-gpt2` and the converted checkpoint are present.
 
 ## Focused commands
 
 | Need | Command |
 |---|---|
 | C++ tests | `ctest --test-dir build --output-on-failure` |
+| Transformer kernels | `./build/flowedge_tests --gtest_filter='Gelu*:LayerNorm*:Softmax*:CachedCausalAttention*:Transformer.*'` |
+| Transformer HF parity | `python -m flowedge_dev verify transformer models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors --binary build/transformer_forward` |
+| Transformer latency | `build/transformer_latency models/tiny-gpt2.flowedge.safetensors --threads 0 1 2 3 4` |
 | PyTorch parity | `python -m flowedge_dev verify ulp models/mamba_flow.safetensors` |
 | External-head + streaming smoke | `python -m flowedge_dev verify head build` |
 | Diffusion python | `python -m flowedge_dev verify diffusion build` |

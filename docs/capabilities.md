@@ -32,7 +32,7 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 | Area | Capabilities |
 |---|---|
 | Backends | CPU scalar / AVX2 / NEON. CUDA, Vulkan, Tenstorrent (Metal) planned |
-| Backbones | Mamba. Transformer incubator |
+| Backbones | Mamba. Transformer CPU decoder fixture (not a policy) |
 | Heads | flow matching (Euler / Heun / RK4); Diffusion Policy (DDIM / DDPM); SmolVLA expert soon |
 | Models | `mamba_flow`; `diffusion_pusht`. π0 / DiT / native VLM no |
 | Precisions | FP32 / BF16. INT8 no |
@@ -56,4 +56,4 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 
 ## Not yet
 
-CUDA / Vulkan / Tenstorrent (Metal) · π0 / DiT · native VLM · ROS 2. FlowEdge is not a graph runtime, trainer, or safety controller.
+CUDA / Vulkan / Tenstorrent (Metal) · π0 / DiT · native VLM · ROS 2. The Transformer decoder fixture is not a robotics policy. FlowEdge is not a graph runtime, trainer, or safety controller.

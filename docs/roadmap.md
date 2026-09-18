@@ -9,7 +9,7 @@
 
 | Layer | Complete |
 |---|---|
-| Core | Mamba, flow head, CPU kernels, BF16 weights, C/C++/Python APIs, cached-VLM SmolVLA action-expert boundary |
+| Core | Mamba, flow head, CPU Transformer decoder fixture, CPU kernels, BF16 weights, C/C++/Python APIs, cached-VLM SmolVLA action-expert boundary |
 | State | Resumable flow solving, Mamba snapshots, generic job capsules |
 | Relay service | Action and generic-job daemons, EDF, cancellation, administration |
 | Action delivery | Multi-rate chunks, timed replacement, freshness and safety gate |
@@ -23,12 +23,13 @@ quality, then Tenstorrent. CPU Mamba + flow stays a complete included path.
 
 | Order | Deliverable | Acceptance evidence |
 |---:|---|---|
-| 1 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks |
-| 2 | Matched replay and a period loop | PyTorch p50 plus `--period-ms` miss counts |
-| 3 | One Jetson or SO-100 recorded loop | Issue #70 JSON; limits stay in the adapter |
-| 4 | Cached SmolVLA expert contract | Captured-VLM replay; VLM remains in LeRobot |
-| 5 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers |
-| 6 | DeadlineFlow research | Quality vs miss rate; not a shipping backend |
+| 1 | Transformer issue #10 | Kernel gtests, tiny-gpt2 conversion JSON, optional latency JSON |
+| 2 | Correct visual Diffusion Policy deployment | Processor/encoder/history parity, seeded chunks |
+| 3 | Matched replay and a period loop | PyTorch p50 plus `--period-ms` miss counts |
+| 4 | One Jetson or SO-100 recorded loop | Issue #70 JSON; limits stay in the adapter |
+| 5 | Cached SmolVLA expert contract | Captured-VLM replay; VLM remains in LeRobot |
+| 6 | One Tenstorrent vertical slice | One device, fixed shapes, persistent buffers |
+| 7 | DeadlineFlow research | Quality vs miss rate; not a shipping backend |
 
 The first DeadlineFlow selector and CPU DDIM bridge are experimental. Full SmolVLA and
 Tenstorrent execution remain unimplemented; the cached-VLM action expert is an explicit

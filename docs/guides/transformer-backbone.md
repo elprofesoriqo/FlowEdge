@@ -6,14 +6,20 @@
 ```
 
 The product heads are flow matching and Diffusion Policy. This page is the
-GPT-2 incubator and the cached SmolVLA expert (VLM stays in LeRobot). Everyday
+GPT-2 decoder fixture and the cached SmolVLA expert (VLM stays in LeRobot). Everyday
 benches: `python -m flowedge_dev`. Numbers vs PyTorch for the two product heads:
 [Performance](../performance.md).
 
-FlowEdge has an experimental general causal Transformer decoder beside Mamba.
-It is a fixed-shape, batch-one CPU baseline for the GPT-style contract in
+FlowEdge has a general causal Transformer decoder beside Mamba. It is a
+fixed-shape, batch-one CPU baseline for the GPT-style contract in
 [issue #10](https://github.com/elprofesoriqo/FlowEdge/issues/10). It is not a
-generic Hugging Face loader, a production backend, or a SmolVLA implementation.
+generic Hugging Face loader, a production VLA, or a SmolVLA implementation.
+
+`cached_causal_attention` lives in `kernels.h` with GELU, LayerNorm, and
+softmax. gtests cover those kernels plus KV reset, max-prefix reject, prefix
+versus stream, and the embedding mask. `sshleifer/tiny-gpt2` is the CI
+conversion fixture. `openai-community/gpt2` is optional local evidence — same
+`model_type: gpt2` converter, not a policy result.
 
 ## Contract
 
@@ -40,19 +46,41 @@ is groundwork for SmolVLA; it does not implement cross-attention, the VLM, or
 the current SmolVLA action expert.
 
 The converter is exercised with the downloaded `sshleifer/tiny-gpt2` checkpoint
-at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares a Hugging
-Face hidden states against native full-prefix and streaming execution on prefix
+at revision `5f91d94bd9cd7190a9f3216ff93cd1dd95f2c7be`. It compares Hugging Face
+hidden states against native full-prefix and streaming execution on prefix
 `[1,2,3,4]`:
 
 ```bash
-python tools/verification/verify_transformer_reference.py \
+python -m flowedge_dev verify transformer \
   models/tiny-gpt2 models/tiny-gpt2.flowedge.safetensors \
   --binary build/transformer_forward \
+  --model-id sshleifer/tiny-gpt2 \
   --output bench/artifacts/transformer/tiny-gpt2-transformer-reference.json
 ```
 
 This validates real checkpoint conversion, full-prefix execution, and streaming
-KV-cache parity only; it is not an action-policy, latency, or SmolVLA result.
+KV-cache parity only; it is not an action-policy result.
+
+Optional local GPT-2 (same converter, larger weights; not required for CI):
+
+```bash
+hf download openai-community/gpt2 --local-dir models/gpt2
+python convert/convert.py models/gpt2 models/gpt2.flowedge.safetensors --arch transformer
+python -m flowedge_dev verify transformer \
+  models/gpt2 models/gpt2.flowedge.safetensors \
+  --binary build/transformer_forward \
+  --model-id openai-community/gpt2 --revision main \
+  --output bench/artifacts/transformer/gpt2-transformer-reference.json
+```
+
+Record decoder latency on this host (not a policy p50):
+
+```bash
+build/transformer_latency models/tiny-gpt2.flowedge.safetensors \
+  --threads 0 --warmup 5 --iters 20 \
+  --output bench/artifacts/transformer/tiny-gpt2-latency.json \
+  1 2 3 4
+```
 
 Verify the external-embedding boundary against the same real checkpoint (the
 Python module must be built with `FLOWEDGE_PYTHON=ON`):
