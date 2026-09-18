@@ -95,10 +95,20 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
           : 0uz;
   const std::size_t flow_floats =
       has_flow ? (3uz * flow_hidden) + (6uz * action_dim) + ((3uz * flow_time_dim) / 2uz) : 0uz;
+#ifdef FLOWEDGE_CUDA
+  const std::size_t flow_cond_dim = shape("flow.cond_proj.weight")[1];
+  const std::size_t flow_upload =
+      has_flow ? (flow_hidden * action_dim) + (flow_hidden * flow_time_dim) +
+                     (flow_hidden * flow_cond_dim) + (action_dim * flow_hidden) +
+                     (FlowHead::kMaxMlp * flow_hidden * flow_hidden) + (flow_time_dim / 2uz) + 64uz
+               : 0uz;
+#else
+  const std::size_t flow_upload = 0uz;
+#endif
   const std::size_t runtime =
       (kThreadRingSlots * sizeof(Task)) + (kThreadRingSlots * sizeof(std::size_t)) +
       (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
-      ((flow_floats + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
+      ((flow_floats + flow_upload + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
       persistent_state + transformer_persistent + transformer_scratch +
       // The captured-VLM SmolVLA path needs the action-expert projections,
       // attention buffers, and two SwiGLU intermediates concurrently. Keep a

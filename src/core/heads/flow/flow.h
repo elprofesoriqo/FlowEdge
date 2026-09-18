@@ -12,6 +12,9 @@
 namespace fe {
 
 class ThreadPool;
+#ifdef FLOWEDGE_CUDA
+class CudaFlowResident;
+#endif
 
 struct FlowConfig
 {
@@ -55,6 +58,11 @@ public:
   };
 
   FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept;
+  ~FlowHead();
+  FlowHead(const FlowHead&) = delete;
+  FlowHead(FlowHead&&) = delete;
+  FlowHead& operator=(const FlowHead&) = delete;
+  FlowHead& operator=(FlowHead&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const FlowConfig& config() const noexcept { return cfg_; }
@@ -102,6 +110,9 @@ private:
   Arena* scratch_{};
   ThreadPool* pool_{nullptr};
   bool ok_{false};
+#ifdef FLOWEDGE_CUDA
+  CudaFlowResident* cuda_{};
+#endif
 };
 
 } // namespace fe

@@ -33,6 +33,11 @@ void silu(std::span<float> x) noexcept
   cuda_ops::silu(x.data(), x.size());
 }
 
+void mish(std::span<float> x) noexcept
+{
+  cuda_ops::mish(x.data(), x.size());
+}
+
 void softplus(std::span<float> x) noexcept
 {
   cuda_ops::softplus(x.data(), x.size());

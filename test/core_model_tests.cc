@@ -619,3 +619,30 @@ TEST(FlowHead, RejectsIncompatibleProjectionShape)
   const fe::FlowHead head{v, fx.arena};
   EXPECT_FALSE(head.valid());
 }
+
+#ifdef FLOWEDGE_CUDA
+#include "kernels/cuda/kernels_cuda_api.h"
+
+TEST(FlowHead, CudaResidentDoesNotMallocAfterLoad)
+{
+  ASSERT_TRUE(fe::cuda_ops::device_available());
+  FlowFixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  const auto mallocs = fe::cuda_ops::device_malloc_count();
+  EXPECT_GT(mallocs, 0u);
+  const std::vector<float> cond = seq(FlowFixture::kC, 0.1F, 0.0F);
+  const std::vector<float> x0 = seq(FlowFixture::kA, 0.3F, 0.2F);
+  std::vector<float> out(FlowFixture::kA);
+  head.sample(cond, x0, 4uz, fe::FlowHead::kEuler, out);
+  head.sample(cond, x0, 4uz, fe::FlowHead::kHeun, out);
+  head.sample(cond, x0, 4uz, fe::FlowHead::kRK4, out);
+  std::vector<float> workspace(head.sampler_workspace_size());
+  fe::FlowHead::SamplerState state{};
+  ASSERT_TRUE(head.sampler_begin(cond, x0, 4uz, fe::FlowHead::kHeun, workspace, state));
+  EXPECT_EQ(head.sampler_advance(state, 4uz, out), 4uz);
+  EXPECT_EQ(fe::cuda_ops::device_malloc_count(), mallocs);
+  for (float value : out)
+    EXPECT_TRUE(std::isfinite(value));
+}
+#endif

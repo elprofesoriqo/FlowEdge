@@ -27,8 +27,9 @@ set(FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES "65536" CACHE STRING
 
 # Core compute kernels. CPU auto-selects the host ISA; scalar is also explicit
 # for compatibility testing and targets where deploying AVX2 is undesirable.
-# cuda requires nvcc. The TU copies host spans through grow-only device scratch;
-# dense Diffusion Policy ops stay on CPU until a device-resident head lands.
+# cuda requires nvcc. Host-span kernels still copy in and out; the flow head
+# keeps weights and ODE scratch on device after load. Dense Diffusion Policy ops
+# stay on CPU until a device-resident DP head lands.
 set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu, avx512, scalar, or cuda")
 set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512 scalar cuda)
 if(FLOWEDGE_BACKEND STREQUAL "cuda")
