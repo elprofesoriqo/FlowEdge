@@ -17,7 +17,11 @@ scratch once. `denoise` / `sample` copy condition and the horizon in, run the
 Conv1D U-Net and DDIM (seeded DDPM) on device, and copy the action or epsilon
 out. No `cudaMalloc` after load. `kernels.h` stays host `std::span` for the
 generic op surface. Dense DP ops also remain available as host-span launches
-from the same CUDA TU.
+from the same CUDA TU. Short PushT horizons launch with `block.x` matching `L`
+so time-axis stores stay coalesced; `conv_transpose1d` recovers `it` from `ot`,
+`k`, and stride instead of scanning `input_length`. `flowedge_cuda_dp_mix`
+isolates those shapes.
+See [#174](https://github.com/elprofesoriqo/FlowEdge/issues/174).
 
 ```bash
 cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BACKEND=cuda
@@ -25,6 +29,7 @@ cmake --build build-cuda -j
 ./build-cuda/flow_sample models/mamba_flow.safetensors euler 10
 ./build-cuda/mamba_forward models/mamba_flow.safetensors 1 2 3 4
 ./build-cuda/diffusion_sample models/diffusion_pusht.flowedge.safetensors 10
+./build-cuda/flowedge_cuda_dp_mix models/diffusion_pusht.flowedge.safetensors
 ```
 
 Same checkpoint, same noise: compare those binaries to CPU `flow_sample` /
@@ -41,8 +46,9 @@ WSL2, nvcc 12.0, GTX 1650 (`sm_75`): `FlowHead.*`, `DiffusionHead.*`, and
 on CUDA and CPU; `flow_sample` Euler/Heun/RK4 `action[0..2]` matches a CPU
 binary at printed precision. Same `diffusion_pusht` checkpoint and noise,
 10-step DDIM `diffusion_sample` matches the CPU horizon at printed precision
-(iostream rounding on two components: `226.249` vs `226.25`). That is not a
-policy p50.
+(iostream rounding on two components: `226.249` vs `226.25`).
+`flowedge_cuda_dp_mix` native 10-step DDIM p50 on this card is 321 ms after the
+short-horizon launch (448 ms before). That is not a policy p50.
 
 See [#160](https://github.com/elprofesoriqo/FlowEdge/issues/160). Device-resident
 flow is [#161](https://github.com/elprofesoriqo/FlowEdge/issues/161); device-resident
@@ -50,5 +56,6 @@ DDIM is [#162](https://github.com/elprofesoriqo/FlowEdge/issues/162); matched GP
 replay [#163](https://github.com/elprofesoriqo/FlowEdge/issues/163); LeRobot CUDA
 rollout is `--device cuda` on `flowedge-lerobot-rollout` with the same
 `--on-miss` contract ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164));
-device-resident Mamba is [#172](https://github.com/elprofesoriqo/FlowEdge/issues/172).
+device-resident Mamba is [#172](https://github.com/elprofesoriqo/FlowEdge/issues/172);
+CUDA DP conv occupancy is [#174](https://github.com/elprofesoriqo/FlowEdge/issues/174).
 The RGB encoder stays in LeRobot. Not Jetson/ARM.

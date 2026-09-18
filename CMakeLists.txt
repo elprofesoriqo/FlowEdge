@@ -61,6 +61,9 @@ flowedge_executable(transformer_forward examples/core/mamba_forward.cc FlowEdge:
 flowedge_executable(transformer_latency tools/transformer_latency.cc FlowEdge::Core)
 flowedge_executable(flowedge-inspect tools/checkpoint_inspect.cc FlowEdge::Core)
 flowedge_executable(flowedge_model_lifecycle_check tools/model_lifecycle_check.cc FlowEdge::Core)
+if(FLOWEDGE_BACKEND STREQUAL "cuda")
+  flowedge_executable(flowedge_cuda_dp_mix tools/cuda_dp_mix.cc FlowEdge::Core)
+endif()
 if(FLOWEDGE_RELAY)
   foreach(ex relay_client_sample cooperative_job_sample routed_job_sample mamba_relay_stream
              action_delivery_sample)

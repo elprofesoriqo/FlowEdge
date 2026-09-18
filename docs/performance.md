@@ -88,6 +88,19 @@ A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the
 
 Synthetic encoded zeros, no warmup, GTX 1650. Miss counts, not task success. Not Jetson/ARM.
 
+Native 10-step DDIM on the same GTX 1650, same checkpoint, `flowedge_cuda_dp_mix`
+(`cudaEvent` p50, not policy p50, not vs PyTorch):
+
+| Kernel | Before p50 | After p50 | After ms/sample |
+|---|---:|---:|---:|
+| conv 512 L16 K5 | 326 us | 215 us | 8.6 |
+| conv 2048 L4 K5 | 3567 us | 2486 us | 174 |
+| upsample 1024 L4→8 K4 | 1392 us | 277 us | 2.8 |
+| upsample 1024 k-major | 1684 us | 386 us | 3.9 |
+| native DDIM ×10 | 448 ms | **321 ms** | 321 |
+
+Short-horizon launch (`block.x` matches `L`) and closed-form `conv_transpose1d`. The remaining dollar is still `conv 2048 L4 K5`. Matched policy p50 420 vs 346 is unchanged; this mix is not a new replay.
+
 ### How to get them
 
 ```bash
@@ -124,6 +137,12 @@ CUDA Core period loop (same `--on-miss` contract; miss counts, not a policy p50)
 python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetensors \
   --steps 20 --threads 1 --period-ms 10 --on-miss hold --device cuda --host-facts \
   --output bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.json
+```
+
+CUDA DP kernel mix (WSL, `FLOWEDGE_BACKEND=cuda`, GTX 1650 `sm_75`):
+
+```bash
+./build-cuda/flowedge_cuda_dp_mix models/diffusion_pusht.flowedge.safetensors
 ```
 
 ## Flow matching

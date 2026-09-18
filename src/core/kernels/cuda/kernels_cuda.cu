@@ -64,6 +64,21 @@ int grid(int n)
   return (n + 255) / 256;
 }
 
+// One thread per output channel. PushT L is 4/8/16, so the K taps reuse one weight
+// row instead of reloading it once per time index.
+void dense_conv_grid(int output_length, int out_channels, dim3& block, dim3& grid_dim)
+{
+  int tx = 16;
+  if (output_length <= 4)
+    tx = 4;
+  else if (output_length <= 8)
+    tx = 8;
+  const int ty = 256 / tx;
+  block = dim3(static_cast<unsigned>(tx), static_cast<unsigned>(ty));
+  grid_dim = dim3(static_cast<unsigned>((output_length + tx - 1) / tx),
+                  static_cast<unsigned>((out_channels + ty - 1) / ty));
+}
+
 __global__ void silu_kernel(float* x, int n)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -226,6 +241,31 @@ __global__ void time_embed_kernel(float t, const float* freqs, float* sinu, int 
   sinu[half + i] = cosf(t * freqs[i]);
 }
 
+template<int Kernel, int Stride>
+__global__ void conv1d_dense_fixed_kernel(const float* x, const float* weight, const float* bias,
+                                          float* y, int in_channels, int out_channels,
+                                          int input_length, int output_length, int padding)
+{
+  const int ot = blockIdx.x * blockDim.x + threadIdx.x;
+  const int oc = blockIdx.y * blockDim.y + threadIdx.y;
+  if (ot >= output_length || oc >= out_channels)
+    return;
+  float sum = bias[oc];
+  const int origin = ot * Stride - padding;
+  for (int ic = 0; ic < in_channels; ++ic) {
+    const float* input = x + (static_cast<std::size_t>(ic) * static_cast<std::size_t>(input_length));
+    const float* wr = weight + (static_cast<std::size_t>((oc * in_channels) + ic) *
+                                static_cast<std::size_t>(Kernel));
+#pragma unroll
+    for (int k = 0; k < Kernel; ++k) {
+      const int index = origin + k;
+      if (static_cast<unsigned>(index) < static_cast<unsigned>(input_length))
+        sum += input[index] * wr[k];
+    }
+  }
+  y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
+}
+
 __global__ void conv1d_dense_kernel(const float* x, const float* weight, const float* bias, float* y,
                                     int in_channels, int out_channels, int input_length,
                                     int output_length, int kernel, int stride, int padding)
@@ -235,18 +275,45 @@ __global__ void conv1d_dense_kernel(const float* x, const float* weight, const f
   if (ot >= output_length || oc >= out_channels)
     return;
   float sum = bias[oc];
-  const int origin = ot * stride;
+  const int origin = ot * stride - padding;
   for (int ic = 0; ic < in_channels; ++ic) {
     const float* input = x + (static_cast<std::size_t>(ic) * static_cast<std::size_t>(input_length));
     const float* wr = weight + (static_cast<std::size_t>((oc * in_channels) + ic) *
                                 static_cast<std::size_t>(kernel));
     for (int k = 0; k < kernel; ++k) {
-      const int padded = origin + k;
-      if (padded >= padding) {
-        const int index = padded - padding;
-        if (index < input_length)
-          sum += input[index] * wr[k];
-      }
+      const int index = origin + k;
+      if (static_cast<unsigned>(index) < static_cast<unsigned>(input_length))
+        sum += input[index] * wr[k];
+    }
+  }
+  y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
+}
+
+template<int Kernel, int Stride>
+__global__ void conv_transpose1d_fixed_kernel(const float* x, const float* weight, const float* bias,
+                                               float* y, int in_channels, int out_channels,
+                                               int input_length, int output_length, int padding,
+                                               int k_major)
+{
+  const int ot = blockIdx.x * blockDim.x + threadIdx.x;
+  const int oc = blockIdx.y * blockDim.y + threadIdx.y;
+  if (ot >= output_length || oc >= out_channels)
+    return;
+  float sum = bias[oc];
+  for (int ic = 0; ic < in_channels; ++ic) {
+    const float* input = x + (static_cast<std::size_t>(ic) * static_cast<std::size_t>(input_length));
+#pragma unroll
+    for (int k = 0; k < Kernel; ++k) {
+      const int shifted = ot + padding - k;
+      if (shifted < 0 || (shifted % Stride) != 0)
+        continue;
+      const int it = shifted / Stride;
+      if (it >= input_length)
+        continue;
+      const float wv =
+          k_major ? weight[((((k * out_channels) + oc) * in_channels) + ic)]
+                  : weight[((((ic * out_channels) + oc) * Kernel) + k)];
+      sum += input[it] * wv;
     }
   }
   y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
@@ -264,17 +331,17 @@ __global__ void conv_transpose1d_kernel(const float* x, const float* weight, con
   float sum = bias[oc];
   for (int ic = 0; ic < in_channels; ++ic) {
     const float* input = x + (static_cast<std::size_t>(ic) * static_cast<std::size_t>(input_length));
-    for (int it = 0; it < input_length; ++it) {
-      const int origin = it * stride;
-      for (int k = 0; k < kernel; ++k) {
-        if (origin + k - padding != ot)
-          continue;
-        const float wv =
-            k_major
-                ? weight[((((k * out_channels) + oc) * in_channels) + ic)]
-                : weight[((((ic * out_channels) + oc) * kernel) + k)];
-        sum += input[it] * wv;
-      }
+    for (int k = 0; k < kernel; ++k) {
+      const int shifted = ot + padding - k;
+      if (shifted < 0 || (shifted % stride) != 0)
+        continue;
+      const int it = shifted / stride;
+      if (it >= input_length)
+        continue;
+      const float wv =
+          k_major ? weight[((((k * out_channels) + oc) * in_channels) + ic)]
+                  : weight[((((ic * out_channels) + oc) * kernel) + k)];
+      sum += input[it] * wv;
     }
   }
   y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
@@ -891,13 +958,27 @@ void conv1d_device(const float* x, const float* weight, const float* bias, float
       kernel == 0 || stride == 0 || x == nullptr || weight == nullptr || bias == nullptr ||
       y == nullptr)
     return;
-  dim3 block(16, 16);
-  dim3 grid_dim(static_cast<unsigned>((output_length + 15) / 16),
-                static_cast<unsigned>((out_channels + 15) / 16));
-  conv1d_dense_kernel<<<grid_dim, block>>>(
-      x, weight, bias, y, static_cast<int>(in_channels), static_cast<int>(out_channels),
-      static_cast<int>(input_length), static_cast<int>(output_length), static_cast<int>(kernel),
-      static_cast<int>(stride), static_cast<int>(padding));
+  const int oc = static_cast<int>(out_channels);
+  const int ic = static_cast<int>(in_channels);
+  const int in_len = static_cast<int>(input_length);
+  const int out_len = static_cast<int>(output_length);
+  const int pad = static_cast<int>(padding);
+  dim3 block;
+  dim3 grid_dim;
+  dense_conv_grid(out_len, oc, block, grid_dim);
+  if (kernel == 5 && stride == 1)
+    conv1d_dense_fixed_kernel<5, 1>
+        <<<grid_dim, block>>>(x, weight, bias, y, ic, oc, in_len, out_len, pad);
+  else if (kernel == 3 && stride == 2)
+    conv1d_dense_fixed_kernel<3, 2>
+        <<<grid_dim, block>>>(x, weight, bias, y, ic, oc, in_len, out_len, pad);
+  else if (kernel == 1 && stride == 1)
+    conv1d_dense_fixed_kernel<1, 1>
+        <<<grid_dim, block>>>(x, weight, bias, y, ic, oc, in_len, out_len, pad);
+  else
+    conv1d_dense_kernel<<<grid_dim, block>>>(x, weight, bias, y, ic, oc, in_len, out_len,
+                                             static_cast<int>(kernel), static_cast<int>(stride),
+                                             pad);
 }
 
 void conv_transpose1d_device(const float* x, const float* weight, const float* bias, float* y,
@@ -909,13 +990,19 @@ void conv_transpose1d_device(const float* x, const float* weight, const float* b
       kernel == 0 || stride == 0 || x == nullptr || weight == nullptr || bias == nullptr ||
       y == nullptr)
     return;
-  dim3 block(16, 16);
-  dim3 grid_dim(static_cast<unsigned>((output_length + 15) / 16),
-                static_cast<unsigned>((out_channels + 15) / 16));
-  conv_transpose1d_kernel<<<grid_dim, block>>>(
-      x, weight, bias, y, static_cast<int>(in_channels), static_cast<int>(out_channels),
-      static_cast<int>(input_length), static_cast<int>(output_length), static_cast<int>(kernel),
-      static_cast<int>(stride), static_cast<int>(padding), k_major_weights ? 1 : 0);
+  const int oc = static_cast<int>(out_channels);
+  dim3 block;
+  dim3 grid_dim;
+  dense_conv_grid(static_cast<int>(output_length), oc, block, grid_dim);
+  if (kernel == 4 && stride == 2)
+    conv_transpose1d_fixed_kernel<4, 2><<<grid_dim, block>>>(
+        x, weight, bias, y, static_cast<int>(in_channels), oc, static_cast<int>(input_length),
+        static_cast<int>(output_length), static_cast<int>(padding), k_major_weights ? 1 : 0);
+  else
+    conv_transpose1d_kernel<<<grid_dim, block>>>(
+        x, weight, bias, y, static_cast<int>(in_channels), oc, static_cast<int>(input_length),
+        static_cast<int>(output_length), static_cast<int>(kernel), static_cast<int>(stride),
+        static_cast<int>(padding), k_major_weights ? 1 : 0);
 }
 
 void group_norm_device(float* x, const float* weight, const float* bias, std::size_t channels,
