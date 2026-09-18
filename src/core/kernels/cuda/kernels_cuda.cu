@@ -1,6 +1,7 @@
 #include "kernels/cuda/kernels_cuda_api.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -8,6 +9,8 @@
 
 namespace fe::cuda_ops {
 namespace {
+
+std::atomic<std::uint64_t> g_mallocs{0};
 
 struct GrowBuffer
 {
@@ -21,6 +24,7 @@ struct GrowBuffer
     void* next = nullptr;
     if (cudaMalloc(&next, bytes) != cudaSuccess)
       return nullptr;
+    g_mallocs.fetch_add(1, std::memory_order_relaxed);
     if (ptr != nullptr)
       cudaFree(ptr);
     ptr = next;
@@ -67,6 +71,15 @@ __global__ void silu_kernel(float* x, int n)
     return;
   const float v = x[i];
   x[i] = v / (1.0f + expf(-v));
+}
+
+__global__ void mish_kernel(float* x, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n)
+    return;
+  const float v = x[i];
+  x[i] = v * tanhf(fmaxf(v, 0.0f) + log1pf(expf(-fabsf(v))));
 }
 
 __global__ void softplus_kernel(float* x, int n)
@@ -168,6 +181,51 @@ __global__ void conv1d_step_kernel(const float* window, const float* weight, con
   y[c] = acc;
 }
 
+__global__ void add3_kernel(float* x, const float* y, const float* z, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n)
+    x[i] += y[i] + z[i];
+}
+
+__global__ void add_scaled_kernel(float* x, const float* dx, float scale, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n)
+    x[i] += scale * dx[i];
+}
+
+__global__ void scaled_sum_kernel(const float* x, const float* dx, float scale, float* out, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n)
+    out[i] = x[i] + (scale * dx[i]);
+}
+
+__global__ void add_heun_kernel(float* x, const float* k1, const float* k2, float dt, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n)
+    x[i] += 0.5f * dt * (k1[i] + k2[i]);
+}
+
+__global__ void add_rk4_kernel(float* x, const float* k1, const float* k2, const float* k3,
+                               const float* k4, float dt, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n)
+    x[i] += (dt / 6.0f) * (k1[i] + (2.0f * k2[i]) + (2.0f * k3[i]) + k4[i]);
+}
+
+__global__ void time_embed_kernel(float t, const float* freqs, float* sinu, int half)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= half)
+    return;
+  sinu[i] = sinf(t * freqs[i]);
+  sinu[half + i] = cosf(t * freqs[i]);
+}
+
 } // namespace
 
 bool device_available() noexcept
@@ -180,6 +238,15 @@ void silu(float* x, std::size_t n) noexcept
   if (n == 0 || !ready() || !upload(g_a, x, n * sizeof(float)))
     return;
   silu_kernel<<<grid(static_cast<int>(n)), 256>>>(static_cast<float*>(g_a.ptr),
+                                                  static_cast<int>(n));
+  download(x, g_a.ptr, n * sizeof(float));
+}
+
+void mish(float* x, std::size_t n) noexcept
+{
+  if (n == 0 || !ready() || !upload(g_a, x, n * sizeof(float)))
+    return;
+  mish_kernel<<<grid(static_cast<int>(n)), 256>>>(static_cast<float*>(g_a.ptr),
                                                   static_cast<int>(n));
   download(x, g_a.ptr, n * sizeof(float));
 }
@@ -338,6 +405,103 @@ void discretize_and_scan(const float* delta, const float* a_neg, const float* b,
       }
     }
   }
+}
+
+std::uint64_t device_malloc_count() noexcept
+{
+  return g_mallocs.load(std::memory_order_relaxed);
+}
+
+void* device_alloc(std::size_t bytes) noexcept
+{
+  if (bytes == 0 || !ready())
+    return nullptr;
+  void* ptr = nullptr;
+  if (cudaMalloc(&ptr, bytes) != cudaSuccess)
+    return nullptr;
+  g_mallocs.fetch_add(1, std::memory_order_relaxed);
+  return ptr;
+}
+
+void device_free(void* ptr) noexcept
+{
+  if (ptr != nullptr)
+    cudaFree(ptr);
+}
+
+bool device_copy_h2d(void* dst, const void* src, std::size_t bytes) noexcept
+{
+  return dst != nullptr && src != nullptr &&
+         cudaMemcpy(dst, src, bytes, cudaMemcpyHostToDevice) == cudaSuccess;
+}
+
+bool device_copy_d2h(void* dst, const void* src, std::size_t bytes) noexcept
+{
+  return dst != nullptr && src != nullptr &&
+         cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToHost) == cudaSuccess;
+}
+
+void silu_device(float* x, std::size_t n) noexcept
+{
+  if (n == 0 || x == nullptr)
+    return;
+  silu_kernel<<<grid(static_cast<int>(n)), 256>>>(x, static_cast<int>(n));
+}
+
+void matmul_f32_device(const float* in, const float* w, float* out, std::size_t rows,
+                       std::size_t in_dim, std::size_t out_dim) noexcept
+{
+  if (rows == 0 || in_dim == 0 || out_dim == 0 || in == nullptr || w == nullptr || out == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((out_dim + 15) / 16),
+                static_cast<unsigned>((rows + 15) / 16));
+  matmul_f32_kernel<<<grid_dim, block>>>(in, w, out, static_cast<int>(rows),
+                                         static_cast<int>(in_dim), static_cast<int>(out_dim));
+}
+
+void add3_device(float* x, const float* y, const float* z, std::size_t n) noexcept
+{
+  if (n == 0)
+    return;
+  add3_kernel<<<grid(static_cast<int>(n)), 256>>>(x, y, z, static_cast<int>(n));
+}
+
+void add_scaled_device(float* x, const float* dx, float scale, std::size_t n) noexcept
+{
+  if (n == 0)
+    return;
+  add_scaled_kernel<<<grid(static_cast<int>(n)), 256>>>(x, dx, scale, static_cast<int>(n));
+}
+
+void scaled_sum_device(const float* x, const float* dx, float scale, float* out,
+                       std::size_t n) noexcept
+{
+  if (n == 0)
+    return;
+  scaled_sum_kernel<<<grid(static_cast<int>(n)), 256>>>(x, dx, scale, out, static_cast<int>(n));
+}
+
+void add_heun_device(float* x, const float* k1, const float* k2, float dt, std::size_t n) noexcept
+{
+  if (n == 0)
+    return;
+  add_heun_kernel<<<grid(static_cast<int>(n)), 256>>>(x, k1, k2, dt, static_cast<int>(n));
+}
+
+void add_rk4_device(float* x, const float* k1, const float* k2, const float* k3, const float* k4,
+                    float dt, std::size_t n) noexcept
+{
+  if (n == 0)
+    return;
+  add_rk4_kernel<<<grid(static_cast<int>(n)), 256>>>(x, k1, k2, k3, k4, dt, static_cast<int>(n));
+}
+
+void time_embed_device(float t, const float* freqs, float* sinu, std::size_t half) noexcept
+{
+  if (half == 0)
+    return;
+  time_embed_kernel<<<grid(static_cast<int>(half)), 256>>>(t, freqs, sinu, static_cast<int>(half));
 }
 
 } // namespace fe::cuda_ops

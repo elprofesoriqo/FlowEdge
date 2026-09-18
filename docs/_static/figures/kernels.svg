@@ -20,6 +20,6 @@
 <path d="M 310 118 Q 214 142 136 168" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#kernels-arr)"/>
 <path d="M 380 118 Q 385 143 380 168" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#kernels-arr)"/>
 <path d="M 450 118 Q 546 149 624 168" fill="none" stroke="#2B2118" stroke-width="2.8" marker-end="url(#kernels-arr)"/>
-<g transform="rotate(1.1 120 248)"><rect x="120" y="248" width="570" height="36" rx="9" fill="#FFF1C2" stroke="#2B2118" stroke-width="2.2"/><text x="405" y="272" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">CUDA linking TU copies host spans; Vulkan / Tenstorrent planned</text></g>
+<g transform="rotate(1.1 80 248)"><rect x="80" y="248" width="664" height="36" rx="9" fill="#FFF1C2" stroke="#2B2118" stroke-width="2.2"/><text x="412" y="272" text-anchor="middle" font-size="14" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">CUDA flow head resident; Mamba/DP copy spans; Vulkan / Tenstorrent planned</text></g>
 <polygon points="70.0,62.0 72.0,67.3 77.6,67.5 73.2,71.0 74.7,76.5 70.0,73.4 65.3,76.5 66.8,71.0 62.4,67.5 68.0,67.3" fill="#FF9F43" stroke="#2B2118" stroke-width="1.6"/>
 </svg>

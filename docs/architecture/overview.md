@@ -44,7 +44,7 @@ Transformer conversion and a cached SmolVLA expert are incubators, not those hea
 - **Arena.** One bump slab. Load may allocate it; the hot path does not.
 - **Loader.** Zero-dep `.safetensors` mmap. F32 and BF16.
 - **Runtime.** `engine_runtime` owns persistent state, model assembly, SPMC pool. C ABI is a thin adapter.
-- **Kernels.** One header. CPU today. `FLOWEDGE_BACKEND=cuda` is a host-span linking TU. Vulkan / Tenstorrent (Metal) stay planned.
+- **Kernels.** One header. CPU today. `FLOWEDGE_BACKEND=cuda` keeps the flow head on device; Mamba and Diffusion Policy still round-trip host spans. Vulkan / Tenstorrent (Metal) stay planned.
 - **Backbone.** Prefix → condition. Mamba today (constant-size state). Transformer is a CPU decoder fixture, not a policy.
 - **Head.** Condition + noise → action. Flow matching or Diffusion Policy. An external encoder can skip the backbone.
 

@@ -10,10 +10,10 @@
 </g>
 <circle cx="54" cy="108" r="11" fill="#6BCB77" stroke="#2B2118" stroke-width="2"/><text x="54" y="113" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">✓</text>
 <text x="161" y="112" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">CPU  AVX2 / NEON</text>
-<g transform="rotate(0.15 378 108)"><rect x="281" y="85" width="200" height="56" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="278" y="80" width="200" height="56" rx="16" fill="#FFD166" stroke="#2B2118" stroke-width="2.6"/>
+<g transform="rotate(0.15 378 108)"><rect x="281" y="85" width="200" height="56" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="278" y="80" width="200" height="56" rx="16" fill="#6BCB77" stroke="#2B2118" stroke-width="2.6"/>
 </g>
-<circle cx="296" cy="108" r="11" fill="#FFD166" stroke="#2B2118" stroke-width="2"/><text x="296" y="113" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">◐</text>
-<text x="388" y="112" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">CUDA linking</text>
+<circle cx="296" cy="108" r="11" fill="#6BCB77" stroke="#2B2118" stroke-width="2"/><text x="296" y="113" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">✓</text>
+<text x="388" y="112" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#1B4B6B">CUDA flow</text>
 <g transform="rotate(0.24 560 108)"><rect x="493" y="85" width="140" height="56" rx="16" fill="#E8C98A" opacity="0.45"/><rect x="490" y="80" width="140" height="56" rx="16" fill="#FFF1C2" stroke="#2B2118" stroke-width="2.6"/>
 </g>
 <circle cx="508" cy="108" r="11" fill="#E8D7A8" stroke="#2B2118" stroke-width="2"/><text x="508" y="113" text-anchor="middle" font-size="13" font-family="Trebuchet MS, Segoe UI, sans-serif" font-weight="800" fill="#2B2118">○</text>

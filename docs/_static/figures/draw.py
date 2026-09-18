@@ -448,7 +448,7 @@ def kernels() -> None:
     s.arrow(310, 118, 136, 168)
     s.arrow(380, 118, 380, 168)
     s.arrow(450, 118, 624, 168)
-    s.note(120, 248, "CUDA linking TU copies host spans; Vulkan / Tenstorrent planned", fill=CREAM)
+    s.note(80, 248, "CUDA flow head resident; Mamba/DP copy spans; Vulkan / Tenstorrent planned", fill=CREAM)
     s.star(70, 70, 8, ORANGE)
     s.write()
 
@@ -650,7 +650,7 @@ def status() -> None:
         58,
         [
             (230, GREEN, "done", "CPU  AVX2 / NEON"),
-            (200, SUN, "soon", "CUDA linking"),
+            (200, GREEN, "done", "CUDA flow"),
             (140, CREAM, "no", "Vulkan"),
             (260, CREAM, "no", "Tenstorrent / Metal"),
         ],

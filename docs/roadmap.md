@@ -47,7 +47,7 @@ flow and Diffusion Policy.
 | Heads | ACT, VQ-BeT, π0; Diffusion Policy `diffusion_pusht` is done on CPU |
 | Backbone | Transformer policy adapter and source SmolVLA encoder |
 | Weight traffic | NUMA replication experiments, INT8 |
-| Backends | Device-resident CUDA; Tenstorrent TT-Metal |
+| Backends | Device-resident Diffusion Policy CUDA; Tenstorrent TT-Metal |
 | Perception | External observation-encoder integration |
 | Additional backbones | Mamba-3 after CUDA policy evidence |
 | Transport | ROS 2, Zenoh, and distributed scheduling after deployment evidence |

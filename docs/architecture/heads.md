@@ -30,7 +30,8 @@ servers that should not be linked into the core engine.
 Sampling also has a resumable form. `sampler_begin` stores the projected condition, current action,
 and Runge-Kutta stages in caller-owned fixed workspace. `sampler_advance` runs a bounded number of
 complete ODE steps. Splitting a solve does not change floating-point operation order, so the final
-action is bit-identical to a monolithic solve on the same backend.
+action is bit-identical to a monolithic solve on the same backend. With `FLOWEDGE_BACKEND=cuda`,
+weights and ODE scratch stay on device after load; the public spans stay host pointers.
 
 ## Why this way
 

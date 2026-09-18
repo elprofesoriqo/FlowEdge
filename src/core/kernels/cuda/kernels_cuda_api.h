@@ -17,6 +17,7 @@ void rmsnorm(const float* in, const float* weight, float* out, std::size_t rows,
              std::size_t dim) noexcept;
 void gate_silu(const float* a, const float* g, float* out, std::size_t n) noexcept;
 void silu(float* x, std::size_t n) noexcept;
+void mish(float* x, std::size_t n) noexcept;
 void softplus(float* x, std::size_t n) noexcept;
 void matmul_f32(const float* in, const float* w, float* out, std::size_t rows, std::size_t in_dim,
                 std::size_t out_dim) noexcept;
@@ -26,5 +27,23 @@ void discretize_and_scan(const float* delta, const float* a_neg, const float* b,
                          const float* c_proj, const float* d_skip, float* h, float* y,
                          std::size_t length, std::size_t d_inner, std::size_t d_state,
                          bool reset_state, std::size_t row_stride) noexcept;
+
+[[nodiscard]] std::uint64_t device_malloc_count() noexcept;
+[[nodiscard]] void* device_alloc(std::size_t bytes) noexcept;
+void device_free(void* ptr) noexcept;
+[[nodiscard]] bool device_copy_h2d(void* dst, const void* src, std::size_t bytes) noexcept;
+[[nodiscard]] bool device_copy_d2h(void* dst, const void* src, std::size_t bytes) noexcept;
+
+void silu_device(float* x, std::size_t n) noexcept;
+void matmul_f32_device(const float* in, const float* w, float* out, std::size_t rows,
+                       std::size_t in_dim, std::size_t out_dim) noexcept;
+void add3_device(float* x, const float* y, const float* z, std::size_t n) noexcept;
+void add_scaled_device(float* x, const float* dx, float scale, std::size_t n) noexcept;
+void scaled_sum_device(const float* x, const float* dx, float scale, float* out,
+                       std::size_t n) noexcept;
+void add_heun_device(float* x, const float* k1, const float* k2, float dt, std::size_t n) noexcept;
+void add_rk4_device(float* x, const float* k1, const float* k2, const float* k3, const float* k4,
+                    float dt, std::size_t n) noexcept;
+void time_embed_device(float t, const float* freqs, float* sinu, std::size_t half) noexcept;
 
 } // namespace fe::cuda_ops

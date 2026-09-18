@@ -15,11 +15,12 @@ elseif(FLOWEDGE_BACKEND STREQUAL "scalar")
   set(FLOWEDGE_CORE_KERNEL_SOURCE kernels/cpu/kernels_scalar.cc)
 elseif(FLOWEDGE_BACKEND STREQUAL "cuda")
   set(FLOWEDGE_CORE_CUDA ON)
-  set(CMAKE_CUDA_STANDARD 17)
+  set(CMAKE_CUDA_STANDARD 20)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
   set(FLOWEDGE_CORE_KERNEL_SOURCE
     kernels/cuda/kernels_cuda.cu
-    kernels/cuda/kernels_cuda_bridge.cc)
+    kernels/cuda/kernels_cuda_bridge.cc
+    heads/flow/flow_cuda.cu)
 else()
   message(FATAL_ERROR
     "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' is not implemented; use cpu, avx512, scalar, or cuda")
@@ -58,6 +59,8 @@ if(FLOWEDGE_CORE_CUDA)
   find_package(CUDAToolkit REQUIRED)
   set_target_properties(flowedge_core PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
+    CUDA_STANDARD 20
+    CUDA_STANDARD_REQUIRED ON
     CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}")
   target_link_libraries(flowedge_core PUBLIC CUDA::cudart)
   target_compile_definitions(flowedge_core PUBLIC FLOWEDGE_CUDA=1)
