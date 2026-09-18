@@ -11,7 +11,7 @@
 | Runtime | `bench/runtime/` | Relay admission, queues, delivery |
 | Flow matching vs PyTorch | `python -m flowedge_dev verify ulp` | ULP / rel-error on `mamba_flow` — not a p50 |
 | Diffusion Policy vs PyTorch | `python -m flowedge_dev bench policy` | Same observations, processor, noise, DDIM vs LeRobot |
-| Period loop | `python -m flowedge_dev pipeline rollout` | `--period-ms`, `--on-miss`, RSS on a converted DP or flow checkpoint |
+| Period loop | `python -m flowedge_dev pipeline rollout` | `--period-ms`, `--on-miss`, RSS; `--device cuda` on a CUDA Core build |
 | Closed loop | `flowedge_lerobot.evaluate` | PushT outcome — not a timing proof |
 | SmolVLA expert | `python -m flowedge_dev verify smolvla` | Cached-VLM expert vs source; VLM stays in PyTorch |
 | Transformer fixture | `python -m flowedge_dev verify transformer`, `transformer_latency` | GPT-2 smoke vs Hugging Face; host decoder p50 is not a policy result |

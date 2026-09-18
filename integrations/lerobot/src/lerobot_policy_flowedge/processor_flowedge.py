@@ -10,6 +10,7 @@ from lerobot.processor.converters import (
     policy_action_to_transition,
     transition_to_policy_action,
 )
+from flowedge_lerobot.device import config_device
 
 
 def make_flowedge_pre_post_processors(config, dataset_stats=None):
@@ -26,7 +27,10 @@ def make_flowedge_pre_post_processors(config, dataset_stats=None):
                 "encoded conditions must already be normalized; dataset_stats requires visual input"
             )
         preprocessor = PolicyProcessorPipeline(
-            steps=[AddBatchDimensionProcessorStep(), DeviceProcessorStep(device="cpu")],
+            steps=[
+                AddBatchDimensionProcessorStep(),
+                DeviceProcessorStep(device=config_device(config)),
+            ],
             name="flowedge_preprocessor",
         )
     return (

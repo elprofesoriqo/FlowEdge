@@ -44,6 +44,16 @@ python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetens
   --steps 20 --threads 4 --period-ms 10 --on-miss hold
 ```
 
+CUDA Core (`FLOWEDGE_BACKEND=cuda`), same miss contract:
+
+```bash
+python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 20 --threads 1 --period-ms 10 --on-miss hold --device cuda
+```
+
+`input_mode=visual` keeps the source RGB encoder in LeRobot/PyTorch (`device=cuda`).
+GTX 1650, 10 ms hold: 20 / 20 misses. Not a Jetson/ARM claim.
+
 | `--on-miss` | On overrun |
 |---|---|
 | `hold` | Repeat last sent action; zeros before the first on-time send |

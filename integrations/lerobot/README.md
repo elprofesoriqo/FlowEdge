@@ -29,6 +29,16 @@ python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetens
   --steps 20 --threads 4 --period-ms 10 --on-miss hold
 ```
 
+CUDA Core, same `--on-miss` contract (`FLOWEDGE_BACKEND=cuda`):
+
+```bash
+python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 20 --threads 1 --period-ms 10 --on-miss hold --device cuda
+```
+
+The RGB encoder stays in LeRobot when `input_mode=visual`. GTX 1650 10 ms hold
+missed 20 / 20. Not Jetson/ARM.
+
 Jetson / ARM: `scripts/edge_dp_rollout.sh <converted.safetensors>` and attach JSON to issue #70.
 
 SO-100/SO-101: wrap `reset` / `observe` / `send_action` / `stop` and pass `encode_condition` into `run_rollout`. The plugin does not import a robot driver.

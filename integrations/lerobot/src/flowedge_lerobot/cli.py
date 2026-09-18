@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .device import require_native_device
 from .diffusion import FlowEdgeDiffusionPolicy
 from .rollout import RolloutResult, run_rollout
 
@@ -114,6 +115,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument(
+        "--device",
+        choices=("cpu", "cuda"),
+        default="cpu",
+        help="FlowEdge Core backend; cuda requires FLOWEDGE_BACKEND=cuda",
+    )
+    parser.add_argument(
         "--period-ms",
         type=float,
         default=None,
@@ -143,6 +150,7 @@ def run_simulator(
     seed: int,
     period_ms: float | None = None,
     on_miss: str = "hold",
+    sync=None,
 ) -> RolloutResult:
     """Run the built-in simulator seam; hardware adapters stay outside this package."""
 
@@ -157,11 +165,52 @@ def run_simulator(
         scheduler=scheduler,
         period_ms=period_ms,
         on_miss=on_miss,
+        sync=sync,
     )
 
 
+def _cuda_sync():
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
+def _cuda_device_name() -> str | None:
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            return str(torch.cuda.get_device_name(0))
+    except ImportError:
+        pass
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    if not output.splitlines():
+        return None
+    return output.splitlines()[0].strip() or None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.device == "cuda":
+        try:
+            import flowedge
+
+            require_native_device(args.device, flowedge)
+        except ImportError:
+            parser.error("CUDA requested but FlowEdge is not importable")
+        except (ValueError, RuntimeError) as error:
+            parser.error(str(error))
     started = time.perf_counter()
     policy = FlowEdgeDiffusionPolicy.from_checkpoint(
         args.checkpoint, threads=args.threads
@@ -175,6 +224,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         seed=args.seed,
         period_ms=args.period_ms,
         on_miss=args.on_miss,
+        sync=_cuda_sync if args.device == "cuda" else None,
     )
     report = asdict(result)
     report.update(
@@ -183,7 +233,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         startup_ms=startup_ms,
         evaluation_kind="synthetic_integration_smoke",
         peak_rss_bytes=peak_rss_bytes(),
+        device=args.device,
     )
+    if args.device == "cuda":
+        cuda_device = _cuda_device_name()
+        if cuda_device:
+            report["cuda_device"] = cuda_device
+        report["limitations"] = [
+            "Synthetic encoded-condition smoke; RGB encoder stays in LeRobot for input_mode=visual.",
+            "missed_deadlines counts per-call overruns against --period-ms, not closed-loop task success.",
+            "Not Jetson/ARM. Not TensorRT/ONNX.",
+        ]
     if args.host_facts:
         report.update(
             evaluation_kind="edge_dp_rollout",
@@ -196,7 +256,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     encoded = json.dumps(report, sort_keys=True)
     print(encoded)
     if args.output is not None:
-        args.output.write_text(encoded + "\n", encoding="utf-8")
+        args.output.write_text(
+            json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
     return 0
 
 

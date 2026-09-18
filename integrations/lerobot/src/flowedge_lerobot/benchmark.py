@@ -37,16 +37,13 @@ def quantiles(samples):
 
 
 def require_replay_device(device, flowedge_module):
+    from .device import require_native_device
+
+    require_native_device(device, flowedge_module)
     if device == "cpu":
         return
-    if device != "cuda":
-        raise ValueError("device must be cpu or cuda")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but torch.cuda is unavailable")
-    if not getattr(flowedge_module, "cuda", False):
-        raise RuntimeError(
-            "CUDA requested but FlowEdge was built without FLOWEDGE_BACKEND=cuda"
-        )
 
 
 def load_observation_frames(path):

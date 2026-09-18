@@ -13,16 +13,27 @@ from collections.abc import Sequence
 from flowedge_lerobot.cli import main as rollout_main
 
 
+def _has_flag(args: Sequence[str], name: str) -> bool:
+    return name in args or any(item.startswith(f"{name}=") for item in args)
+
+
+def _cuda_requested(args: Sequence[str]) -> bool:
+    for index, item in enumerate(args):
+        if item == "--device=cuda":
+            return True
+        if item == "--device" and index + 1 < len(args) and args[index + 1] == "cuda":
+            return True
+    return False
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     forwarded = list(args)
     if "--host-facts" not in forwarded:
         forwarded.append("--host-facts")
-    if "--threads" not in forwarded and not any(item.startswith("--threads=") for item in forwarded):
+    if not _cuda_requested(forwarded) and not _has_flag(forwarded, "--threads"):
         forwarded.extend(["--threads", "4"])
-    if "--period-ms" not in forwarded and not any(
-        item.startswith("--period-ms=") for item in forwarded
-    ):
+    if not _has_flag(forwarded, "--period-ms"):
         forwarded.extend(["--period-ms", "10"])
     return rollout_main(forwarded)
 
