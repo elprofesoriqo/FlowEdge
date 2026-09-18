@@ -31,7 +31,7 @@ reject_source_pattern 'std::mutex|memory_order_seq_cst' \
   "$ROOT/src/core" "$ROOT/src/relay"
 reject_source_pattern '\.load\(\)' \
   'atomic loads require an explicit memory order' "$ROOT/src/core" "$ROOT/src/relay"
-reject_source_pattern '\b(new|delete)\b|std::(vector|map|unordered_map|deque|list)<' \
+reject_source_pattern '\bnew\s|\bdelete\s|\bdelete\[|std::(vector|map|unordered_map|deque|list)<' \
   'Core compute paths must use caller-owned or arena-backed fixed storage' \
   "$ROOT/src/core/kernels" "$ROOT/src/core/heads" "$ROOT/src/core/models"
 

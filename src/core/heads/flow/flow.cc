@@ -14,11 +14,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <new>
 #include <span>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace fe {
 namespace {
@@ -39,27 +37,22 @@ std::string_view layer_key(std::span<char> buf, std::size_t layer) noexcept
 }
 
 #ifdef FLOWEDGE_CUDA
-[[nodiscard]] std::vector<float> host_f32(WeightView weight, std::size_t count) noexcept
+[[nodiscard]] bool host_f32(WeightView weight, std::span<float> out) noexcept
 {
-  std::vector<float> out(count);
-  if (weight.data == nullptr) {
-    out.clear();
-    return out;
-  }
+  if (out.empty() || weight.data == nullptr)
+    return false;
   if (weight.dtype == TensorView::Dtype::F32) {
-    std::memcpy(out.data(), weight.data, count * sizeof(float));
-    return out;
+    std::memcpy(out.data(), weight.data, out.size() * sizeof(float));
+    return true;
   }
-  if (weight.dtype != TensorView::Dtype::BF16) {
-    out.clear();
-    return out;
-  }
+  if (weight.dtype != TensorView::Dtype::BF16)
+    return false;
   const auto* bits = static_cast<const std::uint16_t*>(weight.data);
-  for (std::size_t i{}; i < count; ++i) {
+  for (std::size_t i{}; i < out.size(); ++i) {
     const std::uint32_t wide = static_cast<std::uint32_t>(bits[i]) << 16u;
     std::memcpy(&out[i], &wide, sizeof(float));
   }
-  return out;
+  return true;
 }
 #endif
 
@@ -112,31 +105,47 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
   ok_ = true;
 #ifdef FLOWEDGE_CUDA
   static_assert(FlowHead::kMaxMlp == CudaFlowResident::kMaxMlp);
-  const std::vector<float> in_h = host_f32(in_proj_, cfg_.hidden * cfg_.action_dim);
-  const std::vector<float> time_h = host_f32(time_proj_, cfg_.hidden * cfg_.time_dim);
-  const std::vector<float> cond_h = host_f32(cond_proj_, cfg_.hidden * cfg_.cond_dim);
-  const std::vector<float> out_h = host_f32(out_proj_, cfg_.action_dim * cfg_.hidden);
-  std::array<std::vector<float>, CudaFlowResident::kMaxMlp> layer_host{};
-  std::array<const float*, CudaFlowResident::kMaxMlp> layer_ptrs{};
-  for (std::size_t i{}; i < cfg_.mlp_layers; ++i) {
-    layer_host[i] = host_f32(layers_[i], cfg_.hidden * cfg_.hidden);
-    layer_ptrs[i] = layer_host[i].data();
+  void* const storage = scratch.alloc<alignof(CudaFlowResident)>(sizeof(CudaFlowResident));
+  if (storage == nullptr) {
+    ok_ = false;
+    return;
   }
-  cuda_ = new (std::nothrow) CudaFlowResident();
-  if (cuda_ == nullptr || in_h.empty() || time_h.empty() || cond_h.empty() || out_h.empty() ||
+  std::memset(storage, 0, sizeof(CudaFlowResident));
+  cuda_ = static_cast<CudaFlowResident*>(storage);
+
+  std::byte* const upload_mark = scratch.mark();
+  const auto copy = [&](WeightView weight, std::size_t count) noexcept -> const float* {
+    const std::span<float> host = scratch.alloc_span<float, kSimdAlign>(count);
+    if (host.size() != count || !host_f32(weight, host))
+      return nullptr;
+    return host.data();
+  };
+  const float* const in_h = copy(in_proj_, cfg_.hidden * cfg_.action_dim);
+  const float* const time_h = copy(time_proj_, cfg_.hidden * cfg_.time_dim);
+  const float* const cond_h = copy(cond_proj_, cfg_.hidden * cfg_.cond_dim);
+  const float* const out_h = copy(out_proj_, cfg_.action_dim * cfg_.hidden);
+  std::array<const float*, CudaFlowResident::kMaxMlp> layer_ptrs{};
+  bool layers_ok = true;
+  for (std::size_t i{}; i < cfg_.mlp_layers; ++i) {
+    layer_ptrs[i] = copy(layers_[i], cfg_.hidden * cfg_.hidden);
+    layers_ok = layers_ok && layer_ptrs[i] != nullptr;
+  }
+  if (in_h == nullptr || time_h == nullptr || cond_h == nullptr || out_h == nullptr || !layers_ok ||
       !cuda_->load(cfg_.action_dim, cfg_.cond_dim, cfg_.hidden, cfg_.time_dim, cfg_.mlp_layers,
-                   in_h.data(), time_h.data(), cond_h.data(), out_h.data(), layer_ptrs, freqs_)) {
-    delete cuda_;
+                   in_h, time_h, cond_h, out_h, layer_ptrs, freqs_)) {
+    cuda_->release();
     cuda_ = nullptr;
     ok_ = false;
   }
+  scratch.reset_to(upload_mark);
 #endif
 }
 
 FlowHead::~FlowHead()
 {
 #ifdef FLOWEDGE_CUDA
-  delete cuda_;
+  if (cuda_ != nullptr)
+    cuda_->release();
 #endif
 }
 
@@ -184,8 +193,8 @@ void FlowHead::sample(std::span<const float> cond, std::span<const float> x0, st
       return;
     if (!cuda_->begin(cond, x0))
       return;
-    static_cast<void>(cuda_->advance(steps, static_cast<CudaFlowResident::Method>(method), steps,
-                                     0uz, out));
+    static_cast<void>(
+        cuda_->advance(steps, static_cast<CudaFlowResident::Method>(method), steps, 0uz, out));
     return;
   }
 #endif
@@ -265,10 +274,10 @@ std::size_t FlowHead::sampler_advance(SamplerState& state, std::size_t step_budg
         state.active = false;
         break;
       }
-      const std::size_t chunk =
-          state.latest_generation != nullptr ? 1uz : (todo - completed);
-      const std::size_t n = cuda_->advance(chunk, static_cast<CudaFlowResident::Method>(state.method),
-                                           state.steps, state.next_step, out);
+      const std::size_t chunk = state.latest_generation != nullptr ? 1uz : (todo - completed);
+      const std::size_t n =
+          cuda_->advance(chunk, static_cast<CudaFlowResident::Method>(state.method), state.steps,
+                         state.next_step, out);
       if (n == 0uz)
         break;
       state.next_step += n;

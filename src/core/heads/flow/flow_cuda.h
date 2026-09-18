@@ -21,11 +21,12 @@ public:
   };
 
   CudaFlowResident() = default;
-  ~CudaFlowResident();
   CudaFlowResident(const CudaFlowResident&) = delete;
   CudaFlowResident(CudaFlowResident&&) = delete;
   CudaFlowResident& operator=(const CudaFlowResident&) = delete;
   CudaFlowResident& operator=(CudaFlowResident&&) = delete;
+
+  void release() noexcept;
 
   [[nodiscard]] bool load(std::size_t action_dim, std::size_t cond_dim, std::size_t hidden,
                           std::size_t time_dim, std::size_t mlp_layers, const float* in_proj,
@@ -37,7 +38,6 @@ public:
                                     std::size_t next_step, std::span<float> out) noexcept;
 
 private:
-  void release() noexcept;
   [[nodiscard]] bool upload(const float* host, std::size_t count, float*& dst) noexcept;
   void velocity(float* x, float t, float* v) noexcept;
 

@@ -4,11 +4,6 @@
 
 namespace fe {
 
-CudaFlowResident::~CudaFlowResident()
-{
-  release();
-}
-
 void CudaFlowResident::release() noexcept
 {
   using fe::cuda_ops::device_free;
@@ -56,17 +51,14 @@ bool CudaFlowResident::load(std::size_t action_dim, std::size_t cond_dim, std::s
   hidden_ = hidden;
   time_dim_ = time_dim;
   mlp_layers_ = mlp_layers;
-  if (!upload(in_proj, hidden * action_dim, in_proj_) ||
-      !upload(time_proj, hidden * time_dim, time_proj_) ||
-      !upload(cond_proj, hidden * cond_dim, cond_proj_) ||
-      !upload(out_proj, action_dim * hidden, out_proj_))
-    return false;
-  for (std::size_t i = 0; i < mlp_layers; ++i) {
-    if (!upload(layers[i], hidden * hidden, layers_[i]))
-      return false;
-  }
-  if (!upload(freqs, time_dim / 2, freqs_))
-    return false;
+  const bool uploaded =
+      upload(in_proj, hidden * action_dim, in_proj_) &&
+      upload(time_proj, hidden * time_dim, time_proj_) &&
+      upload(cond_proj, hidden * cond_dim, cond_proj_) &&
+      upload(out_proj, action_dim * hidden, out_proj_);
+  bool layers_ok = uploaded;
+  for (std::size_t i = 0; layers_ok && i < mlp_layers; ++i)
+    layers_ok = upload(layers[i], hidden * hidden, layers_[i]);
   cond_ = static_cast<float*>(cuda_ops::device_alloc(cond_dim * sizeof(float)));
   c_emb_ = static_cast<float*>(cuda_ops::device_alloc(hidden * sizeof(float)));
   h_ = static_cast<float*>(cuda_ops::device_alloc(hidden * sizeof(float)));
@@ -78,9 +70,13 @@ bool CudaFlowResident::load(std::size_t action_dim, std::size_t cond_dim, std::s
   k3_ = static_cast<float*>(cuda_ops::device_alloc(action_dim * sizeof(float)));
   k4_ = static_cast<float*>(cuda_ops::device_alloc(action_dim * sizeof(float)));
   probe_ = static_cast<float*>(cuda_ops::device_alloc(action_dim * sizeof(float)));
-  return cond_ != nullptr && c_emb_ != nullptr && h_ != nullptr && tmp_ != nullptr &&
-         sinu_ != nullptr && x_ != nullptr && k1_ != nullptr && k2_ != nullptr && k3_ != nullptr &&
-         k4_ != nullptr && probe_ != nullptr;
+  const bool ok = layers_ok && upload(freqs, time_dim / 2, freqs_) && cond_ != nullptr &&
+                  c_emb_ != nullptr && h_ != nullptr && tmp_ != nullptr && sinu_ != nullptr &&
+                  x_ != nullptr && k1_ != nullptr && k2_ != nullptr && k3_ != nullptr &&
+                  k4_ != nullptr && probe_ != nullptr;
+  if (!ok)
+    release();
+  return ok;
 }
 
 bool CudaFlowResident::begin(std::span<const float> cond, std::span<const float> x0) noexcept
