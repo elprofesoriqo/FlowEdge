@@ -60,4 +60,34 @@ void film(float* x, const float* scale, const float* bias, std::size_t channels,
           std::size_t length) noexcept;
 void diffusion_timestep_embedding(float timestep, float* out, std::size_t n) noexcept;
 
+[[nodiscard]] bool device_copy_d2d(void* dst, const void* src, std::size_t bytes) noexcept;
+
+void mish_device(float* x, std::size_t n) noexcept;
+void add_bias_device(float* x, const float* bias, std::size_t n) noexcept;
+void conv1d_device(const float* x, const float* weight, const float* bias, float* y,
+                   std::size_t in_channels, std::size_t out_channels, std::size_t input_length,
+                   std::size_t output_length, std::size_t kernel, std::size_t stride,
+                   std::size_t padding) noexcept;
+void conv_transpose1d_device(const float* x, const float* weight, const float* bias, float* y,
+                             std::size_t in_channels, std::size_t out_channels,
+                             std::size_t input_length, std::size_t output_length,
+                             std::size_t kernel, std::size_t stride, std::size_t padding,
+                             bool k_major_weights) noexcept;
+void group_norm_device(float* x, const float* weight, const float* bias, std::size_t channels,
+                       std::size_t length, std::size_t groups, float epsilon) noexcept;
+void film_device(float* x, const float* scale, const float* bias, std::size_t channels,
+                 std::size_t length) noexcept;
+void diffusion_timestep_device(float timestep, float* out, std::size_t n) noexcept;
+void layout_horizon_to_channel_device(const float* in, float* out, std::size_t horizon,
+                                      std::size_t action_dim) noexcept;
+void layout_channel_to_horizon_device(const float* in, float* out, std::size_t horizon,
+                                      std::size_t action_dim) noexcept;
+void ddim_update_device(float* x, const float* eps, std::size_t n, float sqrt_alpha_t,
+                        float sqrt_beta_t, float sqrt_alpha_prev, float sqrt_one_minus_prev,
+                        bool clip, float clip_range) noexcept;
+void ddpm_update_device(float* x, const float* eps, const float* noise, std::size_t n,
+                        float sqrt_alpha_t, float sqrt_beta_t, float original_coefficient,
+                        float sample_coefficient, float sqrt_variance, bool clip,
+                        float clip_range) noexcept;
+
 } // namespace fe::cuda_ops

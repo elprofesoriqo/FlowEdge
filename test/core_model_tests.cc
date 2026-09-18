@@ -7,6 +7,9 @@
 #include "protocol/model_identity.h"
 #include "protocol/snapshot.h"
 #include "test/test_utils.h"
+#ifdef FLOWEDGE_CUDA
+#include "kernels/cuda/kernels_cuda_api.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -175,7 +178,7 @@ struct DiffusionFixture
 
   std::vector<std::vector<float>> storage{};
   std::vector<fe::TensorView> tensors{};
-  std::vector<std::byte> slab = std::vector<std::byte>(4096uz);
+  std::vector<std::byte> slab = std::vector<std::byte>(64uz * 1024uz);
   fe::Arena arena{std::span<std::byte>{slab}};
 
   DiffusionFixture()
@@ -427,6 +430,29 @@ TEST(DiffusionHead, DdimAndDdpmAreDeterministicDistinctAndUnnormalized)
   EXPECT_GT(seed_delta, 0.0F);
 }
 
+#ifdef FLOWEDGE_CUDA
+TEST(DiffusionHead, CudaResidentDoesNotMallocAfterLoad)
+{
+  ASSERT_TRUE(fe::cuda_ops::device_available());
+  DiffusionFixture fixture;
+  fe::DiffusionHead head{fixture.tensors, fixture.arena};
+  ASSERT_TRUE(head.valid());
+  const auto mallocs = fe::cuda_ops::device_malloc_count();
+  EXPECT_GT(mallocs, 0u);
+  const std::vector<float> condition = seq(3uz, 0.31F, -0.2F);
+  const std::vector<float> noise = seq(8uz, 0.29F, 0.1F);
+  std::vector<float> workspace(head.sampler_workspace_size());
+  std::vector<float> action(8uz);
+  std::vector<float> predicted(8uz);
+  ASSERT_TRUE(head.denoise(condition, noise, 7.0F, workspace, predicted));
+  ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDIM, 1u, workspace, action));
+  ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDPM, 42u, workspace, action));
+  EXPECT_EQ(fe::cuda_ops::device_malloc_count(), mallocs);
+  for (float value : action)
+    EXPECT_TRUE(std::isfinite(value));
+}
+#endif
+
 TEST(DiffusionHead, RejectsMalformedMetadata)
 {
   DiffusionFixture fixture;
@@ -621,8 +647,6 @@ TEST(FlowHead, RejectsIncompatibleProjectionShape)
 }
 
 #ifdef FLOWEDGE_CUDA
-#include "kernels/cuda/kernels_cuda_api.h"
-
 TEST(FlowHead, CudaResidentDoesNotMallocAfterLoad)
 {
   ASSERT_TRUE(fe::cuda_ops::device_available());

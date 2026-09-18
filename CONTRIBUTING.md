@@ -24,7 +24,7 @@ issue → research comment → follow-up issues → one PR → review → eviden
 3. **Implement.** One PR per issue, from `main`. Runtime changes must keep the zero-allocation hot path.
 4. **Evidence.** Model work includes a parity command. Performance work includes same-host before/after medians. User-path changes update the relevant guide.
 
-Current product: CPU Core (Mamba + flow, Diffusion Policy, Transformer decoder fixture, cached SmolVLA expert), LeRobot plugin, optional Relay. CUDA flow head is device-resident behind `nvcc`; attach DP/replay work to [#162](https://github.com/elprofesoriqo/FlowEdge/issues/162) / [#163](https://github.com/elprofesoriqo/FlowEdge/issues/163) rather than dumping a U-Net. Tenstorrent (Metal), π0, and ACT stay behind that evidence.
+Current product: CPU Core (Mamba + flow, Diffusion Policy, Transformer decoder fixture, cached SmolVLA expert), LeRobot plugin, optional Relay. CUDA flow and DP heads are device-resident behind `nvcc`; attach GPU replay work to [#163](https://github.com/elprofesoriqo/FlowEdge/issues/163) rather than dumping a U-Net. Tenstorrent (Metal), π0, and ACT stay behind that evidence.
 
 ## Code bar
 

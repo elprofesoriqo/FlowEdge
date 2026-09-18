@@ -49,7 +49,9 @@ Sampling inverts that process. **DDIM** is a deterministic reverse walk (no
 RNG; NFE equals the step count). **DDPM** keeps the stochastic term and is
 seeded for reference. After the last step, checkpoint MIN_MAX statistics map
 the horizon back to dataset action units. Each DDIM step is one U-Net forward
-plus a closed-form scheduler update; \(c\) is reused.
+plus a closed-form scheduler update; \(c\) is reused. With `FLOWEDGE_BACKEND=cuda`,
+weights and U-Net/DDIM scratch stay on device after load; the public spans stay
+host pointers.
 
 The fixed-shape `ConditionalUnet1D` is the LeRobot Conv1D U-Net: GroupNorm,
 Mish, sinusoidal timestep embedding, FiLM scale/bias. Observation encoding

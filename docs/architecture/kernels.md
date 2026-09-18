@@ -3,7 +3,7 @@
 One header declares every kernel, and each backend implements it.
 
 ```{image} ../_static/figures/kernels.svg
-:alt: kernels.h dispatching to AVX2, NEON, scalar; CUDA flow head is device-resident
+:alt: kernels.h dispatching to AVX2, NEON, scalar; CUDA flow and DP heads are device-resident
 :class: fe-fig
 ```
 
@@ -17,13 +17,13 @@ cmake -B build -DFLOWEDGE_BACKEND=cpu
 `scalar` explicitly selects the portable implementation for compatibility builds, differential
 testing, sanitizers, and CPUs where an AVX2 deployment baseline is unsuitable.
 `cuda` requires `nvcc` and links the ISA kernel surface through
-`src/core/kernels/cuda/`. Mamba host `std::span` arguments still copy in and out.
-The flow head keeps `flow.*` weights and ODE scratch on device after load;
-`sample` / `sampler_advance` do not `cudaMalloc` after that. Dense Diffusion
+`src/core/kernels/cuda/`. The flow head keeps `flow.*` weights and ODE scratch
+on device after load; `sample` / `sampler_advance` do not `cudaMalloc` after
+that. The diffusion head keeps `dp.*` weights and U-Net/DDIM scratch on device
+after load; `denoise` / `sample` do not `cudaMalloc` after that. Dense Diffusion
 Policy ops (`conv1d`, `conv_transpose1d`, `group_norm`, `mish`, `film`,
-timestep embedding) also live in the CUDA TU and still round-trip host spans;
-device-resident DDIM is [#162](https://github.com/elprofesoriqo/FlowEdge/issues/162).
-See [CUDA](cuda).
+timestep embedding) also live in the CUDA TU as host-span launches. Mamba host
+`std::span` arguments still copy in and out. See [CUDA](cuda).
 Metal here is Tenstorrent TT-Metal, not Apple. Vulkan remains unimplemented.
 
 The CPU backend splits by ISA. `kernels_avx2.cc`, `kernels_neon.cc`, and

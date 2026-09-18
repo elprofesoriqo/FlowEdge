@@ -3,12 +3,16 @@
 #include "kernels/kernels.h"
 #include "loader/tensor_key.h"
 #include "loader/weight_ops.h"
+#ifdef FLOWEDGE_CUDA
+#include "heads/diffusion/diffusion_cuda.h"
+#endif
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <initializer_list>
 #include <limits>
 #include <numbers>
@@ -47,6 +51,26 @@ constexpr std::size_t kAlignmentFloats = kSimdAlign / sizeof(float);
   out = static_cast<std::size_t>(value);
   return true;
 }
+
+#ifdef FLOWEDGE_CUDA
+[[nodiscard]] bool host_f32(WeightView weight, std::span<float> out) noexcept
+{
+  if (out.empty() || weight.data == nullptr)
+    return false;
+  if (weight.dtype == TensorView::Dtype::F32) {
+    std::memcpy(out.data(), weight.data, out.size() * sizeof(float));
+    return true;
+  }
+  if (weight.dtype != TensorView::Dtype::BF16)
+    return false;
+  const auto* bits = static_cast<const std::uint16_t*>(weight.data);
+  for (std::size_t i{}; i < out.size(); ++i) {
+    const std::uint32_t wide = static_cast<std::uint32_t>(bits[i]) << 16u;
+    std::memcpy(&out[i], &wide, sizeof(float));
+  }
+  return true;
+}
+#endif
 
 [[nodiscard]] bool vector_f32(const TensorView* tensor, std::size_t size) noexcept
 {
@@ -238,6 +262,20 @@ std::size_t DiffusionHead::required_persistent_floats(std::span<const TensorView
   }
   if (!checked_add(total, kAlignmentFloats, total))
     return 0uz;
+#ifdef FLOWEDGE_CUDA
+  const std::size_t object_floats =
+      (sizeof(CudaDiffusionResident) / sizeof(float)) + kAlignmentFloats + 16uz;
+  if (!checked_add(total, object_floats, total))
+    return 0uz;
+  for (const TensorView& tensor : weights) {
+    if (!tensor.name_view().starts_with("dp.") || tensor.ndim != 2u || !tensor.is_bf16())
+      continue;
+    std::size_t elems{0uz};
+    if (!checked_mul(tensor.shape[0], tensor.shape[1], elems) ||
+        !checked_add(total, elems, total) || !checked_add(total, kAlignmentFloats, total))
+      return 0uz;
+  }
+#endif
   return total;
 }
 
@@ -502,6 +540,108 @@ DiffusionHead::DiffusionHead(std::span<const TensorView> weights, Arena& persist
   alphas_cumprod_ = alphas;
   workspace_floats_ = required_workspace_floats(weights);
   ok_ = workspace_floats_ != 0uz;
+#ifdef FLOWEDGE_CUDA
+  if (!ok_)
+    return;
+  static_assert(DiffusionHead::kMaxStages == CudaDiffusionResident::kMaxStages);
+  void* const storage =
+      persistent.alloc<alignof(CudaDiffusionResident)>(sizeof(CudaDiffusionResident));
+  if (storage == nullptr) {
+    ok_ = false;
+    return;
+  }
+  std::memset(storage, 0, sizeof(CudaDiffusionResident));
+  cuda_ = static_cast<CudaDiffusionResident*>(storage);
+  std::byte* const upload_mark = persistent.mark();
+  const auto conv = [](const ConvWeights& src) noexcept {
+    return CudaDiffusionResident::ConvHost{.weight = src.weight,
+                                           .bias = src.bias,
+                                           .in_channels = src.in_channels,
+                                           .out_channels = src.out_channels,
+                                           .kernel = src.kernel,
+                                           .k_major = src.k_major};
+  };
+  const auto norm = [](const NormWeights& src, std::size_t channels) noexcept {
+    return CudaDiffusionResident::NormHost{.weight = src.weight,
+                                           .bias = src.bias,
+                                           .channels = channels};
+  };
+  const auto linear = [&](const LinearWeights& src) noexcept -> CudaDiffusionResident::LinearHost {
+    CudaDiffusionResident::LinearHost dst{.bias = src.bias,
+                                          .in_features = src.in_features,
+                                          .out_features = src.out_features};
+    const std::size_t count = src.in_features * src.out_features;
+    if (src.weight.dtype == TensorView::Dtype::F32) {
+      dst.weight = static_cast<const float*>(src.weight.data);
+      return dst;
+    }
+    const std::span<float> host = persistent.alloc_span<float, kSimdAlign>(count);
+    if (host.size() != count || !host_f32(src.weight, host))
+      return {};
+    dst.weight = host.data();
+    return dst;
+  };
+  const auto residual = [&](const ResidualWeights& src) noexcept {
+    return CudaDiffusionResident::ResidualHost{.conv1 = conv(src.conv1),
+                                               .norm1 = norm(src.norm1, src.conv1.out_channels),
+                                               .film = linear(src.film),
+                                               .conv2 = conv(src.conv2),
+                                               .norm2 = norm(src.norm2, src.conv2.out_channels),
+                                               .residual = conv(src.residual),
+                                               .identity_residual = src.identity_residual};
+  };
+  CudaDiffusionResident::LoadSpec spec{};
+  spec.action_dim = cfg_.action_dim;
+  spec.horizon = cfg_.horizon;
+  spec.condition_dim = cfg_.condition_dim;
+  spec.stages = cfg_.stages;
+  spec.groups = cfg_.groups;
+  spec.timestep_dim = cfg_.timestep_dim;
+  spec.workspace_floats = workspace_floats_;
+  spec.dims = dims_;
+  spec.timestep_in = linear(timestep_in_);
+  spec.timestep_out = linear(timestep_out_);
+  bool linears_ok = spec.timestep_in.weight != nullptr && spec.timestep_out.weight != nullptr;
+  for (std::size_t stage{0uz}; stage < cfg_.stages; ++stage) {
+    spec.down[stage].residuals[0] = residual(down_[stage].residuals[0]);
+    spec.down[stage].residuals[1] = residual(down_[stage].residuals[1]);
+    spec.down[stage].identity_downsample = down_[stage].identity_downsample;
+    if (!down_[stage].identity_downsample)
+      spec.down[stage].downsample = conv(down_[stage].downsample);
+    linears_ok = linears_ok && spec.down[stage].residuals[0].film.weight != nullptr &&
+                 spec.down[stage].residuals[1].film.weight != nullptr;
+  }
+  spec.middle[0] = residual(middle_[0]);
+  spec.middle[1] = residual(middle_[1]);
+  linears_ok =
+      linears_ok && spec.middle[0].film.weight != nullptr && spec.middle[1].film.weight != nullptr;
+  for (std::size_t stage{0uz}; stage + 1uz < cfg_.stages; ++stage) {
+    spec.up[stage].residuals[0] = residual(up_[stage].residuals[0]);
+    spec.up[stage].residuals[1] = residual(up_[stage].residuals[1]);
+    spec.up[stage].upsample = conv(up_[stage].upsample);
+    linears_ok = linears_ok && spec.up[stage].residuals[0].film.weight != nullptr &&
+                 spec.up[stage].residuals[1].film.weight != nullptr;
+  }
+  spec.final_conv = conv(final_conv_);
+  spec.final_norm = norm(final_norm_, dims_[0]);
+  spec.output_conv = conv(output_conv_);
+  spec.action_min = action_min_;
+  spec.action_max = action_max_;
+  if (!linears_ok || !cuda_->load(spec)) {
+    cuda_->release();
+    cuda_ = nullptr;
+    ok_ = false;
+  }
+  persistent.reset_to(upload_mark);
+#endif
+}
+
+DiffusionHead::~DiffusionHead()
+{
+#ifdef FLOWEDGE_CUDA
+  if (cuda_ != nullptr)
+    cuda_->release();
+#endif
 }
 
 bool DiffusionHead::load_conv(std::span<const TensorView> weights, std::string_view prefix,
@@ -641,6 +781,13 @@ bool DiffusionHead::denoise(std::span<const float> condition,
   const std::size_t forward_workspace = workspace_floats_ - (2uz * sample_values());
   if (!ok_ || workspace.size() < forward_workspace)
     return false;
+#ifdef FLOWEDGE_CUDA
+  if (cuda_ != nullptr) {
+    if (!std::isfinite(timestep))
+      return false;
+    return cuda_->denoise(condition, normalized_sample, timestep, predicted_noise);
+  }
+#endif
   Arena arena{std::as_writable_bytes(workspace)};
   return denoise_with_arena(condition, normalized_sample, timestep, arena, predicted_noise);
 }
@@ -777,6 +924,60 @@ bool DiffusionHead::sample(std::span<const float> condition, std::span<const flo
       action.size() < values || workspace.size() < workspace_floats_ || inference_steps == 0uz ||
       inference_steps > cfg_.train_timesteps || (scheduler != kDDIM && scheduler != kDDPM))
     return false;
+#ifdef FLOWEDGE_CUDA
+  if (cuda_ != nullptr) {
+    if (!cuda_->begin(condition, initial_noise))
+      return false;
+    GaussianGenerator gaussian{seed};
+    const std::size_t step_ratio = cfg_.train_timesteps / inference_steps;
+    std::span<float> noise_host = workspace.first(values);
+    for (std::size_t index{0uz}; index < inference_steps; ++index) {
+      const std::size_t reverse_index = inference_steps - 1uz - index;
+      const std::size_t timestep = reverse_index * step_ratio;
+      const std::ptrdiff_t previous =
+          static_cast<std::ptrdiff_t>(timestep) - static_cast<std::ptrdiff_t>(step_ratio);
+      if (!cuda_->denoise_current(static_cast<float>(timestep)))
+        return false;
+      const float alpha_t = alphas_cumprod_[timestep];
+      const float alpha_previous = previous >= 0 ? alphas_cumprod_[previous] : 1.0F;
+      const float beta_t = 1.0F - alpha_t;
+      if (scheduler == kDDIM) {
+        cuda_->ddim_update(std::sqrt(alpha_t), std::sqrt(beta_t), std::sqrt(alpha_previous),
+                           std::sqrt(1.0F - alpha_previous), cfg_.clip_sample,
+                           cfg_.clip_sample_range);
+      } else {
+        const float current_alpha = alpha_t / alpha_previous;
+        const float current_beta = 1.0F - current_alpha;
+        const float original_coefficient =
+            std::sqrt(alpha_previous) * current_beta / std::max(beta_t, 1e-20F);
+        const float sample_coefficient =
+            std::sqrt(current_alpha) * (1.0F - alpha_previous) / std::max(beta_t, 1e-20F);
+        const float variance = ((1.0F - alpha_previous) / std::max(beta_t, 1e-20F)) * current_beta;
+        const float* noise_ptr = nullptr;
+        if (previous >= 0) {
+          for (std::size_t value{0uz}; value < values; ++value)
+            noise_host[value] = gaussian.next();
+          noise_ptr = noise_host.data();
+        }
+        if (!cuda_->ddpm_update(std::sqrt(alpha_t), std::sqrt(beta_t), original_coefficient,
+                                sample_coefficient, std::sqrt(std::max(variance, 1e-20F)),
+                                cfg_.clip_sample, cfg_.clip_sample_range, noise_ptr))
+          return false;
+      }
+    }
+    if (!cuda_->copy_x(workspace.first(values)))
+      return false;
+    const std::span<float> x = workspace.first(values);
+    for (std::size_t t{0uz}; t < cfg_.horizon; ++t) {
+      for (std::size_t channel{0uz}; channel < cfg_.action_dim; ++channel) {
+        const std::size_t index = (t * cfg_.action_dim) + channel;
+        action[index] = ((x[index] + 1.0F) * 0.5F * (action_max_[channel] - action_min_[channel])) +
+                        action_min_[channel];
+      }
+    }
+    return true;
+  }
+#endif
   std::span<float> x = workspace.first(values);
   std::span<float> predicted_noise = workspace.subspan(values, values);
   std::span<float> denoiser_workspace = workspace.subspan(2uz * values);

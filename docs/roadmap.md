@@ -27,7 +27,7 @@ not Tenstorrent-first. Jetson/ARM (#70) still needs a board JSON.
 | 1 | Transformer issue #10 | Kernel gtests, tiny-gpt2 conversion JSON, optional latency JSON |
 | 2 | CUDA linking TU | `FLOWEDGE_BACKEND=cuda` configures only with `nvcc`; ISA kernels link ([#160](https://github.com/elprofesoriqo/FlowEdge/issues/160)) |
 | 3 | Device-resident flow head | Persistent device buffers; no per-op host round-trip ([#161](https://github.com/elprofesoriqo/FlowEdge/issues/161)) |
-| 4 | Diffusion Policy on CUDA | `diffusion_ops` on device; DDIM sample vs CPU reference ([#162](https://github.com/elprofesoriqo/FlowEdge/issues/162)) |
+| 4 | Diffusion Policy on CUDA | Device-resident DDIM; no `cudaMalloc` after load; vs CPU same checkpoint ([#162](https://github.com/elprofesoriqo/FlowEdge/issues/162)) |
 | 5 | Matched GPU replay | Same observations vs PyTorch CUDA ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)); then LeRobot CUDA ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) |
 | 6 | Jetson / ARM replay | Device JSON for [#70](https://github.com/elprofesoriqo/FlowEdge/issues/70); x86 JSON is not ARM evidence |
 | 7 | Tenstorrent / π0 / ACT | After CUDA evidence; see deferred table |
@@ -47,7 +47,7 @@ flow and Diffusion Policy.
 | Heads | ACT, VQ-BeT, π0; Diffusion Policy `diffusion_pusht` is done on CPU |
 | Backbone | Transformer policy adapter and source SmolVLA encoder |
 | Weight traffic | NUMA replication experiments, INT8 |
-| Backends | Device-resident Diffusion Policy CUDA; Tenstorrent TT-Metal |
+| Backends | Tenstorrent TT-Metal |
 | Perception | External observation-encoder integration |
 | Additional backbones | Mamba-3 after CUDA policy evidence |
 | Transport | ROS 2, Zenoh, and distributed scheduling after deployment evidence |
