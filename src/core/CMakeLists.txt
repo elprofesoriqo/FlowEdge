@@ -28,7 +28,6 @@ endif()
 
 add_library(flowedge_core STATIC
   ${FLOWEDGE_CORE_KERNEL_SOURCE}
-  kernels/diffusion_ops.cc
   arena/thread_pool.cc
   loader/safetensors.cc
   protocol/deployment_profile.cc
@@ -42,6 +41,9 @@ add_library(flowedge_core STATIC
   heads/flow/flow.cc
   api/engine.cc
 )
+if(NOT FLOWEDGE_CORE_CUDA)
+  target_sources(flowedge_core PRIVATE kernels/diffusion_ops.cc)
+endif()
 add_library(FlowEdge::Core ALIAS flowedge_core)
 
 # Build-tree compatibility for existing users. Installed packages expose both

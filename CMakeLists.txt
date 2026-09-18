@@ -29,7 +29,7 @@ set(FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES "65536" CACHE STRING
 # for compatibility testing and targets where deploying AVX2 is undesirable.
 # cuda requires nvcc. Host-span kernels still copy in and out; the flow head
 # keeps weights and ODE scratch on device after load. Dense Diffusion Policy ops
-# stay on CPU until a device-resident DP head lands.
+# share that CUDA TU as host-span kernels; a device-resident DDIM head is #162.
 set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu, avx512, scalar, or cuda")
 set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512 scalar cuda)
 if(FLOWEDGE_BACKEND STREQUAL "cuda")

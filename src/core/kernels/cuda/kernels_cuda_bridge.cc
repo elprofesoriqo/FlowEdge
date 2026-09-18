@@ -67,4 +67,54 @@ void discretize_and_scan(std::span<const float> delta, std::span<const float> a_
                                 reset_state, row_stride);
 }
 
+void conv1d(std::span<const float> x, std::span<const float> weight, std::span<const float> bias,
+            std::span<float> y, std::size_t in_channels, std::size_t out_channels,
+            std::size_t input_length, std::size_t output_length, std::size_t kernel,
+            std::size_t stride, std::size_t padding, ThreadPool*, std::span<float>) noexcept
+{
+  if (x.size() < in_channels * input_length ||
+      weight.size() < out_channels * in_channels * kernel || bias.size() < out_channels ||
+      y.size() < out_channels * output_length)
+    return;
+  cuda_ops::conv1d(x.data(), weight.data(), bias.data(), y.data(), in_channels, out_channels,
+                   input_length, output_length, kernel, stride, padding);
+}
+
+void conv_transpose1d(std::span<const float> x, std::span<const float> weight,
+                      std::span<const float> bias, std::span<float> y, std::size_t in_channels,
+                      std::size_t out_channels, std::size_t input_length, std::size_t output_length,
+                      std::size_t kernel, std::size_t stride, std::size_t padding, ThreadPool*,
+                      std::span<float>, bool k_major_weights) noexcept
+{
+  if (x.size() < in_channels * input_length ||
+      weight.size() < in_channels * out_channels * kernel || bias.size() < out_channels ||
+      y.size() < out_channels * output_length)
+    return;
+  cuda_ops::conv_transpose1d(x.data(), weight.data(), bias.data(), y.data(), in_channels,
+                             out_channels, input_length, output_length, kernel, stride, padding,
+                             k_major_weights);
+}
+
+void group_norm(std::span<float> x, std::span<const float> weight, std::span<const float> bias,
+                std::size_t channels, std::size_t length, std::size_t groups,
+                float epsilon) noexcept
+{
+  if (x.size() < channels * length || weight.size() < channels || bias.size() < channels)
+    return;
+  cuda_ops::group_norm(x.data(), weight.data(), bias.data(), channels, length, groups, epsilon);
+}
+
+void film(std::span<float> x, std::span<const float> scale, std::span<const float> bias,
+          std::size_t channels, std::size_t length) noexcept
+{
+  if (x.size() < channels * length || scale.size() < channels || bias.size() < channels)
+    return;
+  cuda_ops::film(x.data(), scale.data(), bias.data(), channels, length);
+}
+
+void diffusion_timestep_embedding(float timestep, std::span<float> out) noexcept
+{
+  cuda_ops::diffusion_timestep_embedding(timestep, out.data(), out.size());
+}
+
 } // namespace fe

@@ -46,4 +46,18 @@ void add_rk4_device(float* x, const float* k1, const float* k2, const float* k3,
                     float dt, std::size_t n) noexcept;
 void time_embed_device(float t, const float* freqs, float* sinu, std::size_t half) noexcept;
 
+void conv1d(const float* x, const float* weight, const float* bias, float* y,
+            std::size_t in_channels, std::size_t out_channels, std::size_t input_length,
+            std::size_t output_length, std::size_t kernel, std::size_t stride,
+            std::size_t padding) noexcept;
+void conv_transpose1d(const float* x, const float* weight, const float* bias, float* y,
+                      std::size_t in_channels, std::size_t out_channels, std::size_t input_length,
+                      std::size_t output_length, std::size_t kernel, std::size_t stride,
+                      std::size_t padding, bool k_major_weights) noexcept;
+void group_norm(float* x, const float* weight, const float* bias, std::size_t channels,
+                std::size_t length, std::size_t groups, float epsilon) noexcept;
+void film(float* x, const float* scale, const float* bias, std::size_t channels,
+          std::size_t length) noexcept;
+void diffusion_timestep_embedding(float timestep, float* out, std::size_t n) noexcept;
+
 } // namespace fe::cuda_ops

@@ -9,8 +9,9 @@ for CPU Release builds cannot host `nvcc`. WSL or MSVC is the CUDA build.
 The **flow head** is device-resident: `FlowHead` uploads `flow.*` weights and
 ODE scratch once at load. `sample` / `sampler_advance` copy condition and noise
 in, run Euler/Heun/RK4 on device, and copy the action out. No `cudaMalloc` after
-load. `kernels.h` stays host `std::span`; Mamba and dense Diffusion Policy ops
-still round-trip host spans.
+load. `kernels.h` stays host `std::span`; Mamba still round-trips. Dense Diffusion
+Policy ops live in the CUDA TU and also copy host spans; a device-resident DDIM
+head is the rest of [#162](https://github.com/elprofesoriqo/FlowEdge/issues/162).
 
 ```bash
 cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BACKEND=cuda
