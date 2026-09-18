@@ -52,7 +52,7 @@ The implementation should be a new `models/mamba3/` module rather than condition
 
 Mamba-2 remains useful as an intermediate reference, but implementing it first only makes sense if a
 specific customer checkpoint requires it. Neither additional Mamba port takes priority over
-the active SmolVLA/Tenstorrent robotics program.
+the active CUDA then SmolVLA robotics program.
 
 ## Recommended VLA port boundary
 

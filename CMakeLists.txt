@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(FlowEdge)
+project(FlowEdge LANGUAGES C CXX)
 
 find_package(Threads REQUIRED)
 
@@ -27,8 +27,22 @@ set(FLOWEDGE_RELAY_MAX_JOB_PAYLOAD_BYTES "65536" CACHE STRING
 
 # Core compute kernels. CPU auto-selects the host ISA; scalar is also explicit
 # for compatibility testing and targets where deploying AVX2 is undesirable.
-set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu, avx512, or scalar")
-set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512 scalar)
+# cuda requires nvcc. The TU copies host spans through grow-only device scratch;
+# dense Diffusion Policy ops stay on CPU until a device-resident head lands.
+set(FLOWEDGE_BACKEND "cpu" CACHE STRING "Kernel backend: cpu, avx512, scalar, or cuda")
+set_property(CACHE FLOWEDGE_BACKEND PROPERTY STRINGS cpu avx512 scalar cuda)
+if(FLOWEDGE_BACKEND STREQUAL "cuda")
+  include(CheckLanguage)
+  check_language(CUDA)
+  if(NOT CMAKE_CUDA_COMPILER)
+    message(FATAL_ERROR
+      "FLOWEDGE_BACKEND=cuda requires nvcc. Install the CUDA toolkit, or keep FLOWEDGE_BACKEND=cpu.")
+  endif()
+  enable_language(CUDA)
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "")
+    set(CMAKE_CUDA_ARCHITECTURES 75 86 89)
+  endif()
+endif()
 
 # CORE
 add_subdirectory(src/core)

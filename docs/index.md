@@ -111,6 +111,7 @@ architecture/memory
 architecture/loader
 architecture/deployment-profile
 architecture/kernels
+architecture/cuda
 architecture/backbones
 architecture/heads
 architecture/cooperative-execution

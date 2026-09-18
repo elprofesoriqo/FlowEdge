@@ -3,7 +3,7 @@
 One header declares every kernel, and each backend implements it.
 
 ```{image} ../_static/figures/kernels.svg
-:alt: kernels.h dispatching to AVX2, NEON, scalar
+:alt: kernels.h dispatching to AVX2, NEON, scalar; CUDA is a linking TU
 :class: fe-fig
 ```
 
@@ -16,8 +16,12 @@ cmake -B build -DFLOWEDGE_BACKEND=cpu
 `cpu` selects AVX2, NEON, or scalar code for the host. `avx512` is an explicit x86 build option.
 `scalar` explicitly selects the portable implementation for compatibility builds, differential
 testing, sanitizers, and CPUs where an AVX2 deployment baseline is unsuitable.
-CUDA, Vulkan, and Tenstorrent (Metal / TT-Metalium) are planned. CMake only
-offers `cpu`, `avx512`, and `scalar` today.
+`cuda` requires `nvcc` and links the ISA kernel surface through
+`src/core/kernels/cuda/` with grow-only device scratch. Host `std::span` arguments
+are copied in and out; this is a linking milestone, not a device-resident engine.
+Dense Diffusion Policy convolution stays in `kernels/diffusion_ops.cc` on the CPU
+until the CUDA head work lands. See [CUDA](cuda).
+Metal here is Tenstorrent TT-Metal, not Apple. Vulkan remains unimplemented.
 
 The CPU backend splits by ISA. `kernels_avx2.cc`, `kernels_neon.cc`, and
 `kernels_scalar.cc` all implement the same public surface, and CMake picks the

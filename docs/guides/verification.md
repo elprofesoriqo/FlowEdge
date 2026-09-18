@@ -46,6 +46,9 @@ the Relay lifecycle demo, action replay, all metric formats, installation, and a
 Python checks run when their dependencies are available. Transformer HF parity runs when
 `models/tiny-gpt2` and the converted checkpoint are present.
 
+GitHub Actions also runs `.github/workflows/bench.yml` for short CPU kernel JSON
+(and GPU only when `nvidia-smi` works). That summary is not policy evidence.
+
 ## Focused commands
 
 | Need | Command |

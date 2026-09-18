@@ -448,7 +448,7 @@ def kernels() -> None:
     s.arrow(310, 118, 136, 168)
     s.arrow(380, 118, 380, 168)
     s.arrow(450, 118, 624, 168)
-    s.note(160, 248, "CUDA / Vulkan / Tenstorrent (Metal) stay planned", fill=CREAM)
+    s.note(120, 248, "CUDA linking TU copies host spans; Vulkan / Tenstorrent planned", fill=CREAM)
     s.star(70, 70, 8, ORANGE)
     s.write()
 
@@ -649,10 +649,10 @@ def status() -> None:
         "Backends",
         58,
         [
-            (250, GREEN, "done", "CPU  AVX2 / NEON"),
-            (160, CREAM, "no", "CUDA"),
-            (170, CREAM, "no", "Vulkan"),
-            (280, CREAM, "no", "Tenstorrent / Metal"),
+            (230, GREEN, "done", "CPU  AVX2 / NEON"),
+            (200, SUN, "soon", "CUDA linking"),
+            (140, CREAM, "no", "Vulkan"),
+            (260, CREAM, "no", "Tenstorrent / Metal"),
         ],
     )
     row(
