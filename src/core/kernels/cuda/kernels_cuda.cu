@@ -5,12 +5,47 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <cuda_runtime.h>
 
 namespace fe::cuda_ops {
 namespace {
 
 std::atomic<std::uint64_t> g_mallocs{0};
+
+bool g_census = false;
+
+struct CensusRow
+{
+  const char* kind{};
+  int a{}, b{}, c{}, d{}, e{}, f{};
+  unsigned n{};
+};
+
+constexpr int kCensusCap = 64;
+CensusRow g_census_rows[kCensusCap];
+int g_census_used = 0;
+unsigned g_census_dropped = 0;
+
+void census_hit(const char* kind, int a, int b = 0, int c = 0, int d = 0, int e = 0, int f = 0)
+{
+  if (!g_census)
+    return;
+  for (int i = 0; i < g_census_used; ++i) {
+    CensusRow& row = g_census_rows[i];
+    if (row.kind == kind && row.a == a && row.b == b && row.c == c && row.d == d && row.e == e &&
+        row.f == f) {
+      ++row.n;
+      return;
+    }
+  }
+  if (g_census_used >= kCensusCap) {
+    ++g_census_dropped;
+    return;
+  }
+  g_census_rows[g_census_used++] = CensusRow{kind, a, b, c, d, e, f, 1u};
+}
 
 struct GrowBuffer
 {
@@ -406,35 +441,53 @@ __global__ void conv_transpose1d_kernel(const float* x, const float* weight, con
   y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
 }
 
+// One block per group: PushT launches 8 groups with 1024 values each, so a single
+// serial thread per group leaves the SM idle.
 __global__ void group_norm_kernel(float* x, const float* weight, const float* bias, int channels,
                                   int length, int groups, float epsilon)
 {
-  const int group = blockIdx.x * blockDim.x + threadIdx.x;
+  const int group = static_cast<int>(blockIdx.x);
   if (group >= groups)
     return;
   const int channels_per_group = channels / groups;
   const int first = group * channels_per_group;
   const int group_values = channels_per_group * length;
+  float* const block = x + (static_cast<std::size_t>(first) * static_cast<std::size_t>(length));
   double sum = 0.0;
   double square_sum = 0.0;
-  float* const block = x + (static_cast<std::size_t>(first) * static_cast<std::size_t>(length));
-  for (int i = 0; i < group_values; ++i) {
+  for (int i = static_cast<int>(threadIdx.x); i < group_values; i += static_cast<int>(blockDim.x)) {
     const double value = static_cast<double>(block[i]);
     sum += value;
     square_sum += value * value;
   }
-  const double count = static_cast<double>(group_values);
-  const double mean = sum / count;
-  const double variance = fmax(0.0, (square_sum / count) - (mean * mean));
-  const float inv = static_cast<float>(1.0 / sqrt(variance + static_cast<double>(epsilon)));
-  const float mean_f = static_cast<float>(mean);
-  for (int local = 0; local < channels_per_group; ++local) {
+  __shared__ double s_sum[256];
+  __shared__ double s_sq[256];
+  s_sum[threadIdx.x] = sum;
+  s_sq[threadIdx.x] = square_sum;
+  __syncthreads();
+  for (int off = static_cast<int>(blockDim.x) / 2; off > 0; off >>= 1) {
+    if (static_cast<int>(threadIdx.x) < off) {
+      s_sum[threadIdx.x] += s_sum[threadIdx.x + off];
+      s_sq[threadIdx.x] += s_sq[threadIdx.x + off];
+    }
+    __syncthreads();
+  }
+  __shared__ float mean_f;
+  __shared__ float inv;
+  if (threadIdx.x == 0) {
+    const double count = static_cast<double>(group_values);
+    const double mean = s_sum[0] / count;
+    const double variance = fmax(0.0, (s_sq[0] / count) - (mean * mean));
+    inv = static_cast<float>(1.0 / sqrt(variance + static_cast<double>(epsilon)));
+    mean_f = static_cast<float>(mean);
+  }
+  __syncthreads();
+  for (int i = static_cast<int>(threadIdx.x); i < group_values; i += static_cast<int>(blockDim.x)) {
+    const int local = i / length;
     const int channel = first + local;
     const float scale = inv * weight[channel];
     const float shift = bias[channel];
-    float* const row = x + (static_cast<std::size_t>(channel) * static_cast<std::size_t>(length));
-    for (int t = 0; t < length; ++t)
-      row[t] = ((row[t] - mean_f) * scale) + shift;
+    block[i] = ((block[i] - mean_f) * scale) + shift;
   }
 }
 
@@ -790,6 +843,53 @@ std::uint64_t device_malloc_count() noexcept
   return g_mallocs.load(std::memory_order_relaxed);
 }
 
+void device_census_begin() noexcept
+{
+  g_census_used = 0;
+  g_census_dropped = 0;
+  g_census = true;
+}
+
+void device_census_end() noexcept
+{
+  g_census = false;
+}
+
+void device_census_print() noexcept
+{
+  CensusRow rows[kCensusCap];
+  const int used = g_census_used;
+  for (int i = 0; i < used; ++i)
+    rows[i] = g_census_rows[i];
+  std::sort(rows, rows + used, [](const CensusRow& lhs, const CensusRow& rhs) {
+    if (lhs.n != rhs.n)
+      return lhs.n > rhs.n;
+    return std::strcmp(lhs.kind, rhs.kind) < 0;
+  });
+  unsigned total = 0;
+  for (int i = 0; i < used; ++i)
+    total += rows[i].n;
+  std::printf("native DDIM launch census (1 sample)\n");
+  for (int i = 0; i < used; ++i) {
+    const CensusRow& row = rows[i];
+    if (std::strcmp(row.kind, "conv") == 0)
+      std::printf("  %-12s ic=%d oc=%d Lin=%d Lout=%d K=%d s=%d  n=%u\n", row.kind, row.a, row.b,
+                  row.c, row.d, row.e, row.f, row.n);
+    else if (std::strcmp(row.kind, "upsample") == 0)
+      std::printf("  %-12s ic=%d oc=%d Lin=%d Lout=%d K=%d kmaj=%d  n=%u\n", row.kind, row.a, row.b,
+                  row.c, row.d, row.e, row.f, row.n);
+    else if (std::strcmp(row.kind, "group_norm") == 0)
+      std::printf("  %-12s C=%d L=%d G=%d  n=%u\n", row.kind, row.a, row.b, row.c, row.n);
+    else if (std::strcmp(row.kind, "gemm") == 0)
+      std::printf("  %-12s rows=%d in=%d out=%d  n=%u\n", row.kind, row.a, row.b, row.c, row.n);
+    else if (std::strcmp(row.kind, "film") == 0)
+      std::printf("  %-12s C=%d L=%d  n=%u\n", row.kind, row.a, row.b, row.n);
+    else
+      std::printf("  %-12s a=%d b=%d c=%d  n=%u\n", row.kind, row.a, row.b, row.c, row.n);
+  }
+  std::printf("  total launches %u  unique %d  dropped %u\n", total, used, g_census_dropped);
+}
+
 void* device_alloc(std::size_t bytes) noexcept
 {
   if (bytes == 0 || !ready())
@@ -823,6 +923,7 @@ void silu_device(float* x, std::size_t n) noexcept
 {
   if (n == 0 || x == nullptr)
     return;
+  census_hit("silu", static_cast<int>(n));
   silu_kernel<<<grid(static_cast<int>(n)), 256>>>(x, static_cast<int>(n));
 }
 
@@ -831,6 +932,7 @@ void matmul_f32_device(const float* in, const float* w, float* out, std::size_t 
 {
   if (rows == 0 || in_dim == 0 || out_dim == 0 || in == nullptr || w == nullptr || out == nullptr)
     return;
+  census_hit("gemm", static_cast<int>(rows), static_cast<int>(in_dim), static_cast<int>(out_dim));
   dim3 block(16, 16);
   dim3 grid_dim(static_cast<unsigned>((out_dim + 15) / 16),
                 static_cast<unsigned>((rows + 15) / 16));
@@ -849,6 +951,7 @@ void add_scaled_device(float* x, const float* dx, float scale, std::size_t n) no
 {
   if (n == 0)
     return;
+  census_hit("add_scaled", static_cast<int>(n));
   add_scaled_kernel<<<grid(static_cast<int>(n)), 256>>>(x, dx, scale, static_cast<int>(n));
 }
 
@@ -943,7 +1046,7 @@ void group_norm(float* x, const float* weight, const float* bias, std::size_t ch
   if (!upload(g_a, x, channels * length * sizeof(float)) ||
       !upload(g_b, weight, channels * sizeof(float)) || !upload(g_c, bias, channels * sizeof(float)))
     return;
-  group_norm_kernel<<<grid(static_cast<int>(groups)), 256>>>(
+  group_norm_kernel<<<static_cast<unsigned>(groups), 256>>>(
       static_cast<float*>(g_a.ptr), static_cast<const float*>(g_b.ptr),
       static_cast<const float*>(g_c.ptr), static_cast<int>(channels), static_cast<int>(length),
       static_cast<int>(groups), epsilon);
@@ -990,6 +1093,7 @@ void diffusion_timestep_embedding(float timestep, float* out, std::size_t n) noe
 
 bool device_copy_d2d(void* dst, const void* src, std::size_t bytes) noexcept
 {
+  census_hit("d2d", static_cast<int>(bytes));
   return dst != nullptr && src != nullptr &&
          cudaMemcpy(dst, src, bytes, cudaMemcpyDeviceToDevice) == cudaSuccess;
 }
@@ -998,6 +1102,7 @@ void mish_device(float* x, std::size_t n) noexcept
 {
   if (n == 0 || x == nullptr)
     return;
+  census_hit("mish", static_cast<int>(n));
   mish_kernel<<<grid(static_cast<int>(n)), 256>>>(x, static_cast<int>(n));
 }
 
@@ -1005,6 +1110,7 @@ void add_bias_device(float* x, const float* bias, std::size_t n) noexcept
 {
   if (n == 0 || x == nullptr || bias == nullptr)
     return;
+  census_hit("add_bias", static_cast<int>(n));
   add_bias_kernel<<<grid(static_cast<int>(n)), 256>>>(x, bias, static_cast<int>(n));
 }
 
@@ -1017,6 +1123,9 @@ void conv1d_device(const float* x, const float* weight, const float* bias, float
       kernel == 0 || stride == 0 || x == nullptr || weight == nullptr || bias == nullptr ||
       y == nullptr)
     return;
+  census_hit("conv", static_cast<int>(in_channels), static_cast<int>(out_channels),
+             static_cast<int>(input_length), static_cast<int>(output_length),
+             static_cast<int>(kernel), static_cast<int>(stride));
   const int oc = static_cast<int>(out_channels);
   const int ic = static_cast<int>(in_channels);
   const int in_len = static_cast<int>(input_length);
@@ -1064,6 +1173,9 @@ void conv_transpose1d_device(const float* x, const float* weight, const float* b
       kernel == 0 || stride == 0 || x == nullptr || weight == nullptr || bias == nullptr ||
       y == nullptr)
     return;
+  census_hit("upsample", static_cast<int>(in_channels), static_cast<int>(out_channels),
+             static_cast<int>(input_length), static_cast<int>(output_length),
+             static_cast<int>(kernel), k_major_weights ? 1 : 0);
   const int oc = static_cast<int>(out_channels);
   dim3 block;
   dim3 grid_dim;
@@ -1085,7 +1197,9 @@ void group_norm_device(float* x, const float* weight, const float* bias, std::si
   if (channels == 0 || length == 0 || groups == 0 || channels % groups != 0 || x == nullptr ||
       weight == nullptr || bias == nullptr)
     return;
-  group_norm_kernel<<<grid(static_cast<int>(groups)), 256>>>(
+  census_hit("group_norm", static_cast<int>(channels), static_cast<int>(length),
+             static_cast<int>(groups));
+  group_norm_kernel<<<static_cast<unsigned>(groups), 256>>>(
       x, weight, bias, static_cast<int>(channels), static_cast<int>(length),
       static_cast<int>(groups), epsilon);
 }
@@ -1095,6 +1209,7 @@ void film_device(float* x, const float* scale, const float* bias, std::size_t ch
 {
   if (channels == 0 || length == 0 || x == nullptr || scale == nullptr || bias == nullptr)
     return;
+  census_hit("film", static_cast<int>(channels), static_cast<int>(length));
   dim3 block(16, 16);
   dim3 grid_dim(static_cast<unsigned>((length + 15) / 16),
                 static_cast<unsigned>((channels + 15) / 16));
@@ -1106,6 +1221,7 @@ void diffusion_timestep_device(float timestep, float* out, std::size_t n) noexce
 {
   if (n == 0 || n % 2 != 0 || out == nullptr)
     return;
+  census_hit("timestep", static_cast<int>(n));
   const std::size_t half = n / 2;
   if (half == 1) {
     const float host[2] = {sinf(timestep), cosf(timestep)};
@@ -1122,6 +1238,7 @@ void layout_horizon_to_channel_device(const float* in, float* out, std::size_t h
 {
   if (horizon == 0 || action_dim == 0 || in == nullptr || out == nullptr)
     return;
+  census_hit("layout_h2c", static_cast<int>(horizon), static_cast<int>(action_dim));
   dim3 block(16, 16);
   dim3 grid_dim(static_cast<unsigned>((horizon + 15) / 16),
                 static_cast<unsigned>((action_dim + 15) / 16));
@@ -1134,6 +1251,7 @@ void layout_channel_to_horizon_device(const float* in, float* out, std::size_t h
 {
   if (horizon == 0 || action_dim == 0 || in == nullptr || out == nullptr)
     return;
+  census_hit("layout_c2h", static_cast<int>(horizon), static_cast<int>(action_dim));
   dim3 block(16, 16);
   dim3 grid_dim(static_cast<unsigned>((horizon + 15) / 16),
                 static_cast<unsigned>((action_dim + 15) / 16));
@@ -1147,6 +1265,7 @@ void ddim_update_device(float* x, const float* eps, std::size_t n, float sqrt_al
 {
   if (n == 0 || x == nullptr || eps == nullptr)
     return;
+  census_hit("ddim", static_cast<int>(n));
   ddim_update_kernel<<<grid(static_cast<int>(n)), 256>>>(
       x, eps, static_cast<int>(n), sqrt_alpha_t, sqrt_beta_t, sqrt_alpha_prev, sqrt_one_minus_prev,
       clip ? 1 : 0, clip_range);

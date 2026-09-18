@@ -72,10 +72,10 @@ NVIDIA GeForce GTX 1650 is the headline, not `threads=1`. Same observation file 
 
 | | FlowEdge CUDA | PyTorch CUDA |
 |---|---:|---:|
-| Policy p50 | **153 ms** | **361 ms** |
-| Preprocess-to-chunk p50 | 159 ms | 368 ms |
+| Policy p50 | **131 ms** | **345 ms** |
+| Preprocess-to-chunk p50 | 136 ms | 350 ms |
 | Max abs action error | 7.63e-5 | — |
-| FlowEdge / LeRobot | 0.43× | |
+| FlowEdge / LeRobot | 0.38× | |
 
 A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the PyTorch U-Net. Same observation file as the CPU replay. The CPU `threads=1` 851 vs 1409 ms figure is unchanged. Not TensorRT/ONNX. Not Jetson/ARM.
 
@@ -110,7 +110,16 @@ Warp split-K on **L=4 only** (lanes split `IC`, one warp-group per output channe
 | conv 2048 L4 K5 | 2486 us | **885 us** | 62 |
 | native DDIM ×10 | 321 ms | **152 ms** | 152 |
 
-Matched policy p50 is **153 ms vs 361 ms** on this same host after split-K (replay JSON regenerated; encoder still in LeRobot).
+One native DDIM sample launches 1490 device ops. `conv 2048 L4` is 70 of them (the CPU `xN` was right). GroupNorm is 250 launches across five shapes, not the mix's old `x80`. FiLM GEMM is `1×260×C`, not the packed `4×10240×2048` isolate.
+
+Block-per-group GroupNorm ([#179](https://github.com/elprofesoriqo/FlowEdge/issues/179)):
+
+| Kernel | split-K p50 | block GN p50 | ms/sample |
+|---|---:|---:|---:|
+| group_norm 2048 L4 | 118 us | **10 us** | 0.8 |
+| native DDIM ×10 | 156 ms | **136 ms** | 136 |
+
+Matched policy p50 is **131 ms vs 345 ms** on this same host after the GroupNorm launch change (replay JSON regenerated; encoder still in LeRobot). Use the native DDIM census for the next kernel pick.
 
 ### How to get them
 
