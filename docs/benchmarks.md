@@ -14,7 +14,7 @@
 | Period loop | `python -m flowedge_dev pipeline rollout` | `--period-ms`, `--on-miss`, RSS on a converted DP or flow checkpoint |
 | Closed loop | `flowedge_lerobot.evaluate` | PushT outcome — not a timing proof |
 | SmolVLA expert | `python -m flowedge_dev verify smolvla` | Cached-VLM expert vs source; VLM stays in PyTorch |
-| Transformer incubator | `python -m flowedge_dev verify transformer` | GPT-2 smoke vs Hugging Face |
+| Transformer fixture | `python -m flowedge_dev verify transformer`, `transformer_latency` | GPT-2 smoke vs Hugging Face; host decoder p50 is not a policy result |
 | ONNX companion | `integrations/onnx` | Fixed-shape ORT adapter; measure separately |
 
 The two product heads are flow matching and Diffusion Policy. Without FlowEdge

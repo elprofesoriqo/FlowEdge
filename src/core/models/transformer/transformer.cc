@@ -143,7 +143,6 @@ bool Transformer::decode_layer(Layer& layer, std::span<float> hidden,
 {
   std::byte* const mark = arena_->mark();
   const std::size_t model = cfg_.d_model;
-  const std::size_t head_width = model / cfg_.n_heads;
   std::span<float> normed = scratch(model);
   std::span<float> qkv = scratch(3uz * model);
   std::span<float> attended = scratch(model);
@@ -161,26 +160,9 @@ bool Transformer::decode_layer(Layer& layer, std::span<float> hidden,
   add_inplace(qkv, {layer.qkv_bias, 3uz * model});
   std::copy_n(qkv.data() + model, model, layer.key_cache + (position_ * model));
   std::copy_n(qkv.data() + (2uz * model), model, layer.value_cache + (position_ * model));
-  for (std::size_t head{}; head < cfg_.n_heads; ++head) {
-    const std::size_t offset = head * head_width;
-    const float inverse_scale = 1.0F / std::sqrt(static_cast<float>(head_width));
-    for (std::size_t token{}; token <= position_; ++token) {
-      const float* const key = layer.key_cache + (token * model) + offset;
-      float dot{};
-      for (std::size_t channel{}; channel < head_width; ++channel)
-        dot += qkv[offset + channel] * key[channel];
-      scores[token] = (!attention_mask.empty() && attention_mask[token] == 0u)
-                          ? -std::numeric_limits<float>::infinity()
-                          : dot * inverse_scale;
-    }
-    softmax(scores);
-    for (std::size_t channel{}; channel < head_width; ++channel) {
-      float sum{};
-      for (std::size_t token{}; token <= position_; ++token)
-        sum += scores[token] * layer.value_cache[(token * model) + offset + channel];
-      attended[offset + channel] = sum;
-    }
-  }
+  cached_causal_attention({qkv.data(), model}, {layer.key_cache, cfg_.max_sequence * model},
+                          {layer.value_cache, cfg_.max_sequence * model}, attention_mask, scores,
+                          attended, cfg_.n_heads, model, position_);
   matmul_weight(attended, layer.attention_out, projected, 1uz, model, model, pool_);
   add_inplace(projected, {layer.attention_out_bias, model});
   add_inplace(hidden, projected);

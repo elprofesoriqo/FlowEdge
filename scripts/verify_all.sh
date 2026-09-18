@@ -128,6 +128,22 @@ if [[ "$PYTHON_OPTION" == ON ]]; then
   else
     echo "note: PyTorch ULP verification dependencies unavailable"
   fi
+
+  TRANSFORMER_SRC="$ROOT/models/tiny-gpt2"
+  TRANSFORMER_CONV="$ROOT/models/tiny-gpt2.flowedge.safetensors"
+  if [[ -d "$TRANSFORMER_SRC" && -f "$TRANSFORMER_CONV" ]] &&
+     "$PYTHON" -c 'import torch, transformers' >/dev/null 2>&1; then
+    (cd "$ROOT" && "$PYTHON" -m flowedge_dev verify transformer \
+      "$TRANSFORMER_SRC" "$TRANSFORMER_CONV" \
+      --binary "$(resolve_executable transformer_forward)" \
+      --model-id sshleifer/tiny-gpt2 \
+      --output "$BUILD_DIR/tiny-gpt2-transformer-reference.json")
+    "$(resolve_executable transformer_latency)" "$TRANSFORMER_CONV" \
+      --threads 0 --warmup 2 --iters 8 \
+      --output "$BUILD_DIR/tiny-gpt2-latency.json" 1 2 3 4
+  else
+    echo "note: tiny-gpt2 checkpoint or transformers package unavailable; skipped Transformer HF parity"
+  fi
 else
   echo "note: no runnable native Python; C++ release surface fully verified"
 fi

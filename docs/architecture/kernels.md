@@ -27,7 +27,8 @@ never allocates over 64-byte-aligned caller buffers.
 The set is `matmul` for F32 and BF16 weights, `conv1d_causal`,
 `conv1d_step`, dense `conv1d` / `conv_transpose1d` (optional packed-im2col
 workspace through `matmul`), `rmsnorm`, `rmsnorm_bf16`, `silu`, `softplus`,
-`gate_silu`, `apply_rope`, `grouped_query_attention`, `round_to_bf16`, and
+`gate_silu`, `apply_rope`, `grouped_query_attention`, `cached_causal_attention`,
+`layer_norm`, `gelu`, `softmax`, `round_to_bf16`, and
 `discretize_and_scan`.
 
 ## The exp and log kernels

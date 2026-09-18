@@ -37,6 +37,7 @@ Source: `src/core/models/mamba/`. [ADR 0002](../decisions/0002-mamba-block).
 
 ## Transformer
 
-Experimental CPU decoder baseline (GPT-2 conversion smoke-tested, policy parity pending), behind
-the same contract: attention plus MLP, with a KV-cache sized to the max prefix so the state stays
-fixed. See [Fixed-shape Transformer baseline](../guides/transformer-backbone).
+CPU decoder baseline: fused QKV, learned positions, KV cache sized to
+`max_sequence`, `cached_causal_attention` in `kernels.h`. Kernel and fixture
+gtests plus the tiny-gpt2 conversion artifact. Not a policy. See
+[Fixed-shape Transformer baseline](../guides/transformer-backbone).

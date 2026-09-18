@@ -44,6 +44,7 @@ endforeach()
 # the historical mamba_forward target while giving Transformer documentation a
 # model-neutral executable name.
 flowedge_executable(transformer_forward examples/core/mamba_forward.cc FlowEdge::Core)
+flowedge_executable(transformer_latency tools/transformer_latency.cc FlowEdge::Core)
 flowedge_executable(flowedge-inspect tools/checkpoint_inspect.cc FlowEdge::Core)
 flowedge_executable(flowedge_model_lifecycle_check tools/model_lifecycle_check.cc FlowEdge::Core)
 if(FLOWEDGE_RELAY)
@@ -121,8 +122,8 @@ if(FLOWEDGE_TESTS)
     GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(googletest)
 
-  add_executable(flowedge_tests test/kernel_tests.cc test/core_model_tests.cc test/cabi_tests.cc
-                 test/deployment_profile_tests.cc test/deployment_profile_runtime_tests.cc
+  add_executable(flowedge_tests test/kernel_tests.cc test/core_model_tests.cc test/transformer_tests.cc
+                 test/cabi_tests.cc test/deployment_profile_tests.cc test/deployment_profile_runtime_tests.cc
                  test/deadline_profile_tests.cc test/safetensors_tests.cc)
   target_link_libraries(flowedge_tests PRIVATE FlowEdge::Core GTest::gtest_main Threads::Threads)
   target_include_directories(flowedge_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -147,6 +148,7 @@ if(FLOWEDGE_TESTS)
   include(GoogleTest)
   gtest_discover_tests(flowedge_tests)
   add_test(NAME Tools.InspectHelp COMMAND flowedge-inspect --help)
+  add_test(NAME Tools.TransformerLatencyHelp COMMAND transformer_latency --help)
   if(FLOWEDGE_BENCH)
     add_test(NAME Tools.ProfileHelp COMMAND flowedge-profile --help)
   endif()

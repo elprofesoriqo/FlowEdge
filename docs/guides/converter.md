@@ -13,7 +13,8 @@ PyTorch or Hugging Face checkpoint into those layouts.
 python -m flowedge_dev pipeline convert <source> models/out.safetensors --arch mamba
 ```
 
-GPT-2-style decoder into the experimental Transformer baseline (kernel incubator):
+Convert a GPT-2-style decoder (`model_type: gpt2`) into the Transformer
+fixture. `sshleifer/tiny-gpt2` is the CI fixture; `openai-community/gpt2` is optional:
 
 ```bash
 hf download sshleifer/tiny-gpt2 --local-dir models/tiny-gpt2

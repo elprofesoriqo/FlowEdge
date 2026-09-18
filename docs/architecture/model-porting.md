@@ -57,7 +57,7 @@ the active SmolVLA/Tenstorrent robotics program.
 ## Recommended VLA port boundary
 
 Exact SmolVLA, pi0, and GR00T ports need a condition-sequence ABI, not just a larger vector. The
-experimental Transformer embedding API now starts that boundary with a read-only matrix
+Transformer embedding API starts that boundary with a read-only matrix
 `[tokens, width]` and an optional prefix attention mask. Completing the contract still requires a
 lifetime valid across resumable solver calls and action-expert cross-attention. The ABI can serve
 several action experts without importing every VLM into Core.

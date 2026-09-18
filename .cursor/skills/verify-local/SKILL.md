@@ -26,7 +26,7 @@ powershell -File scripts/verify_local.ps1 -BuildDir build-win-clang
 Kernel-only slice after a CPU op change:
 
 ```powershell
-.\build-win-clang\flowedge_tests.exe --gtest_filter=Matmul*:Conv*:DenseConv1d*:DiffusionConvolution*:Mish*:GroupNorm*
+.\build-win-clang\flowedge_tests.exe --gtest_filter=Matmul*:Conv*:DenseConv1d*:DiffusionConvolution*:Mish*:GroupNorm*:Gelu*:LayerNorm*:Softmax*:CachedCausalAttention*:Transformer.*
 ```
 
 ## Rules

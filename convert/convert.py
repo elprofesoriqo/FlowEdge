@@ -93,7 +93,10 @@ def transformer(sd, config):
     if config is None:
         raise ValueError("Transformer conversion requires config.json")
     if config.get("model_type") != "gpt2":
-        raise ValueError("Transformer conversion currently supports model_type 'gpt2' only")
+        raise ValueError(
+            "Transformer conversion currently supports model_type 'gpt2' only "
+            "(sshleifer/tiny-gpt2 CI fixture or openai-community/gpt2)"
+        )
     if config.get("activation_function", "gelu_new") not in {"gelu", "gelu_new"}:
         raise ValueError("Transformer conversion supports GELU/GELU-new MLP activations only")
 

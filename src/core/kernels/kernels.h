@@ -190,6 +190,45 @@ inline void softmax(std::span<float> values) noexcept
     value *= inverse;
 }
 
+// One-query cached causal MHA. Q is [d_model]; K/V caches are [T][d_model] with
+// valid tokens in [0, position]. `scores` holds position+1 floats.
+inline void cached_causal_attention(std::span<const float> query, std::span<const float> keys,
+                                    std::span<const float> values,
+                                    std::span<const std::uint8_t> attention_mask,
+                                    std::span<float> scores, std::span<float> attended,
+                                    std::size_t n_heads, std::size_t d_model,
+                                    std::size_t position) noexcept
+{
+  if (n_heads == 0uz || d_model == 0uz || (d_model % n_heads) != 0uz)
+    return;
+  const std::size_t head_width = d_model / n_heads;
+  const std::size_t seq = position + 1uz;
+  if (query.size() < d_model || keys.size() < seq * d_model || values.size() < seq * d_model ||
+      scores.size() < seq || attended.size() < d_model)
+    return;
+  const float inverse_scale = 1.0F / std::sqrt(static_cast<float>(head_width));
+  for (std::size_t head{}; head < n_heads; ++head) {
+    const std::size_t offset = head * head_width;
+    for (std::size_t token{}; token < seq; ++token) {
+      const float* const key = keys.data() + (token * d_model) + offset;
+      float dot{};
+      for (std::size_t channel{}; channel < head_width; ++channel)
+        dot += query[offset + channel] * key[channel];
+      scores[token] =
+          (!attention_mask.empty() && token < attention_mask.size() && attention_mask[token] == 0u)
+              ? -std::numeric_limits<float>::infinity()
+              : dot * inverse_scale;
+    }
+    softmax(scores.first(seq));
+    for (std::size_t channel{}; channel < head_width; ++channel) {
+      float sum{};
+      for (std::size_t token{}; token < seq; ++token)
+        sum += scores[token] * values[(token * d_model) + offset + channel];
+      attended[offset + channel] = sum;
+    }
+  }
+}
+
 // Round F32 values to BF16-representable F32 (round-to-nearest-even).
 inline void round_to_bf16(std::span<float> values) noexcept
 {
