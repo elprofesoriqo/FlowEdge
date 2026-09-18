@@ -1,0 +1,27 @@
+{
+  "checkpoint": "models/diffusion_pusht.flowedge.safetensors",
+  "cuda_device": "NVIDIA GeForce GTX 1650",
+  "device": "cuda",
+  "elapsed_ms": 12983.439194,
+  "evaluation_kind": "edge_dp_rollout",
+  "limitations": [
+    "Synthetic encoded-condition smoke; RGB encoder stays in LeRobot for input_mode=visual.",
+    "missed_deadlines counts per-call overruns against --period-ms, not closed-loop task success.",
+    "Not Jetson/ARM. Not TensorRT/ONNX."
+  ],
+  "machine": "x86_64",
+  "max_ms": 1795.201758,
+  "missed_deadlines": 20,
+  "on_miss": "hold",
+  "p50_ms": 588.981097,
+  "p99_ms": 1570.6427985999985,
+  "peak_rss_bytes": 2042609664,
+  "period_ms": 10.0,
+  "platform": "Linux-5.15.153.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "processor": "Intel(R) Core(TM) i7-9750H CPU @ 2.60GHz",
+  "python": "3.12.3",
+  "startup_ms": 30214.536573999794,
+  "steps": 20,
+  "stopped": true,
+  "threads": 1
+}

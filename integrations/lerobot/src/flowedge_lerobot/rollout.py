@@ -58,11 +58,13 @@ def run_rollout(
     scheduler: str = "ddim",
     period_ms: float | None = None,
     on_miss: str = "hold",
+    sync=None,
 ) -> RolloutResult:
     """Run a bounded single-action loop suitable for SO-100/SO-101 integration shims.
 
     ``encode_condition`` is injected so LeRobot owns camera/state feature encoding and
-    normalization. ``stop`` is always called, including when an operation fails.
+    normalization. ``sync`` runs after sampling so CUDA miss counts include device work.
+    ``stop`` is always called, including when an operation fails.
 
     Joint limits and emergency-stop stay in the robot adapter. On a missed
     ``period_ms`` the plugin emits the last sent action (``hold``), skips
@@ -102,6 +104,8 @@ def run_rollout(
                 scheduler=scheduler,
                 seed=seed + completed,
             )
+            if sync is not None:
+                sync()
             elapsed_ns = perf_counter_ns() - step_start
             late = deadline_ns is not None and elapsed_ns > deadline_ns
             if late:

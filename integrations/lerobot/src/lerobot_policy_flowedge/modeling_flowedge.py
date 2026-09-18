@@ -29,13 +29,23 @@ class FlowEdgePolicy(PreTrainedPolicy):
             raise ValueError("action feature disagrees with converted checkpoint")
         self._encoder = None
         if config.input_mode == "visual":
+            from flowedge_lerobot.device import config_device, require_native_device
             from flowedge_lerobot.observation import (
                 DiffusionObservationEncoder,
                 validate_source_pair,
             )
 
+            device = config_device(config)
+            if str(device).startswith("cuda"):
+                import flowedge
+
+                require_native_device("cuda", flowedge)
+                if not torch.cuda.is_available():
+                    raise RuntimeError("CUDA requested but torch.cuda is unavailable")
             validate_source_pair(config.checkpoint_path, config.source_checkpoint_path)
-            self._encoder = DiffusionObservationEncoder(config.source_checkpoint_path)
+            self._encoder = DiffusionObservationEncoder(
+                config.source_checkpoint_path, device=device
+            )
             source = self._encoder.config
             if (
                 source.horizon != self._policy.metadata.horizon

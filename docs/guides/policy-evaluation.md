@@ -101,3 +101,16 @@ allocate and is subject to OS and GIL scheduling.
 
 `flowedge-lerobot-rollout` remains a synthetic integration smoke test. Its
 `missed_deadlines` counts per-call overruns, not periodic deadline misses.
+
+CUDA Core rollout uses the same `--on-miss hold|drop|raise` contract. Fail closed
+if FlowEdge was not built with `FLOWEDGE_BACKEND=cuda`. The RGB encoder stays in
+LeRobot (`input_mode=visual`, `device=cuda`); Core still sees a host condition.
+Do not treat a desktop GPU JSON as Jetson/ARM evidence. On GTX 1650 a 10 ms
+period missed 20 / 20 steps (step p50 589 ms); that is a miss log, not a
+success-rate claim.
+
+```bash
+python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 20 --threads 1 --period-ms 10 --on-miss hold --device cuda --host-facts \
+  --output bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.json
+```

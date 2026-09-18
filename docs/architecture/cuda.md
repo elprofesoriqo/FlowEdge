@@ -27,7 +27,9 @@ Same checkpoint, same noise: compare those binaries to CPU `flow_sample` /
 `diffusion_sample`. Matched full-policy CUDA vs PyTorch CUDA on GTX 1650 is
 {download}`diffusion-pusht-cuda-replay.md <../../bench/artifacts/policy/diffusion-pusht-cuda-replay.md>`:
 policy p50 420 ms vs 346 ms, max abs 4.58e-5, same CPU observation file.
-Not TensorRT/ONNX. Not Jetson/ARM.
+The LeRobot CUDA period log is
+{download}`diffusion-pusht-cuda-period10-hold.md <../../bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.md>`:
+10 ms hold missed 20 / 20 (step p50 589 ms). Not TensorRT/ONNX. Not Jetson/ARM.
 
 WSL2, nvcc 12.0, GTX 1650 (`sm_75`): `FlowHead.*` and `DiffusionHead.*` including
 `CudaResidentDoesNotMallocAfterLoad` pass. Same `mamba_flow` checkpoint and
@@ -40,4 +42,6 @@ See [#160](https://github.com/elprofesoriqo/FlowEdge/issues/160). Device-residen
 flow is [#161](https://github.com/elprofesoriqo/FlowEdge/issues/161); device-resident
 DDIM is [#162](https://github.com/elprofesoriqo/FlowEdge/issues/162); matched GPU
 replay [#163](https://github.com/elprofesoriqo/FlowEdge/issues/163); LeRobot CUDA
-[#164](https://github.com/elprofesoriqo/FlowEdge/issues/164).
+rollout is `--device cuda` on `flowedge-lerobot-rollout` with the same
+`--on-miss` contract ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)).
+The RGB encoder stays in LeRobot. Not Jetson/ARM.

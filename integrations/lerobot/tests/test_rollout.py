@@ -59,6 +59,20 @@ class RolloutTests(unittest.TestCase):
         self.assertGreaterEqual(result.p99_ms, result.p50_ms)
         self.assertEqual(result.missed_deadlines, 0)
 
+    def test_sync_runs_after_each_sample(self):
+        robot = FakeRobot()
+        policy = FlowEdgeDiffusionPolicy(FakeEngine())
+        calls = []
+        run_rollout(
+            policy,
+            robot,
+            lambda observation: observation,
+            steps=2,
+            seed=7,
+            sync=lambda: calls.append(1),
+        )
+        self.assertEqual(calls, [1, 1])
+
     def test_stop_runs_when_encoding_fails(self):
         robot = FakeRobot()
         policy = FlowEdgeDiffusionPolicy(FakeEngine())

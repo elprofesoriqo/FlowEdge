@@ -79,6 +79,15 @@ NVIDIA GeForce GTX 1650 is the headline, not `threads=1`. Same observation file 
 
 A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the PyTorch U-Net. PyTorch CUDA is faster on this device; the CPU `threads=1` 851 vs 1409 ms figure is unchanged.
 
+{download}`CUDA period 10 ms hold <../bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.md>`
+· [JSON](../bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.json)
+
+| Period | On miss | Misses | Step p50 / p99 / max |
+|---|---|---:|---|
+| 10 ms | hold | 20 / 20 | 589 / 1571 / 1795 ms |
+
+Synthetic encoded zeros, no warmup, GTX 1650. Miss counts, not task success. Not Jetson/ARM.
+
 ### How to get them
 
 ```bash
@@ -107,6 +116,14 @@ python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors 
   --observations bench/artifacts/policy/diffusion-pusht-cpu-replay.observations.npz \
   --build-dir /path/to/cuda-build \
   --output bench/artifacts/policy/diffusion-pusht-cuda-replay.json
+```
+
+CUDA Core period loop (same `--on-miss` contract; miss counts, not a policy p50):
+
+```bash
+python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetensors \
+  --steps 20 --threads 1 --period-ms 10 --on-miss hold --device cuda --host-facts \
+  --output bench/artifacts/policy/diffusion-pusht-cuda-period10-hold.json
 ```
 
 ## Flow matching
