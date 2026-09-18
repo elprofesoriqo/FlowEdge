@@ -43,4 +43,4 @@ JSON + Markdown together. Reference is LeRobot/PyTorch; candidate is FlowEdge na
 | Zero hot allocations | Native path instrumentation |
 | Hardware result | Artifact names the board |
 
-**CPU available · Tenstorrent planned · CUDA planned**.
+**CPU available · CUDA linking TU (heads still CPU) · Tenstorrent planned**.

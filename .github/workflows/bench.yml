@@ -1,0 +1,83 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cpu:
+    name: CPU kernels
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND=cpu
+      - name: Build
+        run: cmake --build build --config Release -j 4 --target flowedge_kernels_bench
+      - name: Kernel microbench
+        run: |
+          ./build/flowedge_kernels_bench \
+            --benchmark_filter='BM_silu|BM_matmul_x_proj|BM_rmsnorm|BM_conv1d_causal' \
+            --benchmark_min_time=0.05s \
+            --benchmark_format=json \
+            --benchmark_out=bench-cpu.json
+      - name: Job summary
+        run: python scripts/bench_summary.py bench-cpu.json "CPU kernels" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-cpu-json
+          path: bench-cpu.json
+
+  gpu:
+    name: GPU kernels
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Detect NVIDIA GPU
+        id: gpu
+        run: |
+          if command -v nvidia-smi >/dev/null && nvidia-smi; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### GPU kernels"
+              echo
+              echo "No NVIDIA GPU on this runner (\`nvidia-smi\` missing or failed). CUDA benches skipped."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Configure CUDA
+        if: steps.gpu.outputs.present == 'true'
+        run: cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BENCH=ON -DFLOWEDGE_BACKEND=cuda
+      - name: Build CUDA
+        if: steps.gpu.outputs.present == 'true'
+        run: cmake --build build-cuda --config Release -j 4 --target flowedge_kernels_bench
+      - name: CUDA microbench
+        if: steps.gpu.outputs.present == 'true'
+        run: |
+          ./build-cuda/flowedge_kernels_bench \
+            --benchmark_filter='BM_silu|BM_matmul_x_proj|BM_rmsnorm' \
+            --benchmark_min_time=0.05s \
+            --benchmark_format=json \
+            --benchmark_out=bench-gpu.json
+      - name: GPU job summary
+        if: steps.gpu.outputs.present == 'true'
+        run: python scripts/bench_summary.py bench-gpu.json "GPU kernels" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: steps.gpu.outputs.present == 'true'
+        with:
+          name: bench-gpu-json
+          path: bench-gpu.json
