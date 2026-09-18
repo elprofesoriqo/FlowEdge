@@ -203,21 +203,19 @@ int main(int argc, char** argv)
   report("upsample 1024 k-major", upsample(1024uz, 4uz, 8uz, true), 10);
   report("upsample 512 k-major", upsample(512uz, 8uz, 16uz, true), 10);
 
-  report(
-      "group_norm 2048 L4",
-      [&] {
-        DeviceBuffer x{2048uz * 4uz};
-        DeviceBuffer w{2048uz, 1.0F};
-        DeviceBuffer b{2048uz, 0.01F};
-        if (!x.ok() || !w.ok() || !b.ok())
-          return 0.0;
-        return median_us(
-            [&] {
-              fe::cuda_ops::group_norm_device(x.ptr, w.ptr, b.ptr, 2048uz, 4uz, 8uz, 1.0e-5F);
-            },
-            8, 40);
-      }(),
-      80);
+  auto gnorm = [](std::size_t channels, std::size_t length) {
+    DeviceBuffer x{channels * length};
+    DeviceBuffer w{channels, 1.0F};
+    DeviceBuffer b{channels, 0.01F};
+    if (!x.ok() || !w.ok() || !b.ok())
+      return 0.0;
+    return median_us(
+        [&] { fe::cuda_ops::group_norm_device(x.ptr, w.ptr, b.ptr, channels, length, 8uz, 1.0e-5F); },
+        8, 40);
+  };
+  report("group_norm 2048 L4", gnorm(2048uz, 4uz), 80);
+  report("group_norm 512 L16", gnorm(512uz, 16uz), 50);
+  report("group_norm 1024 L8", gnorm(1024uz, 8uz), 40);
   report(
       "mish 8192",
       [&] {
@@ -226,20 +224,18 @@ int main(int argc, char** argv)
           return 0.0;
         return median_us([&] { fe::cuda_ops::mish_device(x.ptr, 8192uz); }, 8, 40);
       }(),
-      310);
-  report(
-      "gemm 4x10240x2048",
-      [&] {
-        DeviceBuffer in{4uz * 10240uz};
-        DeviceBuffer w{2048uz * 10240uz};
-        DeviceBuffer out{4uz * 2048uz};
-        if (!in.ok() || !w.ok() || !out.ok())
-          return 0.0;
-        return median_us(
-            [&] { fe::cuda_ops::matmul_f32_device(in.ptr, w.ptr, out.ptr, 4uz, 10240uz, 2048uz); },
-            4, 12);
-      }(),
-      70);
+      170);
+  auto gemm = [](std::size_t in_dim, std::size_t out_dim) {
+    DeviceBuffer in{in_dim};
+    DeviceBuffer w{out_dim * in_dim};
+    DeviceBuffer out{out_dim};
+    if (!in.ok() || !w.ok() || !out.ok())
+      return 0.0;
+    return median_us(
+        [&] { fe::cuda_ops::matmul_f32_device(in.ptr, w.ptr, out.ptr, 1uz, in_dim, out_dim); }, 8,
+        24);
+  };
+  report("gemm 1x260x4096", gemm(260uz, 4096uz), 40);
 
   if (checkpoint != nullptr) {
     fe_engine* const engine = fe_engine_load_with_threads(checkpoint, 0u);
@@ -260,6 +256,12 @@ int main(int argc, char** argv)
         },
         2, 6);
     report("native DDIM x10", sample_us, 1);
+    fe::cuda_ops::device_census_begin();
+    if (fe_engine_sample_diffusion(engine, condition.data(), noise.data(), 10uz, FE_DIFFUSION_DDIM,
+                                   0u, action.data()) != 0)
+      std::abort();
+    fe::cuda_ops::device_census_end();
+    fe::cuda_ops::device_census_print();
     fe_engine_free(engine);
   }
 

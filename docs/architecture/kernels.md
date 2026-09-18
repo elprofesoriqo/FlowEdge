@@ -24,8 +24,10 @@ after load; `denoise` / `sample` do not `cudaMalloc` after that. Dense Diffusion
 Policy ops (`conv1d`, `conv_transpose1d`, `group_norm`, `mish`, `film`,
 timestep embedding) also live in the CUDA TU as host-span launches. Short
 horizons use a launch that matches `L`; transpose is closed-form; L=4 dense conv
-splits `IC` across a warp. Mamba host `std::span` arguments still copy in and
-out. See [CUDA](cuda).
+splits `IC` across a warp; GroupNorm is one block per group. `flowedge_cuda_dp_mix`
+prints a launch census for one native DDIM so isolate `xN` is the resident mix,
+not a CPU estimate. Mamba host
+`std::span` arguments still copy in and out. See [CUDA](cuda).
 Metal here is Tenstorrent TT-Metal, not Apple. Vulkan remains unimplemented.
 
 The CPU backend splits by ISA. `kernels_avx2.cc`, `kernels_neon.cc`, and

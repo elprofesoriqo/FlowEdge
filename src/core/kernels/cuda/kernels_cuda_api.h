@@ -29,6 +29,9 @@ void discretize_and_scan(const float* delta, const float* a_neg, const float* b,
                          bool reset_state, std::size_t row_stride) noexcept;
 
 [[nodiscard]] std::uint64_t device_malloc_count() noexcept;
+void device_census_begin() noexcept;
+void device_census_end() noexcept;
+void device_census_print() noexcept;
 [[nodiscard]] void* device_alloc(std::size_t bytes) noexcept;
 void device_free(void* ptr) noexcept;
 [[nodiscard]] bool device_copy_h2d(void* dst, const void* src, std::size_t bytes) noexcept;

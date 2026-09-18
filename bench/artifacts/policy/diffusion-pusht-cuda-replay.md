@@ -6,7 +6,7 @@
 
 | Field | Value |
 |---|---|
-| Captured | `2026-09-18T12:52:38.795231+00:00` |
+| Captured | `2026-09-18T13:30:21.434276+00:00` |
 | Model | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
 | Model SHA-256 | `995d14d35db57d95c35ad9704c3d79c8612b7bc45f3877e5c46c2cdc516856a8` |
 | Processor | `lerobot/diffusion_pusht` @ `84a7c23178445c6bbf7e1a884ff497017910f653` |
@@ -27,16 +27,16 @@ Encoder and policy are reported separately. End-to-end includes both and is the 
 
 | Backend | Startup | Encoder p50 / p95 / p99 | Policy p50 / p95 / p99 | E2E p50 / p95 / p99 | Throughput | RSS | Setup / hot allocations |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| flowedge | 31494.321 ms | 6.001 ms / 7.447 ms / 7.492 ms | 153.491 ms / 155.381 ms / 155.475 ms | 159.454 ms / 162.131 ms / 162.520 ms | 6.258 Hz | 3144.398 MiB | not measured / not measured |
-| lerobot | 32203.443 ms | 5.493 ms / 13.240 ms / 14.507 ms | 361.247 ms / 370.623 ms / 370.740 ms | 367.935 ms / 377.494 ms / 377.899 ms | 2.717 Hz | 3144.398 MiB | not measured / not measured |
+| flowedge | 31560.926 ms | 5.585 ms / 12.076 ms / 12.395 ms | 130.828 ms / 133.321 ms / 133.601 ms | 136.322 ms / 143.990 ms / 144.386 ms | 7.241 Hz | 3142.434 MiB | not measured / not measured |
+| lerobot | 31001.945 ms | 5.059 ms / 5.314 ms / 5.329 ms | 345.366 ms / 348.805 ms / 349.324 ms | 350.365 ms / 354.073 ms / 354.612 ms | 2.849 Hz | 3142.434 MiB | not measured / not measured |
 
 ## Relative comparison
 
 | Metric | FlowEdge / LeRobot |
 |---|---:|
-| Policy p50 | 0.425x |
-| End-to-end p50 | 0.433x |
-| Throughput | 2.303x |
+| Policy p50 | 0.379x |
+| End-to-end p50 | 0.389x |
+| Throughput | 2.541x |
 
 ## Commands
 
