@@ -72,23 +72,23 @@ struct TransformerFixture
   static constexpr std::size_t kMaxSeq{4uz};
   static constexpr std::size_t kMlp{8uz};
 
-  std::vector<float> config_{6uz};
+  std::vector<float> config_;
   std::vector<float> token_;
   std::vector<float> position_;
-  std::vector<float> ln1_w_{kModel, 1.0F};
-  std::vector<float> ln1_b_{kModel, 0.0F};
+  std::vector<float> ln1_w_;
+  std::vector<float> ln1_b_;
   std::vector<float> qkv_;
-  std::vector<float> qkv_b_{3uz * kModel, 0.0F};
+  std::vector<float> qkv_b_;
   std::vector<float> attn_out_;
-  std::vector<float> attn_out_b_{kModel, 0.0F};
-  std::vector<float> ln2_w_{kModel, 1.0F};
-  std::vector<float> ln2_b_{kModel, 0.0F};
+  std::vector<float> attn_out_b_;
+  std::vector<float> ln2_w_;
+  std::vector<float> ln2_b_;
   std::vector<float> mlp_in_;
-  std::vector<float> mlp_in_b_{kMlp, 0.0F};
+  std::vector<float> mlp_in_b_;
   std::vector<float> mlp_out_;
-  std::vector<float> mlp_out_b_{kModel, 0.0F};
-  std::vector<float> final_w_{kModel, 1.0F};
-  std::vector<float> final_b_{kModel, 0.0F};
+  std::vector<float> mlp_out_b_;
+  std::vector<float> final_w_;
+  std::vector<float> final_b_;
   std::vector<std::byte> slab = std::vector<std::byte>(1uz << 20);
   fe::Arena arena{std::span<std::byte>{slab}};
 
@@ -102,10 +102,20 @@ struct TransformerFixture
         token_[(token * kModel) + channel] =
             static_cast<float>(token + 1uz) * 0.1F + static_cast<float>(channel) * 0.01F;
     position_.assign(kMaxSeq * kModel, 0.0F);
+    ln1_w_.assign(kModel, 1.0F);
+    ln1_b_.assign(kModel, 0.0F);
     fill_stacked_identity(qkv_, 3uz, kModel);
+    qkv_b_.assign(3uz * kModel, 0.0F);
     fill_identity(attn_out_, kModel, kModel);
+    attn_out_b_.assign(kModel, 0.0F);
+    ln2_w_.assign(kModel, 1.0F);
+    ln2_b_.assign(kModel, 0.0F);
     mlp_in_.assign(kMlp * kModel, 0.0F);
+    mlp_in_b_.assign(kMlp, 0.0F);
     mlp_out_.assign(kModel * kMlp, 0.0F);
+    mlp_out_b_.assign(kModel, 0.0F);
+    final_w_.assign(kModel, 1.0F);
+    final_b_.assign(kModel, 0.0F);
   }
 
   std::vector<fe::TensorView> views()
