@@ -51,6 +51,27 @@ python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors 
   --output bench/artifacts/policy/diffusion-pusht-report.json
 ```
 
+CUDA matched replay uses the same observations, processor, noise, and DDIM
+schedule, with FlowEdge CUDA Core against PyTorch CUDA. `threads=1` is not the
+GPU headline; the artifact records the CUDA device name. Reuse the CPU fixture
+when you want the same observation file. On a 4GB card the runner frees the
+FlowEdge engine before loading the PyTorch U-Net, so both U-Nets are not
+device-resident together:
+
+```bash
+python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors \
+  --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
+  --steps 10 --iterations 10 --warmup 2 --threads 1 --device cuda \
+  --observations bench/artifacts/policy/diffusion-pusht-cpu-replay.observations.npz \
+  --build-dir /path/to/cuda-build \
+  --output bench/artifacts/policy/diffusion-pusht-cuda-replay.json
+```
+
+Fail closed if `torch.cuda` is missing or FlowEdge was not built with
+`FLOWEDGE_BACKEND=cuda`. Do not invent a GPU p50, do not compare TensorRT/ONNX
+unless those runs are also matched, and do not treat a desktop GPU JSON as
+Jetson/ARM evidence.
+
 The runner alternates execution order and checks actions against the upstream LeRobot
 PyTorch U-Net and diffusers DDIM scheduler. It saves raw timings, source/converted/config hashes,
 processor statistics, versions, and replay observations. End-to-end means preprocessing

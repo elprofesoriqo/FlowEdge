@@ -25,6 +25,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument(
+        "--observations",
+        type=Path,
+        help="reuse a previously captured observations.npz instead of gym-pusht",
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument(
@@ -63,11 +69,15 @@ def main(argv: list[str] | None = None) -> int:
         str(args.warmup),
         "--threads",
         str(args.threads),
+        "--device",
+        args.device,
         "--seed",
         str(args.seed),
         "--output",
         str(args.output),
     ]
+    if args.observations is not None:
+        benchmark_args.extend(["--observations", str(args.observations)])
     subprocess.run(benchmark_args, check=True, env=environment)
 
     report = args.output.with_suffix(".md")

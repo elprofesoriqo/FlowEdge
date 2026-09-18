@@ -52,7 +52,8 @@ python -m flowedge_dev pipeline convert models/diffusion_pusht \
 
 `FLOWEDGE_BACKEND=cuda` keeps the U-Net and DDIM scratch on device after load.
 Compare that `diffusion_sample` binary to a CPU build on the same checkpoint and
-noise. Do not publish a CUDA vs PyTorch policy p50.
+noise. Matched CUDA vs PyTorch CUDA policy p50 on GTX 1650 is 420 ms vs 346 ms
+([Performance](../performance.md)).
 
 For a non-standard processor filename, pass it explicitly with
 `--processor path/to/policy_postprocessor.json`. Observation preprocessing

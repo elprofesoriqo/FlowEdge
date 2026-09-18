@@ -63,6 +63,22 @@ CPU. `threads=1` is the fair compare. Lower latency is better.
 | 4 workers | 567 ms |
 | 6 workers | 565 ms |
 
+## CUDA Diffusion Policy
+
+NVIDIA GeForce GTX 1650 is the headline, not `threads=1`. Same observation file as the CPU replay. Not TensorRT/ONNX. Not Jetson/ARM.
+
+{download}`CUDA replay <../bench/artifacts/policy/diffusion-pusht-cuda-replay.md>`
+· [JSON](../bench/artifacts/policy/diffusion-pusht-cuda-replay.json)
+
+| | FlowEdge CUDA | PyTorch CUDA |
+|---|---:|---:|
+| Policy p50 | **420 ms** | **346 ms** |
+| Preprocess-to-chunk p50 | 425 ms | 352 ms |
+| Max abs action error | 4.58e-5 | — |
+| FlowEdge / LeRobot | 1.21× | |
+
+A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the PyTorch U-Net. PyTorch CUDA is faster on this device; the CPU `threads=1` 851 vs 1409 ms figure is unchanged.
+
 ### How to get them
 
 ```bash
@@ -80,6 +96,17 @@ cmake --build build-diffusion-perf --target flowedge_kernels_bench -j2
 ./build-diffusion-perf/flowedge_kernels_bench \
   --benchmark_filter='BM_diffusion_' --benchmark_min_time=0.2s \
   --benchmark_repetitions=5 --benchmark_report_aggregates_only=true
+```
+
+CUDA matched replay (WSL, `FLOWEDGE_BACKEND=cuda`, PyTorch CUDA):
+
+```bash
+python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors \
+  --source models/diffusion_pusht --revision 84a7c23178445c6bbf7e1a884ff497017910f653 \
+  --steps 10 --iterations 10 --warmup 2 --threads 1 --device cuda \
+  --observations bench/artifacts/policy/diffusion-pusht-cpu-replay.observations.npz \
+  --build-dir /path/to/cuda-build \
+  --output bench/artifacts/policy/diffusion-pusht-cuda-replay.json
 ```
 
 ## Flow matching

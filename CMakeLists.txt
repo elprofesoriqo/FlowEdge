@@ -189,7 +189,12 @@ if(FLOWEDGE_PYTHON)
     FetchContent_MakeAvailable(pybind11)
   endif()
 
-  pybind11_add_module(flowedge python/flowedge_ext.cc)
+  # nvcc device-link LTO bytecode is not compatible with host GCC -flto.
+  if(FLOWEDGE_BACKEND STREQUAL "cuda")
+    pybind11_add_module(flowedge NO_EXTRAS python/flowedge_ext.cc)
+  else()
+    pybind11_add_module(flowedge python/flowedge_ext.cc)
+  endif()
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MSVC)
     target_compile_options(flowedge PRIVATE -pthread)
   endif()

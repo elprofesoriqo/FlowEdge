@@ -18,9 +18,9 @@ python -m flowedge_dev bench policy models/policy.safetensors \
   --output bench/artifacts/policy/diffusion-pusht-report.json
 ```
 
-The published replay used `--threads 1`. To compare a four-thread host, pass
-`--threads 4` on the same command; PyTorch uses the same budget. Do not mix
-thread counts across backends.
+The published CPU replay used `--threads 1`. CUDA matched replay uses
+`--device cuda` and records the CUDA device name; `threads=1` is not the GPU
+headline. Do not mix thread counts or devices across backends.
 
 | Output | Includes |
 |---|---|
