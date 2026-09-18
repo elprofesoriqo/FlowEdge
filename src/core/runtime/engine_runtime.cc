@@ -2,6 +2,9 @@
 
 #include "protocol/contracts.h"
 #include "protocol/snapshot.h"
+#ifdef FLOWEDGE_CUDA
+#include "models/mamba/mamba_cuda.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -95,6 +98,8 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
           : 0uz;
   const std::size_t flow_floats =
       has_flow ? (3uz * flow_hidden) + (6uz * action_dim) + ((3uz * flow_time_dim) / 2uz) : 0uz;
+  const auto x_proj = shape("backbone.layers.0.mixer.x_proj.weight");
+  const std::size_t mamba_x_out = x_proj[0];
 #ifdef FLOWEDGE_CUDA
   const std::size_t flow_cond_dim = shape("flow.cond_proj.weight")[1];
   const std::size_t flow_upload =
@@ -102,13 +107,22 @@ std::size_t EngineRuntime::required_slab_bytes(const ModelWeights& weights) noex
                      (flow_hidden * flow_cond_dim) + (action_dim * flow_hidden) +
                      (FlowHead::kMaxMlp * flow_hidden * flow_hidden) + (flow_time_dim / 2uz) + 64uz
                : 0uz;
+  const std::size_t mamba_dt_rank =
+      mamba_x_out > (2uz * d_state) ? mamba_x_out - (2uz * d_state) : 0uz;
+  const std::size_t mamba_upload =
+      has_backbone ? (sizeof(CudaMambaResident) / sizeof(float)) + 64uz +
+                         (64uz * ((2uz * d_inner * d_model) + (mamba_x_out * d_inner) +
+                                  (d_inner * mamba_dt_rank) + (d_model * d_inner)))
+                   : 0uz;
 #else
   const std::size_t flow_upload = 0uz;
+  const std::size_t mamba_upload = 0uz;
 #endif
   const std::size_t runtime =
       (kThreadRingSlots * sizeof(Task)) + (kThreadRingSlots * sizeof(std::size_t)) +
       (kMaxPoolThreads * sizeof(std::jthread)) + sizeof(ThreadPool) +
-      ((flow_floats + flow_upload + diffusion_workspace + diffusion_persistent) * sizeof(float)) +
+      ((flow_floats + flow_upload + mamba_upload + diffusion_workspace + diffusion_persistent) *
+       sizeof(float)) +
       persistent_state + transformer_persistent + transformer_scratch +
       // The captured-VLM SmolVLA path needs the action-expert projections,
       // attention buffers, and two SwiGLU intermediates concurrently. Keep a
@@ -210,8 +224,10 @@ EngineRuntime::EngineRuntime(std::shared_ptr<const ModelWeights> weights, std::s
   flow_.set_pool(pool_);
   diffusion_.set_pool(pool_);
   if (model_.valid())
-    if (auto* const state = arena_.alloc_array<float, kSimdAlign>(model_.state_size()))
+    if (auto* const state = arena_.alloc_array<float, kSimdAlign>(model_.state_size())) {
       decode_state_ = {state, model_.state_size()};
+      std::ranges::fill(decode_state_, 0.0F);
+    }
   if (flow_.valid())
     if (auto* const workspace =
             arena_.alloc_array<float, kSimdAlign>(flow_.sampler_workspace_size()))

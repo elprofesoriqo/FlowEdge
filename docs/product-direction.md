@@ -9,7 +9,7 @@ FlowEdge is the boundary between a *trained* policy and *robot* control: convert
 
 | Keep | Leave |
 |---|---|
-| Hardware: CPU now; Jetson/ARM via plugin; CUDA flow and DP heads; matched GPU replay ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)) and CUDA Core period loop ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) on GTX 1650 | Robot e-stop and joint limits |
+| Hardware: CPU now; Jetson/ARM via plugin; CUDA Mamba, flow, and DP heads; matched GPU replay ([#163](https://github.com/elprofesoriqo/FlowEdge/issues/163)) and CUDA Core period loop ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164)) on GTX 1650 | Robot e-stop and joint limits |
 | FlowEdge: flow matching, DP U-Net, Transformer decoder fixture, optional Relay | Training, datasets, graph compilers |
 | LeRobot: plugin, encoders, drivers | Native kernels and the arena |
 

@@ -3,7 +3,7 @@
 One header declares every kernel, and each backend implements it.
 
 ```{image} ../_static/figures/kernels.svg
-:alt: kernels.h dispatching to AVX2, NEON, scalar; CUDA flow and DP heads are device-resident
+:alt: kernels.h dispatching to AVX2, NEON, scalar; CUDA Mamba, flow, and DP heads are device-resident
 :class: fe-fig
 ```
 

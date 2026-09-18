@@ -341,6 +341,91 @@ __global__ void add_bias_kernel(float* x, const float* bias, int n)
   x[i] += bias[i];
 }
 
+__global__ void add_inplace_kernel(float* x, const float* y, int n)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n)
+    x[i] += y[i];
+}
+
+__global__ void add_bias_rows_kernel(float* x, const float* bias, int rows, int dim)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int n = rows * dim;
+  if (i >= n)
+    return;
+  x[i] += bias[i % dim];
+}
+
+__global__ void split_xz_kernel(const float* xz, float* x_cm, float* z, int length, int d_inner)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int c = blockIdx.y * blockDim.y + threadIdx.y;
+  if (t >= length || c >= d_inner)
+    return;
+  const std::size_t row = static_cast<std::size_t>(t) * static_cast<std::size_t>(2 * d_inner);
+  x_cm[(static_cast<std::size_t>(c) * static_cast<std::size_t>(length)) + t] = xz[row + c];
+  z[(static_cast<std::size_t>(t) * static_cast<std::size_t>(d_inner)) + c] =
+      xz[row + static_cast<std::size_t>(d_inner) + c];
+}
+
+__global__ void channel_to_seq_kernel(const float* x_cm, float* x_sm, int length, int d_inner)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int c = blockIdx.y * blockDim.y + threadIdx.y;
+  if (t >= length || c >= d_inner)
+    return;
+  x_sm[(static_cast<std::size_t>(t) * static_cast<std::size_t>(d_inner)) + c] =
+      x_cm[(static_cast<std::size_t>(c) * static_cast<std::size_t>(length)) + t];
+}
+
+__global__ void gather_prefix_kernel(const float* rows, float* out, int length, int row_stride,
+                                     int width)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  const int k = blockIdx.y * blockDim.y + threadIdx.y;
+  if (t >= length || k >= width)
+    return;
+  out[(static_cast<std::size_t>(t) * static_cast<std::size_t>(width)) + k] =
+      rows[(static_cast<std::size_t>(t) * static_cast<std::size_t>(row_stride)) + k];
+}
+
+__global__ void conv_shift_push_kernel(float* window, const float* xz, float* z, int channels,
+                                       int kernel)
+{
+  const int c = blockIdx.x * blockDim.x + threadIdx.x;
+  if (c >= channels)
+    return;
+  float* w = window + (static_cast<std::size_t>(c) * static_cast<std::size_t>(kernel));
+  for (int k = 0; k < kernel - 1; ++k)
+    w[k] = w[k + 1];
+  w[kernel - 1] = xz[c];
+  z[c] = xz[channels + c];
+}
+
+__global__ void discretize_and_scan_kernel(const float* delta, const float* a_neg, const float* b,
+                                           const float* u, const float* c_proj, const float* d_skip,
+                                           float* h, float* y, int length, int d_inner, int d_state,
+                                           int row_stride)
+{
+  const int c = blockIdx.x * blockDim.x + threadIdx.x;
+  if (c >= d_inner)
+    return;
+  for (int t = 0; t < length; ++t) {
+    const float dt = delta[(static_cast<std::size_t>(t) * static_cast<std::size_t>(d_inner)) + c];
+    const float ut = u[(static_cast<std::size_t>(t) * static_cast<std::size_t>(d_inner)) + c];
+    float yt = d_skip[c] * ut;
+    const std::size_t brow = static_cast<std::size_t>(t) * static_cast<std::size_t>(row_stride);
+    for (int n = 0; n < d_state; ++n) {
+      const std::size_t hc = (static_cast<std::size_t>(n) * static_cast<std::size_t>(d_inner)) + c;
+      const float da = expf(dt * a_neg[hc]);
+      h[hc] = (da * h[hc]) + (dt * b[brow + n] * ut);
+      yt += h[hc] * c_proj[brow + n];
+    }
+    y[(static_cast<std::size_t>(t) * static_cast<std::size_t>(d_inner)) + c] = yt;
+  }
+}
+
 __global__ void layout_horizon_to_channel_kernel(const float* in, float* out, int horizon,
                                                  int action_dim)
 {
@@ -916,6 +1001,128 @@ void ddpm_update_device(float* x, const float* eps, const float* noise, std::siz
   ddpm_update_kernel<<<grid(static_cast<int>(n)), 256>>>(
       x, eps, noise, static_cast<int>(n), sqrt_alpha_t, sqrt_beta_t, original_coefficient,
       sample_coefficient, sqrt_variance, clip ? 1 : 0, clip_range);
+}
+
+void rmsnorm_device(const float* in, const float* weight, float* out, std::size_t rows,
+                    std::size_t dim) noexcept
+{
+  if (rows == 0 || dim == 0 || in == nullptr || weight == nullptr || out == nullptr)
+    return;
+  rmsnorm_kernel<<<grid(static_cast<int>(rows)), 256>>>(in, weight, out, static_cast<int>(rows),
+                                                        static_cast<int>(dim));
+}
+
+void conv1d_causal_device(const float* x, const float* weight, const float* bias, float* y,
+                          std::size_t channels, std::size_t length, std::size_t kernel) noexcept
+{
+  if (channels == 0 || length == 0 || kernel == 0 || x == nullptr || weight == nullptr ||
+      bias == nullptr || y == nullptr)
+    return;
+  conv1d_causal_kernel<<<grid(static_cast<int>(channels)), 256>>>(
+      x, weight, bias, y, static_cast<int>(channels), static_cast<int>(length),
+      static_cast<int>(kernel));
+}
+
+void conv1d_step_device(const float* window, const float* weight, const float* bias, float* y,
+                        std::size_t channels, std::size_t kernel) noexcept
+{
+  if (channels == 0 || kernel == 0 || window == nullptr || weight == nullptr || bias == nullptr ||
+      y == nullptr)
+    return;
+  conv1d_step_kernel<<<grid(static_cast<int>(channels)), 256>>>(
+      window, weight, bias, y, static_cast<int>(channels), static_cast<int>(kernel));
+}
+
+void softplus_device(float* x, std::size_t n) noexcept
+{
+  if (n == 0 || x == nullptr)
+    return;
+  softplus_kernel<<<grid(static_cast<int>(n)), 256>>>(x, static_cast<int>(n));
+}
+
+void gate_silu_device(const float* a, const float* g, float* out, std::size_t n) noexcept
+{
+  if (n == 0 || a == nullptr || g == nullptr || out == nullptr)
+    return;
+  gate_silu_kernel<<<grid(static_cast<int>(n)), 256>>>(a, g, out, static_cast<int>(n));
+}
+
+void add_inplace_device(float* x, const float* y, std::size_t n) noexcept
+{
+  if (n == 0 || x == nullptr || y == nullptr)
+    return;
+  add_inplace_kernel<<<grid(static_cast<int>(n)), 256>>>(x, y, static_cast<int>(n));
+}
+
+void add_bias_rows_device(float* x, const float* bias, std::size_t rows, std::size_t dim) noexcept
+{
+  if (rows == 0 || dim == 0 || x == nullptr || bias == nullptr)
+    return;
+  add_bias_rows_kernel<<<grid(static_cast<int>(rows * dim)), 256>>>(x, bias, static_cast<int>(rows),
+                                                                    static_cast<int>(dim));
+}
+
+void split_xz_device(const float* xz, float* x_cm, float* z, std::size_t length,
+                     std::size_t d_inner) noexcept
+{
+  if (length == 0 || d_inner == 0 || xz == nullptr || x_cm == nullptr || z == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((length + 15) / 16),
+                static_cast<unsigned>((d_inner + 15) / 16));
+  split_xz_kernel<<<grid_dim, block>>>(xz, x_cm, z, static_cast<int>(length),
+                                       static_cast<int>(d_inner));
+}
+
+void channel_to_seq_device(const float* x_cm, float* x_sm, std::size_t length,
+                           std::size_t d_inner) noexcept
+{
+  if (length == 0 || d_inner == 0 || x_cm == nullptr || x_sm == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((length + 15) / 16),
+                static_cast<unsigned>((d_inner + 15) / 16));
+  channel_to_seq_kernel<<<grid_dim, block>>>(x_cm, x_sm, static_cast<int>(length),
+                                             static_cast<int>(d_inner));
+}
+
+void gather_prefix_device(const float* rows, float* out, std::size_t length, std::size_t row_stride,
+                          std::size_t width) noexcept
+{
+  if (length == 0 || width == 0 || rows == nullptr || out == nullptr)
+    return;
+  dim3 block(16, 16);
+  dim3 grid_dim(static_cast<unsigned>((length + 15) / 16),
+                static_cast<unsigned>((width + 15) / 16));
+  gather_prefix_kernel<<<grid_dim, block>>>(rows, out, static_cast<int>(length),
+                                            static_cast<int>(row_stride), static_cast<int>(width));
+}
+
+void conv_shift_push_device(float* window, const float* xz, float* z, std::size_t channels,
+                            std::size_t kernel) noexcept
+{
+  if (channels == 0 || kernel == 0 || window == nullptr || xz == nullptr || z == nullptr)
+    return;
+  conv_shift_push_kernel<<<grid(static_cast<int>(channels)), 256>>>(
+      window, xz, z, static_cast<int>(channels), static_cast<int>(kernel));
+}
+
+void discretize_and_scan_device(const float* delta, const float* a_neg, const float* b,
+                                const float* u, const float* c_proj, const float* d_skip, float* h,
+                                float* y, std::size_t length, std::size_t d_inner,
+                                std::size_t d_state, bool reset_state,
+                                std::size_t row_stride) noexcept
+{
+  if (length == 0 || d_inner == 0 || d_state == 0 || delta == nullptr || a_neg == nullptr ||
+      b == nullptr || u == nullptr || c_proj == nullptr || d_skip == nullptr || h == nullptr ||
+      y == nullptr)
+    return;
+  row_stride = row_stride == 0 ? d_state : row_stride;
+  if (reset_state)
+    static_cast<void>(cudaMemset(h, 0, d_inner * d_state * sizeof(float)));
+  discretize_and_scan_kernel<<<grid(static_cast<int>(d_inner)), 256>>>(
+      delta, a_neg, b, u, c_proj, d_skip, h, y, static_cast<int>(length), static_cast<int>(d_inner),
+      static_cast<int>(d_state), static_cast<int>(row_stride));
 }
 
 } // namespace fe::cuda_ops

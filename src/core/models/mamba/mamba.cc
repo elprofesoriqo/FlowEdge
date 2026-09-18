@@ -4,10 +4,14 @@
 #include "kernels/span_ops.h"
 #include "loader/tensor_key.h"
 #include "loader/weight_ops.h"
+#ifdef FLOWEDGE_CUDA
+#include "models/mamba/mamba_cuda.h"
+#endif
 
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <span>
 #include <string_view>
@@ -72,6 +76,26 @@ WeightView layer_weight(std::span<const TensorView> ts, std::size_t i, std::stri
   ok = ok && is_matmul_weight(t);
   return weight_view(t);
 }
+
+#ifdef FLOWEDGE_CUDA
+[[nodiscard]] bool host_f32(WeightView weight, std::span<float> out) noexcept
+{
+  if (out.empty() || weight.data == nullptr)
+    return false;
+  if (weight.dtype == TensorView::Dtype::F32) {
+    std::memcpy(out.data(), weight.data, out.size() * sizeof(float));
+    return true;
+  }
+  if (weight.dtype != TensorView::Dtype::BF16)
+    return false;
+  const auto* bits = static_cast<const std::uint16_t*>(weight.data);
+  for (std::size_t i{}; i < out.size(); ++i) {
+    const std::uint32_t wide = static_cast<std::uint32_t>(bits[i]) << 16u;
+    std::memcpy(&out[i], &wide, sizeof(float));
+  }
+  return true;
+}
+#endif
 
 } // namespace
 
@@ -151,6 +175,60 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
   }
   cfg_.n_layers = n;
   ok_ = n > 0uz;
+#ifdef FLOWEDGE_CUDA
+  if (!ok_)
+    return;
+  static_assert(Mamba::kMaxLayers == CudaMambaResident::kMaxLayers);
+  void* const storage = scratch.alloc<alignof(CudaMambaResident)>(sizeof(CudaMambaResident));
+  if (storage == nullptr) {
+    ok_ = false;
+    return;
+  }
+  std::memset(storage, 0, sizeof(CudaMambaResident));
+  cuda_ = static_cast<CudaMambaResident*>(storage);
+  std::byte* const upload_mark = scratch.mark();
+  const auto copy = [&](WeightView weight, std::size_t count) noexcept -> const float* {
+    const std::span<float> host = scratch.alloc_span<float, kSimdAlign>(count);
+    if (host.size() != count || !host_f32(weight, host))
+      return nullptr;
+    return host.data();
+  };
+  std::array<CudaMambaResident::LayerHost, CudaMambaResident::kMaxLayers> hosts{};
+  bool layers_ok = true;
+  for (std::size_t i{}; i < cfg_.n_layers; ++i) {
+    const Layer& lw = layers_[i];
+    auto& host = hosts[i];
+    host.norm = lw.norm;
+    host.in_proj = copy(lw.in_proj, 2uz * cfg_.d_inner * cfg_.d_model);
+    host.conv_w = lw.conv_w;
+    host.conv_b = lw.conv_b;
+    host.x_proj = copy(lw.x_proj, (cfg_.dt_rank + (2uz * cfg_.d_state)) * cfg_.d_inner);
+    host.dt_w = copy(lw.dt_w, cfg_.d_inner * cfg_.dt_rank);
+    host.dt_b = lw.dt_b;
+    host.a_neg = lw.a_neg;
+    host.d = lw.d;
+    host.out_proj = copy(lw.out_proj, cfg_.d_model * cfg_.d_inner);
+    layers_ok = layers_ok && host.in_proj != nullptr && host.x_proj != nullptr &&
+                host.dt_w != nullptr && host.out_proj != nullptr && host.norm != nullptr &&
+                host.conv_w != nullptr && host.conv_b != nullptr && host.a_neg != nullptr &&
+                host.d != nullptr && host.dt_b != nullptr;
+  }
+  if (!layers_ok || !cuda_->load(cfg_.n_layers, cfg_.d_model, cfg_.d_inner, cfg_.d_state,
+                                 cfg_.d_conv, cfg_.dt_rank, norm_f_, hosts)) {
+    cuda_->release();
+    cuda_ = nullptr;
+    ok_ = false;
+  }
+  scratch.reset_to(upload_mark);
+#endif
+}
+
+Mamba::~Mamba()
+{
+#ifdef FLOWEDGE_CUDA
+  if (cuda_ != nullptr)
+    cuda_->release();
+#endif
 }
 
 void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t seq_len) noexcept
@@ -227,11 +305,29 @@ void Mamba::layer_forward(const Layer& lw, std::span<float> hidden, std::size_t 
 void Mamba::forward(std::span<const float> input, std::span<float> output,
                     std::size_t seq_len) noexcept
 {
+#ifdef FLOWEDGE_CUDA
+  if (cuda_ != nullptr && cuda_->forward(input, output, seq_len))
+    return;
+#endif
   const std::size_t hz = seq_len * cfg_.d_model;
   copy_span(input.first(hz), output.first(hz));
   for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
     layer_forward(layers_[layer], output.first(hz), seq_len);
   rmsnorm(output.first(hz), {norm_f_, cfg_.d_model}, output.first(hz), seq_len, cfg_.d_model);
+}
+
+void Mamba::decode(std::span<const float> x, std::span<float> state, std::span<float> out) noexcept
+{
+#ifdef FLOWEDGE_CUDA
+  if (cuda_ != nullptr && cuda_->decode(x, state, out))
+    return;
+#endif
+  const std::size_t dm = cfg_.d_model;
+  copy_span(x.first(dm), out.first(dm));
+  const std::size_t per = cfg_.d_inner * (cfg_.d_conv + cfg_.d_state);
+  for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
+    decode_layer(layers_[layer], out.first(dm), state.subspan(layer * per, per));
+  rmsnorm(out.first(dm), {norm_f_, dm}, out.first(dm), 1uz, dm);
 }
 
 void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<float> lstate) noexcept
@@ -283,16 +379,6 @@ void Mamba::decode_layer(const Layer& lw, std::span<float> hidden, std::span<flo
   add_inplace(hidden, out); // residual
 
   scratch_->reset_to(mark);
-}
-
-void Mamba::decode(std::span<const float> x, std::span<float> state, std::span<float> out) noexcept
-{
-  const std::size_t dm = cfg_.d_model;
-  copy_span(x.first(dm), out.first(dm));
-  const std::size_t per = cfg_.d_inner * (cfg_.d_conv + cfg_.d_state);
-  for (std::size_t layer{0uz}; layer < cfg_.n_layers; ++layer)
-    decode_layer(layers_[layer], out.first(dm), state.subspan(layer * per, per));
-  rmsnorm(out.first(dm), {norm_f_, dm}, out.first(dm), 1uz, dm);
 }
 
 } // namespace fe
