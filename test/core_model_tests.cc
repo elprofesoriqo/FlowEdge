@@ -299,6 +299,31 @@ TEST(Mamba, StreamingStateCanBeSnapshottedAndRestored)
   EXPECT_GT(continuation_delta, 0.0F);
 }
 
+#ifdef FLOWEDGE_CUDA
+TEST(Mamba, CudaResidentDoesNotMallocAfterLoad)
+{
+  ASSERT_TRUE(fe::cuda_ops::device_available());
+  MambaFixture fx;
+  fe::Mamba model{fx.views(), fx.arena};
+  ASSERT_TRUE(model.valid());
+  const auto mallocs = fe::cuda_ops::device_malloc_count();
+  EXPECT_GT(mallocs, 0u);
+  constexpr std::size_t kLength{4uz};
+  const std::vector<float> input = seq(kLength * MambaFixture::kDm, 0.17F, -0.3F);
+  std::vector<float> batch(input.size()), streamed(input.size());
+  std::vector<float> state(model.state_size(), 0.0F);
+  model.forward(input, batch, kLength);
+  for (std::size_t t{0uz}; t < kLength; ++t)
+    model.decode({input.data() + (t * MambaFixture::kDm), MambaFixture::kDm}, state,
+                 {streamed.data() + (t * MambaFixture::kDm), MambaFixture::kDm});
+  EXPECT_EQ(fe::cuda_ops::device_malloc_count(), mallocs);
+  for (std::size_t i{0uz}; i < batch.size(); ++i) {
+    EXPECT_TRUE(std::isfinite(batch[i]));
+    EXPECT_NEAR(streamed[i], batch[i], 3.0e-6F);
+  }
+}
+#endif
+
 TEST(SnapshotProtocol, RoundTripsAndRejectsMismatchTruncationAndCorruption)
 {
   fe::ModelIdentity identity{};

@@ -21,7 +21,8 @@ elseif(FLOWEDGE_BACKEND STREQUAL "cuda")
     kernels/cuda/kernels_cuda.cu
     kernels/cuda/kernels_cuda_bridge.cc
     heads/flow/flow_cuda.cu
-    heads/diffusion/diffusion_cuda.cu)
+    heads/diffusion/diffusion_cuda.cu
+    models/mamba/mamba_cuda.cu)
 else()
   message(FATAL_ERROR
     "FLOWEDGE_BACKEND='${FLOWEDGE_BACKEND}' is not implemented; use cpu, avx512, scalar, or cuda")

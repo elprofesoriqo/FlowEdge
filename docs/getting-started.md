@@ -52,7 +52,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
 ```
 
-`FLOWEDGE_BACKEND=cuda` needs `nvcc` and keeps the flow and Diffusion Policy heads on device ([CUDA](architecture/cuda)). Mamba still round-trips host spans.
+`FLOWEDGE_BACKEND=cuda` needs `nvcc` and keeps Mamba, flow, and Diffusion Policy heads on device ([CUDA](architecture/cuda)).
 
 ## Get a model
 

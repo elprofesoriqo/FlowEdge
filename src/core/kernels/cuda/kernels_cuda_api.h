@@ -90,4 +90,28 @@ void ddpm_update_device(float* x, const float* eps, const float* noise, std::siz
                         float sample_coefficient, float sqrt_variance, bool clip,
                         float clip_range) noexcept;
 
+void rmsnorm_device(const float* in, const float* weight, float* out, std::size_t rows,
+                    std::size_t dim) noexcept;
+void conv1d_causal_device(const float* x, const float* weight, const float* bias, float* y,
+                          std::size_t channels, std::size_t length, std::size_t kernel) noexcept;
+void conv1d_step_device(const float* window, const float* weight, const float* bias, float* y,
+                        std::size_t channels, std::size_t kernel) noexcept;
+void softplus_device(float* x, std::size_t n) noexcept;
+void gate_silu_device(const float* a, const float* g, float* out, std::size_t n) noexcept;
+void add_inplace_device(float* x, const float* y, std::size_t n) noexcept;
+void add_bias_rows_device(float* x, const float* bias, std::size_t rows, std::size_t dim) noexcept;
+void split_xz_device(const float* xz, float* x_cm, float* z, std::size_t length,
+                     std::size_t d_inner) noexcept;
+void channel_to_seq_device(const float* x_cm, float* x_sm, std::size_t length,
+                           std::size_t d_inner) noexcept;
+void gather_prefix_device(const float* rows, float* out, std::size_t length, std::size_t row_stride,
+                          std::size_t width) noexcept;
+void conv_shift_push_device(float* window, const float* xz, float* z, std::size_t channels,
+                            std::size_t kernel) noexcept;
+void discretize_and_scan_device(const float* delta, const float* a_neg, const float* b,
+                                const float* u, const float* c_proj, const float* d_skip, float* h,
+                                float* y, std::size_t length, std::size_t d_inner,
+                                std::size_t d_state, bool reset_state,
+                                std::size_t row_stride) noexcept;
+
 } // namespace fe::cuda_ops

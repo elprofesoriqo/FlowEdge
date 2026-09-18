@@ -11,6 +11,9 @@
 namespace fe {
 
 class ThreadPool;
+#ifdef FLOWEDGE_CUDA
+class CudaMambaResident;
+#endif
 
 struct MambaConfig
 {
@@ -21,6 +24,11 @@ class Mamba
 {
 public:
   Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept;
+  ~Mamba();
+  Mamba(const Mamba&) = delete;
+  Mamba(Mamba&&) = delete;
+  Mamba& operator=(const Mamba&) = delete;
+  Mamba& operator=(Mamba&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
   [[nodiscard]] const MambaConfig& config() const noexcept { return cfg_; }
@@ -72,6 +80,9 @@ private:
   const float* norm_f_{};
   Arena* scratch_{};
   ThreadPool* pool_{nullptr};
+#ifdef FLOWEDGE_CUDA
+  CudaMambaResident* cuda_{};
+#endif
   bool ok_{false};
 };
 
