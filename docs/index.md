@@ -69,6 +69,10 @@
 <ul class="fe-news">
   <li class="fe-news-item">
     <span class="fe-news-date">19</span>
+    <p>CPU wheels pinned onto the <a href="https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1">v0.1.1</a> Release (<a href="https://github.com/elprofesoriqo/FlowEdge/issues/184">#184</a>). Filenames are <code>flowedge-0.1.0-*</code>. Not PyPI. CUDA stays a source backend.</p>
+  </li>
+  <li class="fe-news-item">
+    <span class="fe-news-date">19</span>
     <p>Split-K CUDA Conv1D on horizon 8 (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/183">#183</a>). GTX 1650 matched DDIM replay stays <strong>131 vs 345 ms</strong> vs PyTorch CUDA. Not a 10 ms loop.</p>
   </li>
   <li class="fe-news-item">

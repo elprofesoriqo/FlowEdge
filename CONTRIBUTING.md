@@ -15,7 +15,9 @@ If you're new to the project, look for issues labeled:
 * `good first issue` — small, well-scoped tasks suitable for first-time contributors
 * `help wanted` — work where community contributions are especially welcome
 
-Current starters: [#184](https://github.com/elprofesoriqo/FlowEdge/issues/184) (Release wheels), [#185](https://github.com/elprofesoriqo/FlowEdge/issues/185) (Windows first-run), [#186](https://github.com/elprofesoriqo/FlowEdge/issues/186) (gym PushT GIF).
+Current starters: [#185](https://github.com/elprofesoriqo/FlowEdge/issues/185) (Windows first-run), [#186](https://github.com/elprofesoriqo/FlowEdge/issues/186) (gym PushT GIF).
+
+CPU wheels for v0.1.1 are Release assets (filenames `flowedge-0.1.0-*`). A GitHub tag `vX.Y.Z` must match `project.version` in `pyproject.toml` so the next wheel names match the tag. CUDA stays a source backend.
 
 For large features or architectural changes, please open or comment on an issue first so the scope and interface can be agreed before implementation.
 

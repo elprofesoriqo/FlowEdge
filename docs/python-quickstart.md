@@ -5,11 +5,11 @@ CPU wheels for CPython 3.10–3.12 ship with GitHub Releases. They are not on Py
 ## Install a wheel
 
 1. Open [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1).
-2. Download the wheel for your OS and CPython from the linked [cibuildwheel run](https://github.com/elprofesoriqo/FlowEdge/actions/runs/35243534582) (manylinux x86_64 / aarch64, Windows AMD64, macOS ARM). Pinning those files onto the Release is [#184](https://github.com/elprofesoriqo/FlowEdge/issues/184).
+2. Download the `.whl` for your OS and CPython from that Release (stable URL, no Actions login). Filenames are `flowedge-0.1.0-*` because `pyproject.toml` on this tag was `0.1.0`. CUDA is not in the wheel.
 3. Install it:
 
 ```bash
-python -m pip install flowedge-0.1.1-*.whl
+python -m pip install flowedge-0.1.0-*.whl
 ```
 
 | Platform | Wheel tag |
