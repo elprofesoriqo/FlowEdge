@@ -1,0 +1,18 @@
+{% extends "!page.html" %}
+
+{% block content %}
+<nav class="fe-topnav" aria-label="Site">
+  <div class="fe-topnav-inner">
+    <a class="fe-topnav-link{% if pagename == 'index' %} is-current{% endif %}" href="{{ pathto('index') }}">Home</a>
+    <a class="fe-topnav-link{% if pagename == 'getting-started' %} is-current{% endif %}" href="{{ pathto('getting-started') }}">Start</a>
+    <a class="fe-topnav-link{% if pagename == 'python-quickstart' %} is-current{% endif %}" href="{{ pathto('python-quickstart') }}">Python</a>
+    <a class="fe-topnav-link{% if pagename == 'guides/lerobot' %} is-current{% endif %}" href="{{ pathto('guides/lerobot') }}">LeRobot</a>
+    <a class="fe-topnav-link{% if pagename == 'performance' %} is-current{% endif %}" href="{{ pathto('performance') }}">Performance</a>
+    <a class="fe-topnav-link{% if pagename.startswith('architecture/') %} is-current{% endif %}" href="{{ pathto('architecture/overview') }}">Architecture</a>
+    <a class="fe-topnav-link{% if pagename.startswith('api/') %} is-current{% endif %}" href="{{ pathto('api/c-abi') }}">API</a>
+    <a class="fe-topnav-link{% if pagename == 'contributing' or pagename.startswith('guides/add-a-') %} is-current{% endif %}" href="{{ pathto('contributing') }}">Contribute</a>
+    <a class="fe-topnav-link" href="https://github.com/elprofesoriqo/FlowEdge" rel="noopener" target="_blank">GitHub</a>
+  </div>
+</nav>
+{{ super() }}
+{% endblock %}
