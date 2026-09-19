@@ -1019,9 +1019,9 @@ def _perf_gif() -> None:
     hold = [frames[-1]] * 12
     loop = frames + hold
     ASSETS.mkdir(parents=True, exist_ok=True)
-    out = ASSETS / "perf.gif"
+    out = ASSETS / "matched_replay.gif"
     loop[0].save(out, save_all=True, append_images=loop[1:], duration=90, loop=0, optimize=True)
-    (HERE.parent / "perf.gif").write_bytes(out.read_bytes())
+    (HERE.parent / "matched_replay.gif").write_bytes(out.read_bytes())
     print(f"wrote {out}")
 
 
