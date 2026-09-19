@@ -67,5 +67,6 @@ rollout is `--device cuda` on `flowedge-lerobot-rollout` with the same
 device-resident Mamba is [#172](https://github.com/elprofesoriqo/FlowEdge/issues/172);
 CUDA DP conv occupancy is [#174](https://github.com/elprofesoriqo/FlowEdge/issues/174);
 L=4 split-K conv is [#176](https://github.com/elprofesoriqo/FlowEdge/issues/176);
-the native DDIM launch census is [#179](https://github.com/elprofesoriqo/FlowEdge/issues/179).
+the native DDIM launch census is [#179](https://github.com/elprofesoriqo/FlowEdge/issues/179);
+L=8 split-K and L=4 occupancy is [#182](https://github.com/elprofesoriqo/FlowEdge/issues/182).
 The RGB encoder stays in LeRobot. Not Jetson/ARM.
