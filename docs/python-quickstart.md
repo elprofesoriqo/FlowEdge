@@ -4,12 +4,12 @@ CPU wheels for CPython 3.10–3.12 ship with GitHub Releases. They are not on Py
 
 ## Install a wheel
 
-1. Open [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1).
-2. Download the `.whl` for your OS and CPython from that Release (stable URL, no Actions login). Filenames are `flowedge-0.1.0-*` because `pyproject.toml` on this tag was `0.1.0`. CUDA is not in the wheel.
+1. Open [v0.1.2](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.2).
+2. Download the `.whl` for your OS and CPython from that Release (stable URL, no Actions login). Filenames are `flowedge-0.1.2-*`. CUDA is not in the wheel.
 3. Install it:
 
 ```bash
-python -m pip install flowedge-0.1.0-*.whl
+python -m pip install flowedge-0.1.2-*.whl
 ```
 
 | Platform | Wheel tag |
@@ -46,7 +46,7 @@ Zero-copy `run_into` / `sample_into` live in the [Python API](api/python).
 
 ## CUDA
 
-Wheels do not include CUDA kernels. **v0.1.1 is a CPU wheel, not PyPI.** CUDA is a source build (`FLOWEDGE_BACKEND=cuda`). The first GPU user has to survive `nvcc` plus WSL or MSVC; a 4 GB card must not brick `fe_engine_load`.
+Wheels do not include CUDA kernels. **v0.1.2 is a CPU wheel, not PyPI.** CUDA is a source build (`FLOWEDGE_BACKEND=cuda`). The first GPU user has to survive `nvcc` plus WSL or MSVC; a 4 GB card must not brick `fe_engine_load`.
 
 On Windows, `nvcc` needs an MSVC-compatible host compiler. The MinGW/Clang tree used for CPU Release builds cannot host `nvcc`. Use WSL or MSVC.
 
@@ -64,6 +64,6 @@ See [CUDA](architecture/cuda).
 
 ## PyPI (not published)
 
-`pip install flowedge` is not live. On 2026-09-19 `https://pypi.org/pypi/flowedge/json` returned 404, so the name is still free. [publish.yml](https://github.com/elprofesoriqo/FlowEdge/blob/main/.github/workflows/publish.yml) already builds the same CPU wheels and can upload with Trusted Publishing when the repository variable `FLOWEDGE_PUBLISH_PYPI` is `true`. CUDA stays a source backend after that upload; do not advertise a CUDA extra that the wheel does not contain.
+`pip install flowedge` is not live. On 2026-09-19 `https://pypi.org/pypi/flowedge/json` returned 404, so the name is still free. [publish.yml](https://github.com/reforcemind/FlowEdge/blob/main/.github/workflows/publish.yml) already builds the same CPU wheels and can upload with Trusted Publishing when the repository variable `FLOWEDGE_PUBLISH_PYPI` is `true`. CUDA stays a source backend after that upload; do not advertise a CUDA extra that the wheel does not contain.
 
-Maintainer checklist: PyPI Trusted Publisher for `flowedge` → GitHub environment `pypi` → set `FLOWEDGE_PUBLISH_PYPI=true` → publish a tagged release.
+Maintainer checklist: PyPI Trusted Publisher for `flowedge` on **reforcemind/FlowEdge** → GitHub environment `pypi` → set `FLOWEDGE_PUBLISH_PYPI=true` → publish a tagged release.

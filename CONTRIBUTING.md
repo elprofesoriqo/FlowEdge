@@ -6,7 +6,7 @@ Contributions are welcome across model support, kernels, backends, benchmarking,
 
 By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-If GitHub shows “Issue creation is restricted,” use [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions) for questions. Maintainers: GitHub Settings → Moderation → Interaction limits, and collaborator-only issue creation, must be off for public reports.
+If GitHub shows “Issue creation is restricted,” use [Discussions](https://github.com/reforcemind/FlowEdge/discussions) for questions. Maintainers: GitHub Settings → Moderation → Interaction limits, and collaborator-only issue creation, must be off for public reports.
 
 ## Where to start
 
@@ -15,9 +15,9 @@ If you're new to the project, look for issues labeled:
 * `good first issue` — small, well-scoped tasks suitable for first-time contributors
 * `help wanted` — work where community contributions are especially welcome
 
-Current starters: [#185](https://github.com/elprofesoriqo/FlowEdge/issues/185) (Windows first-run), [#186](https://github.com/elprofesoriqo/FlowEdge/issues/186) (gym PushT GIF).
+Current starters: [#185](https://github.com/reforcemind/FlowEdge/issues/185) (Windows first-run), [#186](https://github.com/reforcemind/FlowEdge/issues/186) (gym PushT GIF).
 
-CPU wheels for v0.1.1 are Release assets (filenames `flowedge-0.1.0-*`). A GitHub tag `vX.Y.Z` must match `project.version` in `pyproject.toml` so the next wheel names match the tag. CUDA stays a source backend.
+CPU wheels for v0.1.2 are Release assets (filenames `flowedge-0.1.2-*`). A GitHub tag `vX.Y.Z` must match `project.version` in `pyproject.toml` so wheel names match the tag. CUDA stays a source backend.
 
 For large features or architectural changes, please open or comment on an issue first so the scope and interface can be agreed before implementation.
 
@@ -32,7 +32,7 @@ issue → research comment → follow-up issues → one PR → review → eviden
 3. **Implement.** One PR per issue, from `main`. Runtime changes must keep the zero-allocation hot path.
 4. **Evidence.** Model work includes a parity command. Performance work includes same-host before/after medians. User-path changes update the relevant guide.
 
-Current product: CPU Core (Mamba + flow, Diffusion Policy, Transformer decoder fixture, cached SmolVLA expert), LeRobot plugin, optional Relay. CUDA flow and DP heads are device-resident behind `nvcc`; matched GPU replay is [#163](https://github.com/elprofesoriqo/FlowEdge/issues/163), LeRobot CUDA is [#164](https://github.com/elprofesoriqo/FlowEdge/issues/164). Tenstorrent (Metal), π0, and ACT stay behind that evidence.
+Current product: CPU Core (Mamba + flow, Diffusion Policy, Transformer decoder fixture, cached SmolVLA expert), LeRobot plugin, optional Relay. CUDA flow and DP heads are device-resident behind `nvcc`; matched GPU replay is [#163](https://github.com/reforcemind/FlowEdge/issues/163), LeRobot CUDA is [#164](https://github.com/reforcemind/FlowEdge/issues/164). Tenstorrent (Metal), π0, and ACT stay behind that evidence.
 
 ## Code bar
 

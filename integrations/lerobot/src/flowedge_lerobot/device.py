@@ -13,7 +13,7 @@ def require_native_device(device, flowedge_module, engine=None):
     if not getattr(flowedge_module, "cuda", False):
         raise RuntimeError(
             "CUDA requested but FlowEdge was built without FLOWEDGE_BACKEND=cuda. "
-            "v0.1.1 wheels are CPU and are not on PyPI; CUDA is a source build with nvcc."
+            "Release CPU wheels are not on PyPI; CUDA is a source build with nvcc."
         )
     if engine is not None and not getattr(engine, "cuda_resident", False):
         raise RuntimeError(

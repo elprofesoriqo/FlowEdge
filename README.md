@@ -12,7 +12,7 @@ A C++23 inference runtime for robotics policies with fixed memory, deterministic
 
 <img alt="CPU" height="36" src="assets/cpu.svg">&nbsp;**CPU** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="NVIDIA CUDA" height="22" src="assets/nvidia.svg">&nbsp;**CUDA** &nbsp;&nbsp;·&nbsp;&nbsp; <img alt="Tenstorrent / TT-Metal" height="22" src="assets/tenstorrent.jpg">&nbsp;**Tenstorrent research track**
 
-[Documentation](https://elprofesoriqo.github.io/FlowEdge/) &nbsp;&nbsp;·&nbsp;&nbsp; [Getting Started](https://elprofesoriqo.github.io/FlowEdge/getting-started.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Python](https://elprofesoriqo.github.io/FlowEdge/python-quickstart.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Performance](https://elprofesoriqo.github.io/FlowEdge/performance.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Contributing](CONTRIBUTING.md)
+[Documentation](https://reforcemind.github.io/FlowEdge/) &nbsp;&nbsp;·&nbsp;&nbsp; [Getting Started](https://reforcemind.github.io/FlowEdge/getting-started.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Python](https://reforcemind.github.io/FlowEdge/python-quickstart.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Performance](https://reforcemind.github.io/FlowEdge/performance.html) &nbsp;&nbsp;·&nbsp;&nbsp; [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -26,12 +26,12 @@ A C++23 inference runtime for robotics policies with fixed memory, deterministic
 
 **🗓️ September 2026**
 
-- 📦 **19** — CPU wheels pinned onto the [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) Release ([#184](https://github.com/elprofesoriqo/FlowEdge/issues/184)). Filenames are `flowedge-0.1.0-*`. Not PyPI. CUDA stays a source backend.
-- ⚡ **19** — Split-K CUDA Conv1D on horizon 8 ([#183](https://github.com/elprofesoriqo/FlowEdge/pull/183)). Published GTX 1650 matched DDIM replay stays **131 vs 345 ms** vs PyTorch CUDA. Not a 10 ms loop.
-- 🚀 **18** — Device-resident CUDA after load: flow head ([#167](https://github.com/elprofesoriqo/FlowEdge/pull/167)), Diffusion Policy U-Net + DDIM ([#168](https://github.com/elprofesoriqo/FlowEdge/pull/168), [#169](https://github.com/elprofesoriqo/FlowEdge/pull/169)), Mamba ([#173](https://github.com/elprofesoriqo/FlowEdge/pull/173)). Same-process CUDA vs PyTorch CUDA replay ([#170](https://github.com/elprofesoriqo/FlowEdge/pull/170)). LeRobot `--device cuda` period rollouts, same `--on-miss` ([#171](https://github.com/elprofesoriqo/FlowEdge/pull/171)).
-- 📦 **17** — [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM). Not on PyPI. ⏱️ `--on-miss hold|drop|raise` in the LeRobot adapter ([#152](https://github.com/elprofesoriqo/FlowEdge/pull/152)). CPU fair-compare Diffusion Policy remains **851 vs 1409 ms**, `threads=1`.
+- 📦 **19** — Repo lives at [reforcemind/FlowEdge](https://github.com/reforcemind/FlowEdge). [v0.1.2](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.2) CPU wheels are `flowedge-0.1.2-*`. Not PyPI. CUDA stays a source backend.
+- ⚡ **19** — Split-K CUDA Conv1D on horizon 8 ([#183](https://github.com/reforcemind/FlowEdge/pull/183)). Published GTX 1650 matched DDIM replay stays **131 vs 345 ms** vs PyTorch CUDA. Not a 10 ms loop.
+- 🚀 **18** — Device-resident CUDA after load: flow head ([#167](https://github.com/reforcemind/FlowEdge/pull/167)), Diffusion Policy U-Net + DDIM ([#168](https://github.com/reforcemind/FlowEdge/pull/168), [#169](https://github.com/reforcemind/FlowEdge/pull/169)), Mamba ([#173](https://github.com/reforcemind/FlowEdge/pull/173)). Same-process CUDA vs PyTorch CUDA replay ([#170](https://github.com/reforcemind/FlowEdge/pull/170)). LeRobot `--device cuda` period rollouts, same `--on-miss` ([#171](https://github.com/reforcemind/FlowEdge/pull/171)).
+- 📦 **17** — [v0.1.1](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.1) CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM). Not on PyPI. ⏱️ `--on-miss hold|drop|raise` in the LeRobot adapter ([#152](https://github.com/reforcemind/FlowEdge/pull/152)). CPU fair-compare Diffusion Policy remains **851 vs 1409 ms**, `threads=1`.
 
-🏷️ [Releases](https://github.com/elprofesoriqo/FlowEdge/releases) &nbsp;·&nbsp; 📈 [Performance](docs/performance.md)
+🏷️ [Releases](https://github.com/reforcemind/FlowEdge/releases) &nbsp;·&nbsp; 📈 [Performance](docs/performance.md)
 
 ***
 
@@ -83,17 +83,17 @@ Matched **Diffusion Policy** PushT replay, CPU, `threads=1`: policy p50 **851 ms
 
 ## First run
 
-CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM) are assets on [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1). They are **not** on PyPI. Filenames are `flowedge-0.1.0-*` because `pyproject.toml` on that tag was not bumped. CUDA is not in the wheel.
+CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM) are assets on [v0.1.2](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.2). They are **not** on PyPI. Filenames are `flowedge-0.1.2-*`. CUDA is not in the wheel. The older [v0.1.1](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.1) tag still has `flowedge-0.1.0-*` files.
 
 ```bash
-python -m pip install flowedge-0.1.0-*.whl
+python -m pip install flowedge-0.1.2-*.whl
 mkdir -p models
 curl -L "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
   -o models/mamba_flow.safetensors
 python examples/core/flow_sample.py models/mamba_flow.safetensors euler 10
 ```
 
-Those wheels are CPU (v0.1.1, not PyPI). CUDA is `FLOWEDGE_BACKEND=cuda` with `nvcc` on WSL or MSVC ([CUDA](docs/architecture/cuda.md)). A 4 GB card that cannot allocate the U-Net keeps CPU kernels instead of failing load; check `Engine.cuda_resident`.
+Those wheels are CPU (v0.1.2, not PyPI). CUDA is `FLOWEDGE_BACKEND=cuda` with `nvcc` on WSL or MSVC ([CUDA](docs/architecture/cuda.md)). A 4 GB card that cannot allocate the U-Net keeps CPU kernels instead of failing load; check `Engine.cuda_resident`.
 
 From source (C++23, CMake 3.21+):
 

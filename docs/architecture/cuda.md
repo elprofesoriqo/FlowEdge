@@ -5,7 +5,7 @@ including `mish`, causal `conv1d`, `rmsnorm`, device SSM scan) through
 `src/core/kernels/cuda/`. CMake fails closed without `nvcc`. On Windows, `nvcc`
 needs an MSVC-compatible host compiler; the MinGW/Clang gnu-target tree used
 for CPU Release builds cannot host `nvcc`. WSL or MSVC is the CUDA build.
-CPU wheels (v0.1.1, not PyPI) have no CUDA kernels.
+CPU wheels (v0.1.2, not PyPI) have no CUDA kernels.
 
 Device-resident attach is best-effort. If `cudaMalloc` / H2D fails (typical on a
 4 GB GTX 1650 under WDDM/WSL for the ~959 MiB PushT U-Net), the engine keeps the
@@ -38,10 +38,10 @@ split `IC` across the block so the inner reduction is not serial; L=16 stays
 launch. K-major L=8 upsample uses the same split-K pattern. `flowedge_cuda_dp_mix`
 isolates those shapes and, with a checkpoint, prints a launch census for one
 native 10-step DDIM.
-See [#174](https://github.com/elprofesoriqo/FlowEdge/issues/174),
-[#176](https://github.com/elprofesoriqo/FlowEdge/issues/176),
-[#179](https://github.com/elprofesoriqo/FlowEdge/issues/179), and
-[#182](https://github.com/elprofesoriqo/FlowEdge/issues/182).
+See [#174](https://github.com/reforcemind/FlowEdge/issues/174),
+[#176](https://github.com/reforcemind/FlowEdge/issues/176),
+[#179](https://github.com/reforcemind/FlowEdge/issues/179), and
+[#182](https://github.com/reforcemind/FlowEdge/issues/182).
 
 ```bash
 cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BACKEND=cuda
@@ -71,15 +71,15 @@ binary at printed precision. Same `diffusion_pusht` checkpoint and noise,
 block-per-group GroupNorm (152 ms after L=4 split-K, 321 ms after #174, 448 ms
 before). That is not a policy p50.
 
-See [#160](https://github.com/elprofesoriqo/FlowEdge/issues/160). Device-resident
-flow is [#161](https://github.com/elprofesoriqo/FlowEdge/issues/161); device-resident
-DDIM is [#162](https://github.com/elprofesoriqo/FlowEdge/issues/162); matched GPU
-replay [#163](https://github.com/elprofesoriqo/FlowEdge/issues/163); LeRobot CUDA
+See [#160](https://github.com/reforcemind/FlowEdge/issues/160). Device-resident
+flow is [#161](https://github.com/reforcemind/FlowEdge/issues/161); device-resident
+DDIM is [#162](https://github.com/reforcemind/FlowEdge/issues/162); matched GPU
+replay [#163](https://github.com/reforcemind/FlowEdge/issues/163); LeRobot CUDA
 rollout is `--device cuda` on `flowedge-lerobot-rollout` with the same
-`--on-miss` contract ([#164](https://github.com/elprofesoriqo/FlowEdge/issues/164));
-device-resident Mamba is [#172](https://github.com/elprofesoriqo/FlowEdge/issues/172);
-CUDA DP conv occupancy is [#174](https://github.com/elprofesoriqo/FlowEdge/issues/174);
-L=4 split-K conv is [#176](https://github.com/elprofesoriqo/FlowEdge/issues/176);
-the native DDIM launch census is [#179](https://github.com/elprofesoriqo/FlowEdge/issues/179);
-L=8 split-K and L=4 occupancy is [#182](https://github.com/elprofesoriqo/FlowEdge/issues/182).
+`--on-miss` contract ([#164](https://github.com/reforcemind/FlowEdge/issues/164));
+device-resident Mamba is [#172](https://github.com/reforcemind/FlowEdge/issues/172);
+CUDA DP conv occupancy is [#174](https://github.com/reforcemind/FlowEdge/issues/174);
+L=4 split-K conv is [#176](https://github.com/reforcemind/FlowEdge/issues/176);
+the native DDIM launch census is [#179](https://github.com/reforcemind/FlowEdge/issues/179);
+L=8 split-K and L=4 occupancy is [#182](https://github.com/reforcemind/FlowEdge/issues/182).
 The RGB encoder stays in LeRobot. Not Jetson/ARM.

@@ -1,12 +1,12 @@
 # Contribute
 
-Start with the repository [CONTRIBUTING.md](https://github.com/elprofesoriqo/FlowEdge/blob/main/CONTRIBUTING.md)
-and the [Code of Conduct](https://github.com/elprofesoriqo/FlowEdge/blob/main/CODE_OF_CONDUCT.md).
+Start with the repository [CONTRIBUTING.md](https://github.com/reforcemind/FlowEdge/blob/main/CONTRIBUTING.md)
+and the [Code of Conduct](https://github.com/reforcemind/FlowEdge/blob/main/CODE_OF_CONDUCT.md).
 
 Look for `good first issue` and `help wanted`. Large features need an issue before a PR.
-Open starters: [Windows first-run](https://github.com/elprofesoriqo/FlowEdge/issues/185),
-[gym PushT GIF](https://github.com/elprofesoriqo/FlowEdge/issues/186).
-CPU wheels live on the [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) Release.
+Open starters: [Windows first-run](https://github.com/reforcemind/FlowEdge/issues/185),
+[gym PushT GIF](https://github.com/reforcemind/FlowEdge/issues/186).
+CPU wheels live on the [v0.1.2](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.2) Release.
 Runtime changes keep the zero-allocation hot path. Parity (ULP, convert, diffusion) is local:
 `scripts/verify_all.sh` or `scripts/verify_local.ps1`. GitHub Actions is compile + `ctest`.
 

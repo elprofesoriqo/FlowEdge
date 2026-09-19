@@ -12,7 +12,7 @@ benches: `python -m flowedge_dev`. Numbers vs PyTorch for the two product heads:
 
 FlowEdge has a general causal Transformer decoder beside Mamba. It is a
 fixed-shape, batch-one CPU baseline for the GPT-style contract in
-[issue #10](https://github.com/elprofesoriqo/FlowEdge/issues/10). It is not a
+[issue #10](https://github.com/reforcemind/FlowEdge/issues/10). It is not a
 generic Hugging Face loader, a production VLA, or a SmolVLA implementation.
 
 `cached_causal_attention` lives in `kernels.h` with GELU, LayerNorm, and

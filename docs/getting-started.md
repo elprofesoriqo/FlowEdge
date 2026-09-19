@@ -23,11 +23,11 @@ GPT-2 conversion is a kernel incubator, not a product path.
 
 ## Install (CPU wheel)
 
-Download the wheel for your platform from the [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) Release assets. Filenames are `flowedge-0.1.0-*` (`pyproject.toml` on that tag). PyPI is not published.
+Download the wheel for your platform from the [v0.1.2](https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.2) Release assets. Filenames are `flowedge-0.1.2-*`. PyPI is not published.
 Those wheels are CPU; CUDA needs `nvcc` ([CUDA](architecture/cuda)).
 
 ```bash
-python -m pip install flowedge-0.1.0-*.whl
+python -m pip install flowedge-0.1.2-*.whl
 mkdir -p models
 curl -L "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
   -o models/mamba_flow.safetensors
@@ -41,7 +41,7 @@ Full Python API: [Python](python-quickstart).
 CMake 3.21+ and C++23. CI uses LLVM/Clang 23; GCC 13+ is supported.
 
 ```bash
-git clone https://github.com/elprofesoriqo/FlowEdge.git
+git clone https://github.com/reforcemind/FlowEdge.git
 cd FlowEdge
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
