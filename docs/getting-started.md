@@ -9,39 +9,35 @@ between processes when perception and control are split.
 :class: fe-fig
 ```
 
-```{image} _static/figures/big-flow.svg
-:alt: Whole FlowEdge flow from checkpoint to motors
-:class: fe-fig
-```
-
-```{image} _static/figures/relay.svg
-:alt: Optional Relay flow from sensor or VLA through shared-memory rings to Core
-:class: fe-fig
-```
-
-```{image} _static/figures/policies.svg
-:alt: Flow matching ODE versus Diffusion Policy DDIM
-:class: fe-fig
-```
-
-```{image} _static/figures/workflow.svg
-:alt: convert, load arena, sample flow or DDIM, period, act
-:class: fe-fig
-```
-
 | Goal | Continue at |
 |---|---|
+| Python wheel (CPU) | [Python](python-quickstart) |
 | Included flow-matching policy | [Sample an action](sample-an-action) |
 | Diffusion Policy on Jetson / SO-100 / sim | [LeRobot adapter](guides/lerobot) |
 | Your encoder, our flow or DP head | [External encoder](use-an-external-encoder) |
 | Local IPC | [Relay](relay-end-to-end-demo) |
-| Python / NumPy | [Python](python-quickstart) |
 | Cached SmolVLA expert (not a product head) | [Transformer / SmolVLA](guides/transformer-backbone) |
 | Flow matching vs Diffusion Policy vs PyTorch | [Performance](performance) |
 
 GPT-2 conversion is a kernel incubator, not a product path.
 
-## Build
+## Install (CPU wheel)
+
+Download the wheel for your platform from [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1)
+([cibuildwheel run](https://github.com/elprofesoriqo/FlowEdge/actions/runs/35243534582)). PyPI is not published.
+Those wheels are CPU; CUDA needs `nvcc` ([CUDA](architecture/cuda)).
+
+```bash
+python -m pip install flowedge-0.1.1-*.whl
+mkdir -p models
+curl -L "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
+  -o models/mamba_flow.safetensors
+python examples/core/flow_sample.py models/mamba_flow.safetensors euler 10
+```
+
+Full Python API: [Python](python-quickstart).
+
+## From source
 
 CMake 3.21+ and C++23. CI uses LLVM/Clang 23; GCC 13+ is supported.
 
@@ -52,7 +48,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
 ```
 
-`FLOWEDGE_BACKEND=cuda` needs `nvcc` and keeps Mamba, flow, and Diffusion Policy heads on device ([CUDA](architecture/cuda)).
+`FLOWEDGE_BACKEND=cuda` needs `nvcc` and keeps Mamba, flow, and Diffusion Policy heads on device.
 
 ## Get a model
 
@@ -81,7 +77,7 @@ python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetens
   --steps 10 --period-ms 10 --on-miss hold
 ```
 
-`--on-miss`: `hold` last sent action, `drop` the send, or `raise`. Limits and e-stop stay in the robot adapter. Jetson: `scripts/edge_dp_rollout.sh`.
+`--on-miss`: `hold` last sent action, `drop` the send, or `raise`. Limits and e-stop stay in the robot adapter. Jetson: `scripts/edge_dp_rollout.sh`. A 10 ms period on current PushT DDIM is a miss log, not a hit-rate claim ([performance](performance)).
 
 (use-an-external-encoder)=
 ## Use an external encoder
@@ -107,20 +103,3 @@ FLOWEDGE_BUILD_DIR="$PWD/build-relay" ./scripts/relay_demo.sh models/mamba_flow.
 ```
 
 [Relay quickstart](guides/relay-quickstart).
-
-(python-quickstart)=
-## Python
-
-```bash
-pip install .
-```
-
-```python
-import numpy as np, flowedge
-e = flowedge.Engine("models/mamba_flow.safetensors")
-a = e.sample(prefix=np.array([1, 2, 3, 4], dtype=np.int32),
-             noise=np.random.randn(e.action_dim).astype("float32"),
-             steps=10, method="euler")
-```
-
-Load may allocate once. Supported hot paths allocate nothing after init. One engine, one stream. Backend is CPU.

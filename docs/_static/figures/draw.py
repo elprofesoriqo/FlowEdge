@@ -941,54 +941,84 @@ def _perf_gif() -> None:
     except ImportError:
         return
 
-    big, font, small, mid = _fonts()
-    w, h = 760, 340
-    cream = (255, 246, 220)
-    ink = (43, 33, 24)
-    navy = (27, 75, 107)
     coral = (255, 107, 107)
     teal = (46, 196, 182)
     green = (107, 203, 119)
-    sun = (255, 209, 102)
     pink = (255, 143, 171)
+    groups = (
+        ("CUDA    GTX 1650", "131 vs 345 ms", (
+            ("PyTorch CUDA", 345, coral, pink),
+            ("FlowEdge CUDA", 131, green, teal),
+        )),
+        ("CPU    threads=1", "851 vs 1409 ms", (
+            ("PyTorch CPU", 1409, coral, pink),
+            ("FlowEdge CPU", 851, green, teal),
+        )),
+    )
 
-    pt_ms, fe_ms = 1409, 851
-    scale = 0.28
-    bar_h = 48
+    big, font, small, mid = _fonts()
+    w, h = 760, 540
+    cream = (255, 246, 220)
+    track = (245, 232, 200)
+    ink = (43, 33, 24)
+    navy = (27, 75, 107)
+    sun = (255, 209, 102)
+    white = (255, 254, 248)
+    bar_left, bar_right = 210, 736
+    bar_w = bar_right - bar_left
+    bar_h = 40
 
+    n = 36
     frames = []
-    n = 22
     for i in range(n):
-        t = min(1.0, i / 14)
+        sample_t = 0.0 if i < 10 else min(1.0, (i - 10) / 18)
         img = Image.new("RGB", (w, h), cream)
         d = ImageDraw.Draw(img)
         d.rounded_rectangle((7, 7, w - 8, h - 8), 20, outline=(232, 215, 168), width=4)
-        d.text((24, 16), "matched PushT replay", font=big, fill=navy)
-        d.text((24, 50), "policy p50   threads=1   same DDIM / checkpoint", font=small, fill=ink)
+        d.text((24, 14), "Matched replay", font=big, fill=navy)
+        d.text((24, 48), "same checkpoint / DDIM / observations    load → warmup → sample", font=small, fill=ink)
 
-        d.rounded_rectangle((24, 88, 190, 88 + bar_h), 12, fill=pink, outline=ink, width=3)
-        d.text((40, 102), "PyTorch", font=mid, fill=ink)
-        pw = max(8, int(pt_ms * scale * t))
-        d.rounded_rectangle((210, 88, 210 + pw, 88 + bar_h), 12, fill=coral, outline=ink, width=3)
-        if t > 0.35:
-            d.text((222, 102), f"{int(pt_ms * t)} ms", font=mid, fill=ink)
+        if i < 5:
+            status = "loading checkpoint into arena"
+        elif i < 10:
+            status = "warmup    malloc after warmup: 0"
+        elif sample_t < 1.0:
+            status = "sampling DDIM" + ("." * (1 + (i % 3)))
+        else:
+            status = "policy p50 locked    malloc after warmup: 0"
+        d.rounded_rectangle((24, 72, 736, 112), 12, fill=sun if sample_t >= 1.0 else white, outline=ink, width=3)
+        d.text((40, 82), status, font=mid, fill=ink)
 
-        d.rounded_rectangle((24, 160, 190, 160 + bar_h), 12, fill=teal, outline=ink, width=3)
-        d.text((36, 174), "FlowEdge", font=mid, fill=ink)
-        fw = max(8, int(fe_ms * scale * t))
-        d.rounded_rectangle((210, 160, 210 + fw, 160 + bar_h), 12, fill=green, outline=ink, width=3)
-        if t > 0.35:
-            d.text((222, 174), f"{int(fe_ms * t)} ms", font=mid, fill=ink)
+        y = 126
+        for g, (heading, pair, rows) in enumerate(groups):
+            d.text((24, y), heading, font=mid, fill=navy)
+            d.text((520, y), pair, font=small, fill=ink)
+            y += 30
+            slowest = max(row[1] for row in rows)
+            for r, (label, ms, fill, chip) in enumerate(rows):
+                d.rounded_rectangle((24, y, 196, y + bar_h), 12, fill=chip, outline=ink, width=3)
+                d.text((36, y + 10), label, font=small, fill=ink)
+                d.rounded_rectangle((bar_left, y, bar_right, y + bar_h), 12, fill=track, outline=ink, width=3)
+                if i < 10:
+                    pulse = 12 + int(18 * (0.5 + 0.5 * math.sin(i * 0.9 + g * 2 + r)))
+                    d.rounded_rectangle((bar_left, y, bar_left + pulse, y + bar_h), 12, fill=fill, outline=ink, width=3)
+                    d.text((bar_left + 12, y + 10), "waiting", font=small, fill=ink)
+                else:
+                    duration = ms / slowest
+                    frac = min(1.0, sample_t / max(duration, 0.05))
+                    pw = max(8, int(bar_w * frac))
+                    d.rounded_rectangle((bar_left, y, bar_left + pw, y + bar_h), 12, fill=fill, outline=ink, width=3)
+                    d.text((bar_left + 12, y + 8), f"{int(ms * frac)} ms", font=mid, fill=ink)
+                y += 54
+            y += 10
 
-        if i >= 15:
-            d.rounded_rectangle((24, 228, 736, 272), 12, fill=sun, outline=ink, width=3)
-            d.text((40, 240), "0.60x    1.66x faster on CPU", font=mid, fill=ink)
-            d.text((24, 292), "threads=2  800 vs 1031 ms     threads=4  633 vs 819 ms", font=small, fill=ink)
-            d.text((24, 314), "not a 10 ms loop     not Jetson     in-process Engine", font=small, fill=navy)
+        d.text((24, 478), "each pair is its own race    first bar to 100% in that pair is faster", font=small, fill=ink)
+        d.text((24, 504), "not a 10 ms loop    not Jetson/ARM    in-process Engine", font=small, fill=navy)
         frames.append(img)
 
-    complete = frames[-1]
-    loop = [complete] * 8 + frames + [complete] * 10
+    hold = [frames[-1]] * 12
+    loop = frames + hold
+    ASSETS.mkdir(parents=True, exist_ok=True)
     out = ASSETS / "perf.gif"
     loop[0].save(out, save_all=True, append_images=loop[1:], duration=90, loop=0, optimize=True)
     (HERE.parent / "perf.gif").write_bytes(out.read_bytes())
@@ -1033,4 +1063,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "perf":
+        _perf_gif()
+    else:
+        main()

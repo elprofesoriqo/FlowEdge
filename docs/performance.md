@@ -8,7 +8,7 @@ CPU. `threads=1` is the fair compare. Lower latency is better.
 ```
 
 ```{image} _static/perf.gif
-:alt: Matched PushT replay, FlowEdge 851 ms vs PyTorch 1409 ms
+:alt: Matched replay loading, CUDA then CPU. FlowEdge CUDA 131 ms vs PyTorch 345 ms; FlowEdge CPU 851 ms vs PyTorch 1409 ms
 :class: fe-fig
 ```
 
