@@ -48,7 +48,10 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release -j
 ```
 
-`FLOWEDGE_BACKEND=cuda` needs `nvcc` and keeps Mamba, flow, and Diffusion Policy heads on device.
+`FLOWEDGE_BACKEND=cuda` needs `nvcc` (WSL or MSVC on Windows) and tries to keep
+Mamba, flow, and Diffusion Policy heads on device. A 4 GB card that cannot
+allocate the U-Net falls back to CPU kernels instead of failing load. Check
+`Engine.cuda_resident`. [CUDA](architecture/cuda).
 
 ## Get a model
 
@@ -67,7 +70,7 @@ LeRobot: `python -m flowedge_dev pipeline convert` ([converter](guides/converter
 ./build/flow_sample models/mamba_flow.safetensors euler 10
 ```
 
-Solver is `euler`, `heun`, or `rk4`. Last argument is NFE (how many velocity-net evaluations). That is the cost of flow matching: a short ODE, not a long denoiser.
+Solver is `euler`, `heun`, or `rk4`. Last argument is NFE (how many velocity-net evaluations). That is the cost of flow matching: a short ODE, not a long denoiser. The published gate is ULP vs PyTorch (~1e-6 rel), not a policy p50.
 
 Converted Diffusion Policy — plugin owns the LeRobot processor; Core owns the U-Net:
 

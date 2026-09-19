@@ -1,4 +1,8 @@
 #include "api/engine.h"
+#include "test/test_utils.h"
+#ifdef FLOWEDGE_CUDA
+#include "kernels/cuda/kernels_cuda_api.h"
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -67,6 +71,7 @@ TEST(CAbiContract, NullHandlesReportInvalidArguments)
   EXPECT_EQ(fe_engine_decode_state_bytes(nullptr), 0uz);
   EXPECT_EQ(fe_engine_action_dim(nullptr), 0uz);
   EXPECT_EQ(fe_engine_condition_dim(nullptr), 0uz);
+  EXPECT_EQ(fe_engine_cuda_resident(nullptr), 0);
   EXPECT_EQ(fe_weights_size_bytes(nullptr), 0uz);
 }
 
@@ -105,6 +110,64 @@ TEST(CAbiContract, DecodeBuffersRejectUndersizedStorage)
   EXPECT_EQ(fe_engine_import_decode_state(engine, undersized.data(), undersized.size()),
             FE_STATUS_INVALID_ARGUMENT);
   EXPECT_NE(std::string{fe_engine_last_error()}.find("truncated"), std::string::npos);
+  fe_engine_free(engine);
+}
+
+TEST(CAbiContract, CudaRequiredFailsClosedOnCpuBinary)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+#ifndef FLOWEDGE_CUDA
+  const fe::test::EnvOverride require{"FLOWEDGE_CUDA_REQUIRED", "1"};
+  EXPECT_EQ(fe_engine_load_with_threads(model.string().c_str(), 0u), nullptr);
+  EXPECT_NE(std::string{fe_engine_last_error()}.find("no CUDA kernels"), std::string::npos);
+#else
+  const fe::test::EnvOverride host{"FLOWEDGE_CUDA_FORCE_HOST", "1"};
+  const fe::test::EnvOverride require{"FLOWEDGE_CUDA_REQUIRED", "1"};
+  EXPECT_EQ(fe_engine_load_with_threads(model.string().c_str(), 0u), nullptr);
+  EXPECT_NE(std::string{fe_engine_last_error()}.find("did not attach"), std::string::npos);
+#endif
+}
+
+TEST(CAbiContract, LoadKeepsCpuKernelsWhenCudaDoesNotAttach)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+#ifdef FLOWEDGE_CUDA
+  const fe::test::EnvOverride host{"FLOWEDGE_CUDA_FORCE_HOST", "1"};
+#endif
+  fe_engine* engine = fe_engine_load_with_threads(model.string().c_str(), 0u);
+  ASSERT_NE(engine, nullptr) << fe_engine_last_error();
+  EXPECT_EQ(fe_engine_cuda_resident(engine), 0);
+  std::vector<std::int32_t> tokens{1, 2, 3, 4};
+  std::size_t d_model{};
+  fe_engine_dims(engine, &d_model, nullptr);
+  ASSERT_GT(d_model, 0uz);
+  std::vector<float> hidden(tokens.size() * d_model);
+  EXPECT_EQ(fe_engine_run(engine, tokens.data(), tokens.size(), hidden.data()), FE_STATUS_OK);
+  fe_engine_free(engine);
+}
+
+TEST(CAbiContract, CudaResidentReportsDeviceAttach)
+{
+  const std::filesystem::path model =
+      std::filesystem::path{FLOWEDGE_SOURCE_DIR} / "models" / "mamba_flow.safetensors";
+  if (!std::filesystem::exists(model))
+    GTEST_SKIP() << "models/mamba_flow.safetensors is not available";
+
+  fe_engine* engine = fe_engine_load_with_threads(model.string().c_str(), 0u);
+  ASSERT_NE(engine, nullptr) << fe_engine_last_error();
+#ifdef FLOWEDGE_CUDA
+  EXPECT_EQ(fe_engine_cuda_resident(engine), fe::cuda_ops::device_available() ? 1 : 0);
+#else
+  EXPECT_EQ(fe_engine_cuda_resident(engine), 0);
+#endif
   fe_engine_free(engine);
 }
 #endif

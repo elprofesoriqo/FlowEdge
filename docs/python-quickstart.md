@@ -38,18 +38,27 @@ a = e.sample(prefix=np.array([1, 2, 3, 4], dtype=np.int32),
              steps=10, method="euler")
 ```
 
+That prefix is the ULP gate (~1e-6 rel vs PyTorch), not a policy p50.
+
 Load may allocate once. Supported hot paths allocate nothing after init. One engine, one stream. The published wheel backend is CPU.
 
 Zero-copy `run_into` / `sample_into` live in the [Python API](api/python).
 
 ## CUDA
 
-Wheels do not include CUDA kernels. Configure with `nvcc`:
+Wheels do not include CUDA kernels. **v0.1.1 is a CPU wheel, not PyPI.** CUDA is a source build (`FLOWEDGE_BACKEND=cuda`). The first GPU user has to survive `nvcc` plus WSL or MSVC; a 4 GB card must not brick `fe_engine_load`.
+
+On Windows, `nvcc` needs an MSVC-compatible host compiler. The MinGW/Clang tree used for CPU Release builds cannot host `nvcc`. Use WSL or MSVC.
 
 ```bash
 cmake -S . -B build-cuda -DCMAKE_BUILD_TYPE=Release -DFLOWEDGE_BACKEND=cuda -DFLOWEDGE_PYTHON=ON
 cmake --build build-cuda -j
+python -c "import flowedge; e=flowedge.Engine('models/diffusion_pusht.flowedge.safetensors'); print(flowedge.cuda, e.cuda_resident)"
 ```
+
+`flowedge.cuda` is compile-time. `Engine.cuda_resident` is runtime: 1 only if Mamba / flow / Diffusion Policy weights actually uploaded. A GTX 1650 4 GB WDDM/WSL host often cannot `cudaMalloc` the PushT U-Net (~959 MiB). Load then keeps **CPU kernels**; that is not an engine failure. `FLOWEDGE_CUDA_REQUIRED=1` fails closed if attach did not happen. `FLOWEDGE_CUDA_FORCE_HOST=1` skips the doomed upload.
+
+`--device cuda` in the LeRobot adapter requires both a CUDA Core binary and `cuda_resident`. The published CUDA headline stays GTX 1650 matched replay **131 vs 345 ms**. Fusion / BF16 stay ungated until isolate **and** native DDIM / policy p50 move on a card that can load the U-Net.
 
 See [CUDA](architecture/cuda).
 

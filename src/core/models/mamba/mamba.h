@@ -31,6 +31,14 @@ public:
   Mamba& operator=(Mamba&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
+  [[nodiscard]] bool cuda_resident() const noexcept
+  {
+#ifdef FLOWEDGE_CUDA
+    return cuda_ != nullptr;
+#else
+    return false;
+#endif
+  }
   [[nodiscard]] const MambaConfig& config() const noexcept { return cfg_; }
   [[nodiscard]] const float* embedding() const noexcept { return emb_; }
 

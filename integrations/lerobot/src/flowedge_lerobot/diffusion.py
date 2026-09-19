@@ -95,17 +95,25 @@ class FlowEdgeDiffusionPolicy:
 
     @classmethod
     def from_checkpoint(
-        cls, path: str, *, threads: int | None = None
+        cls, path: str, *, threads: int | None = None, device: str = "cpu"
     ) -> FlowEdgeDiffusionPolicy:
         """Load a converted checkpoint without making FlowEdge a LeRobot dependency."""
         import flowedge
 
+        from .device import require_native_device
+
+        require_native_device(device, flowedge)
         engine = flowedge.Engine(path, threads=threads)
+        require_native_device(device, flowedge, engine=engine)
         return cls(engine)
 
     @property
     def metadata(self) -> DiffusionActionContract:
         return self.contract
+
+    @property
+    def cuda_resident(self) -> bool:
+        return bool(getattr(self._engine, "cuda_resident", False))
 
     @property
     def action_dim(self) -> int:

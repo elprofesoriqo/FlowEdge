@@ -54,6 +54,14 @@ public:
   DiffusionHead& operator=(DiffusionHead&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
+  [[nodiscard]] bool cuda_resident() const noexcept
+  {
+#ifdef FLOWEDGE_CUDA
+    return cuda_ != nullptr;
+#else
+    return false;
+#endif
+  }
   [[nodiscard]] const DiffusionConfig& config() const noexcept { return cfg_; }
   [[nodiscard]] std::size_t sample_values() const noexcept
   {

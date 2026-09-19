@@ -75,7 +75,9 @@ fe_engine* fe_engine_load(const char* path);
  *
  * Passing 0 selects caller-thread-only execution. Values above 8 are rejected.
  * fe_engine_load() instead uses FLOWEDGE_THREADS when set, otherwise a
- * bandwidth-aware automatic default.
+ * bandwidth-aware automatic default. FLOWEDGE_CUDA_REQUIRED=1 fails load
+ * when device-resident CUDA did not attach. FLOWEDGE_CUDA_FORCE_HOST=1 skips
+ * the CUDA upload and keeps CPU kernels (tests / 4 GB cards).
  */
 fe_engine* fe_engine_load_with_threads(const char* path, unsigned worker_threads);
 
@@ -214,6 +216,15 @@ void fe_engine_reset(fe_engine* engine);
  * @return The number of worker threads (0 if single-threaded).
  */
 unsigned fe_engine_thread_count(const fe_engine* engine);
+
+/**
+ * @brief 1 if Mamba, flow, or Diffusion Policy weights are device-resident.
+ *
+ * A CUDA Core binary still returns 0 when attach failed (OOM, no GPU) or
+ * FLOWEDGE_CUDA_FORCE_HOST=1. CPU wheels always return 0. Load itself succeeds
+ * on CPU kernels unless FLOWEDGE_CUDA_REQUIRED=1.
+ */
+int fe_engine_cuda_resident(const fe_engine* engine);
 
 /** Fill versioned architecture, precision, dimension, and model-digest metadata. */
 int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadata);

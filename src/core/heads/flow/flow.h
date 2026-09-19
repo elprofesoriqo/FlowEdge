@@ -65,6 +65,14 @@ public:
   FlowHead& operator=(FlowHead&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ok_; }
+  [[nodiscard]] bool cuda_resident() const noexcept
+  {
+#ifdef FLOWEDGE_CUDA
+    return cuda_ != nullptr;
+#else
+    return false;
+#endif
+  }
   [[nodiscard]] const FlowConfig& config() const noexcept { return cfg_; }
   [[nodiscard]] std::size_t sampler_workspace_size() const noexcept
   {

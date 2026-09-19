@@ -306,6 +306,7 @@ TEST(Mamba, CudaResidentDoesNotMallocAfterLoad)
   MambaFixture fx;
   fe::Mamba model{fx.views(), fx.arena};
   ASSERT_TRUE(model.valid());
+  ASSERT_TRUE(model.cuda_resident());
   const auto mallocs = fe::cuda_ops::device_malloc_count();
   EXPECT_GT(mallocs, 0u);
   constexpr std::size_t kLength{4uz};
@@ -321,6 +322,21 @@ TEST(Mamba, CudaResidentDoesNotMallocAfterLoad)
     EXPECT_TRUE(std::isfinite(batch[i]));
     EXPECT_NEAR(streamed[i], batch[i], 3.0e-6F);
   }
+}
+
+TEST(Mamba, CudaAttachFailureKeepsCpuKernels)
+{
+  const fe::test::EnvOverride host{"FLOWEDGE_CUDA_FORCE_HOST", "1"};
+  MambaFixture fx;
+  fe::Mamba model{fx.views(), fx.arena};
+  ASSERT_TRUE(model.valid());
+  EXPECT_FALSE(model.cuda_resident());
+  constexpr std::size_t kLength{4uz};
+  const std::vector<float> input = seq(kLength * MambaFixture::kDm, 0.17F, -0.3F);
+  std::vector<float> output(input.size());
+  model.forward(input, output, kLength);
+  for (float value : output)
+    EXPECT_TRUE(std::isfinite(value));
 }
 #endif
 
@@ -462,6 +478,7 @@ TEST(DiffusionHead, CudaResidentDoesNotMallocAfterLoad)
   DiffusionFixture fixture;
   fe::DiffusionHead head{fixture.tensors, fixture.arena};
   ASSERT_TRUE(head.valid());
+  ASSERT_TRUE(head.cuda_resident());
   const auto mallocs = fe::cuda_ops::device_malloc_count();
   EXPECT_GT(mallocs, 0u);
   const std::vector<float> condition = seq(3uz, 0.31F, -0.2F);
@@ -473,6 +490,22 @@ TEST(DiffusionHead, CudaResidentDoesNotMallocAfterLoad)
   ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDIM, 1u, workspace, action));
   ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDPM, 42u, workspace, action));
   EXPECT_EQ(fe::cuda_ops::device_malloc_count(), mallocs);
+  for (float value : action)
+    EXPECT_TRUE(std::isfinite(value));
+}
+
+TEST(DiffusionHead, CudaAttachFailureKeepsCpuKernels)
+{
+  const fe::test::EnvOverride host{"FLOWEDGE_CUDA_FORCE_HOST", "1"};
+  DiffusionFixture fixture;
+  fe::DiffusionHead head{fixture.tensors, fixture.arena};
+  ASSERT_TRUE(head.valid());
+  EXPECT_FALSE(head.cuda_resident());
+  const std::vector<float> condition = seq(3uz, 0.31F, -0.2F);
+  const std::vector<float> noise = seq(8uz, 0.29F, 0.1F);
+  std::vector<float> workspace(head.sampler_workspace_size());
+  std::vector<float> action(8uz);
+  ASSERT_TRUE(head.sample(condition, noise, 5uz, fe::DiffusionHead::kDDIM, 1u, workspace, action));
   for (float value : action)
     EXPECT_TRUE(std::isfinite(value));
 }
@@ -678,6 +711,7 @@ TEST(FlowHead, CudaResidentDoesNotMallocAfterLoad)
   FlowFixture fx;
   fe::FlowHead head{fx.views(), fx.arena};
   ASSERT_TRUE(head.valid());
+  ASSERT_TRUE(head.cuda_resident());
   const auto mallocs = fe::cuda_ops::device_malloc_count();
   EXPECT_GT(mallocs, 0u);
   const std::vector<float> cond = seq(FlowFixture::kC, 0.1F, 0.0F);
@@ -691,6 +725,21 @@ TEST(FlowHead, CudaResidentDoesNotMallocAfterLoad)
   ASSERT_TRUE(head.sampler_begin(cond, x0, 4uz, fe::FlowHead::kHeun, workspace, state));
   EXPECT_EQ(head.sampler_advance(state, 4uz, out), 4uz);
   EXPECT_EQ(fe::cuda_ops::device_malloc_count(), mallocs);
+  for (float value : out)
+    EXPECT_TRUE(std::isfinite(value));
+}
+
+TEST(FlowHead, CudaAttachFailureKeepsCpuKernels)
+{
+  const fe::test::EnvOverride host{"FLOWEDGE_CUDA_FORCE_HOST", "1"};
+  FlowFixture fx;
+  fe::FlowHead head{fx.views(), fx.arena};
+  ASSERT_TRUE(head.valid());
+  EXPECT_FALSE(head.cuda_resident());
+  const std::vector<float> cond = seq(FlowFixture::kC, 0.1F, 0.0F);
+  const std::vector<float> x0 = seq(FlowFixture::kA, 0.3F, 0.2F);
+  std::vector<float> out(FlowFixture::kA);
+  head.sample(cond, x0, 4uz, fe::FlowHead::kEuler, out);
   for (float value : out)
     EXPECT_TRUE(std::isfinite(value));
 }

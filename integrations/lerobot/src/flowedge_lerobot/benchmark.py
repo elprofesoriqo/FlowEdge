@@ -152,7 +152,7 @@ def main(argv=None):
     encoder_startup = (perf_counter_ns() - startup) / 1e6
     startup = perf_counter_ns()
     native = FlowEdgeDiffusionPolicy.from_checkpoint(
-        args.checkpoint, threads=args.threads
+        args.checkpoint, threads=args.threads, device=args.device
     )
     native_startup = (perf_counter_ns() - startup) / 1e6
     config = source_config(args.source, device=args.device)

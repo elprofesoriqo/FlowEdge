@@ -92,7 +92,7 @@ curl -L "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.s
 python examples/core/flow_sample.py models/mamba_flow.safetensors euler 10
 ```
 
-Those wheels are CPU. CUDA is `FLOWEDGE_BACKEND=cuda` with `nvcc` ([CUDA](docs/architecture/cuda.md)).
+Those wheels are CPU (v0.1.1, not PyPI). CUDA is `FLOWEDGE_BACKEND=cuda` with `nvcc` on WSL or MSVC ([CUDA](docs/architecture/cuda.md)). A 4 GB card that cannot allocate the U-Net keeps CPU kernels instead of failing load; check `Engine.cuda_resident`.
 
 From source (C++23, CMake 3.21+):
 

@@ -120,3 +120,7 @@ python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors 
 
 Do not retry L=16 conv split-K without a new launch shape; it lost twice.
 Do not replace the README `threads=1` 851 vs 1409 ms CPU figure from a CUDA mix.
+Do not replace the published GTX 1650 **131 vs 345 ms** CUDA replay from a mix
+or a new GPU. Residual fusion and BF16/FP16 weight traffic use the same gate:
+isolate **and** native 10-step DDIM (or matched policy p50) on a card that can
+`cudaMalloc` the U-Net. A 4 GB GTX 1650 WDDM/WSL host is not that card.

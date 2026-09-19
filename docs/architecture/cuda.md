@@ -5,6 +5,19 @@ including `mish`, causal `conv1d`, `rmsnorm`, device SSM scan) through
 `src/core/kernels/cuda/`. CMake fails closed without `nvcc`. On Windows, `nvcc`
 needs an MSVC-compatible host compiler; the MinGW/Clang gnu-target tree used
 for CPU Release builds cannot host `nvcc`. WSL or MSVC is the CUDA build.
+CPU wheels (v0.1.1, not PyPI) have no CUDA kernels.
+
+Device-resident attach is best-effort. If `cudaMalloc` / H2D fails (typical on a
+4 GB GTX 1650 under WDDM/WSL for the ~959 MiB PushT U-Net), the engine keeps the
+already-loaded **CPU kernels**. `fe_engine_cuda_resident` / `Engine.cuda_resident`
+is then 0. That is not `fe_engine_load` failure. `FLOWEDGE_CUDA_REQUIRED=1` fails
+load when attach did not happen. `FLOWEDGE_CUDA_FORCE_HOST=1` skips the upload.
+`--device cuda` still fails closed unless residency is true.
+
+Published CUDA matched replay on GTX 1650 stays **131 vs 345 ms**. Fusion and
+BF16/FP16 weight traffic stay ungated until isolate **and** native DDIM / policy
+p50 both move on a card that can load the U-Net. Do not replace that headline
+from a mix or a new GPU.
 
 The **Mamba backbone**, **flow head**, and **Diffusion Policy head** are
 device-resident. `Mamba` uploads `backbone.*` weights and layer scratch once at

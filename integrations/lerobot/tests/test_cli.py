@@ -10,6 +10,7 @@ from flowedge_lerobot.cli import _parser, main, run_simulator
 class FakePolicy:
     metadata = type("Metadata", (), {"condition_dim": 3, "horizon": 4})()
     action_dim = 2
+    cuda_resident = True
 
     def __init__(self):
         self.calls = 0
@@ -48,7 +49,7 @@ class CliTests(unittest.TestCase):
             load.return_value = FakePolicy()
             with patch("builtins.print") as print_result:
                 self.assertEqual(main(["policy.safetensors", "--steps", "2"]), 0)
-        load.assert_called_once_with("policy.safetensors", threads=None)
+        load.assert_called_once_with("policy.safetensors", threads=None, device="cpu")
         payload = json.loads(print_result.call_args.args[0])
         self.assertEqual(payload["steps"], 2)
         self.assertTrue(payload["stopped"])
@@ -67,6 +68,17 @@ class CliTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     main(["policy.safetensors", "--device", "cuda"])
             load.assert_not_called()
+
+    def test_cuda_fails_closed_without_resident_weights(self):
+        policy = FakePolicy()
+        policy.cuda_resident = False
+        with patch.dict(sys.modules, {"flowedge": SimpleNamespace(cuda=True)}):
+            with patch(
+                "flowedge_lerobot.cli.FlowEdgeDiffusionPolicy.from_checkpoint"
+            ) as load:
+                load.return_value = policy
+                with self.assertRaises(SystemExit):
+                    main(["policy.safetensors", "--device", "cuda"])
 
     def test_cuda_records_device_and_limitations(self):
         with patch.dict(sys.modules, {"flowedge": SimpleNamespace(cuda=True)}):
