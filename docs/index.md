@@ -4,7 +4,7 @@
 
 <p class="fe-lede">FlowEdge is a C++23 inference runtime for robotics policies with fixed memory, deterministic execution, and explicit deadline handling. It runs two heads: <strong>flow matching</strong> (a short ODE from noise to action) and <strong>Diffusion Policy</strong> (DDIM on a Conv1D U-Net). LeRobot still owns training, cameras, and the robot driver.</p>
 
-```{image} _static/perf.gif
+```{image} _static/matched_replay.gif
 :alt: Matched replay loading, CUDA then CPU. FlowEdge CUDA 131 ms vs PyTorch 345 ms; FlowEdge CPU 851 ms vs PyTorch 1409 ms.
 :class: fe-fig
 ```

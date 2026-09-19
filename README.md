@@ -17,7 +17,7 @@ A C++23 inference runtime for robotics policies with fixed memory, deterministic
 </div>
 
 <div align="center">
-  <img src="assets/perf.gif" width="720" alt="Matched replay loading, CUDA then CPU. FlowEdge CUDA 131 ms vs PyTorch 345 ms on GTX 1650; FlowEdge CPU 851 ms vs PyTorch 1409 ms, threads=1. First bar to 100% in each pair is faster. Not a 10 ms loop.">
+  <img src="assets/matched_replay.gif" width="720" alt="Matched replay loading, CUDA then CPU. FlowEdge CUDA 131 ms vs PyTorch 345 ms on GTX 1650; FlowEdge CPU 851 ms vs PyTorch 1409 ms, threads=1. First bar to 100% in each pair is faster. Not a 10 ms loop.">
 </div>
 
 <p align="center"><em>Same load → warmup (malloc 0) → DDIM. CUDA 131 vs 345 ms. CPU 851 vs 1409 ms.</em></p>

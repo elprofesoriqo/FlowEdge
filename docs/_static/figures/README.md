@@ -6,7 +6,7 @@ Excalidraw sources (`.excalidraw`) plus GitHub/Sphinx SVGs. GitHub does not rend
 python docs/_static/figures/draw.py
 ```
 
-Also writes `assets/flowedge.gif` (flow-matching ODE) and `assets/perf.gif`
+Also writes `assets/flowedge.gif` (flow-matching ODE) and `assets/matched_replay.gif`
 (one loop: CUDA 131 vs 345 ms stacked over CPU 851 vs 1409 ms).
 `python docs/_static/figures/draw.py perf` regenerates the replay GIF.
 
