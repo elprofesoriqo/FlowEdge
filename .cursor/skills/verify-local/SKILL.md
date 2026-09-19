@@ -34,8 +34,9 @@ Kernel-only slice after a CPU op change:
 1. Read `.cursor/skills/verify-local/SKILL.md` and `docs/guides/verification.md`.
 2. Do not treat a green GitHub `Test` job as ULP or convert proof.
 3. Fail closed on a red local gate. Do not skip `verify_ulp.py` because CI no longer runs it.
-4. Kernel or op work also follows the CPU-only measure-first loop in
+4. Kernel or op work also follows the measure-first loop in
    `docs/guides/verification.md` (real shapes, isolate, layout before inner loop).
+   CUDA DP kernels use the mix + native DDIM gate in that same guide.
 5. Report the exact command and pass/fail. For performance, report the median
    and keep the raw command.
 

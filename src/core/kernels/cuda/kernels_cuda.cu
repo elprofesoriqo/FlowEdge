@@ -165,6 +165,31 @@ __global__ void matmul_f32_kernel(const float* in, const float* w, float* out, i
   out[(static_cast<std::size_t>(r) * static_cast<std::size_t>(out_dim)) + o] = acc;
 }
 
+// FiLM and timestep GEMMs are 1xK. The 16x16 launch leaves 15/16 threads idle on rows=1.
+__global__ void matmul_f32_row_kernel(const float* in, const float* w, float* out, int in_dim,
+                                      int out_dim)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= out_dim)
+    return;
+  const float* wr = w + (static_cast<std::size_t>(o) * static_cast<std::size_t>(in_dim));
+  float acc = 0.0f;
+  if ((in_dim & 3) == 0) {
+    const float4* in4 = reinterpret_cast<const float4*>(in);
+    const float4* wr4 = reinterpret_cast<const float4*>(wr);
+    const int n4 = in_dim >> 2;
+    for (int k = 0; k < n4; ++k) {
+      const float4 a = __ldg(in4 + k);
+      const float4 b = __ldg(wr4 + k);
+      acc += (a.x * b.x) + (a.y * b.y) + (a.z * b.z) + (a.w * b.w);
+    }
+  } else {
+    for (int k = 0; k < in_dim; ++k)
+      acc += __ldg(in + k) * __ldg(wr + k);
+  }
+  out[o] = acc;
+}
+
 __global__ void matmul_bf16_kernel(const float* in, const std::uint16_t* w, float* out, int rows,
                                    int in_dim, int out_dim)
 {
@@ -301,8 +326,8 @@ __global__ void conv1d_dense_fixed_kernel(const float* x, const float* weight, c
   y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
 }
 
-// One warp (or a few) per output channel on L=4. Lanes split IC; K taps stay in
-// registers across the four times. L=8/16 stay on the 2D launch; split-K lost there.
+// One block per output channel on L=4 (and L=8 when dispatched). Lanes split IC;
+// K taps stay in registers. L=16 stays on the 2D launch; split-K lost there.
 template<int Kernel, int Stride, int Length>
 __global__ void conv1d_splitk_kernel(const float* x, const float* weight, const float* bias, float* y,
                                      int in_channels, int out_channels, int input_length, int padding)
@@ -313,7 +338,7 @@ __global__ void conv1d_splitk_kernel(const float* x, const float* weight, const 
   const int lane = threadIdx.x & 31;
   const int warp = threadIdx.x >> 5;
   const int ic_stride = blockDim.x;
-  __shared__ float partial[4 * 16];
+  __shared__ float partial[16 * 16];
   float acc[Length];
 #pragma unroll
   for (int ot = 0; ot < Length; ++ot)
@@ -325,15 +350,60 @@ __global__ void conv1d_splitk_kernel(const float* x, const float* weight, const 
     float wk[Kernel];
 #pragma unroll
     for (int k = 0; k < Kernel; ++k)
-      wk[k] = wr[k];
+      wk[k] = __ldg(wr + k);
+    if constexpr (Length == 4 || Length == 8) {
+      if (input_length == Length) {
+        float in[Length];
+        if constexpr (Length == 4) {
+          const float4 in4 = __ldg(reinterpret_cast<const float4*>(input));
+          in[0] = in4.x;
+          in[1] = in4.y;
+          in[2] = in4.z;
+          in[3] = in4.w;
+        } else {
+          const float4 in_lo = __ldg(reinterpret_cast<const float4*>(input));
+          const float4 in_hi = __ldg(reinterpret_cast<const float4*>(input + 4));
+          in[0] = in_lo.x;
+          in[1] = in_lo.y;
+          in[2] = in_lo.z;
+          in[3] = in_lo.w;
+          in[4] = in_hi.x;
+          in[5] = in_hi.y;
+          in[6] = in_hi.z;
+          in[7] = in_hi.w;
+        }
 #pragma unroll
-    for (int ot = 0; ot < Length; ++ot) {
-      const int origin = ot * Stride - padding;
+        for (int ot = 0; ot < Length; ++ot) {
+          const int origin = ot * Stride - padding;
 #pragma unroll
-      for (int k = 0; k < Kernel; ++k) {
-        const int index = origin + k;
-        if (static_cast<unsigned>(index) < static_cast<unsigned>(input_length))
-          acc[ot] += input[index] * wk[k];
+          for (int k = 0; k < Kernel; ++k) {
+            const int index = origin + k;
+            if (static_cast<unsigned>(index) < static_cast<unsigned>(Length))
+              acc[ot] += in[index] * wk[k];
+          }
+        }
+      } else {
+#pragma unroll
+        for (int ot = 0; ot < Length; ++ot) {
+          const int origin = ot * Stride - padding;
+#pragma unroll
+          for (int k = 0; k < Kernel; ++k) {
+            const int index = origin + k;
+            if (static_cast<unsigned>(index) < static_cast<unsigned>(input_length))
+              acc[ot] += __ldg(input + index) * wk[k];
+          }
+        }
+      }
+    } else {
+#pragma unroll
+      for (int ot = 0; ot < Length; ++ot) {
+        const int origin = ot * Stride - padding;
+#pragma unroll
+        for (int k = 0; k < Kernel; ++k) {
+          const int index = origin + k;
+          if (static_cast<unsigned>(index) < static_cast<unsigned>(input_length))
+            acc[ot] += __ldg(input + index) * wk[k];
+        }
       }
     }
   }
@@ -411,6 +481,64 @@ __global__ void conv_transpose1d_fixed_kernel(const float* x, const float* weigh
     }
   }
   y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(output_length)) + ot] = sum;
+}
+
+template<int Kernel, int Stride, int OutLength>
+__global__ void conv_transpose1d_splitk_kernel(const float* x, const float* weight, const float* bias,
+                                                float* y, int in_channels, int out_channels,
+                                                int input_length, int padding, int k_major)
+{
+  const int oc = blockIdx.x;
+  if (oc >= out_channels)
+    return;
+  const int lane = threadIdx.x & 31;
+  const int warp = threadIdx.x >> 5;
+  const int ic_stride = blockDim.x;
+  __shared__ float partial[16 * 16];
+  float acc[OutLength];
+#pragma unroll
+  for (int ot = 0; ot < OutLength; ++ot)
+    acc[ot] = 0.0f;
+  for (int ic = threadIdx.x; ic < in_channels; ic += ic_stride) {
+    const float* input = x + (static_cast<std::size_t>(ic) * static_cast<std::size_t>(input_length));
+#pragma unroll
+    for (int ot = 0; ot < OutLength; ++ot) {
+#pragma unroll
+      for (int k = 0; k < Kernel; ++k) {
+        const int shifted = ot + padding - k;
+        if (shifted < 0 || (shifted % Stride) != 0)
+          continue;
+        const int it = shifted / Stride;
+        if (it >= input_length)
+          continue;
+        const float wv =
+            k_major ? __ldg(weight + ((((k * out_channels) + oc) * in_channels) + ic))
+                    : __ldg(weight + ((((ic * out_channels) + oc) * Kernel) + k));
+        acc[ot] += __ldg(input + it) * wv;
+      }
+    }
+  }
+  const int warps = ic_stride >> 5;
+#pragma unroll
+  for (int ot = 0; ot < OutLength; ++ot) {
+    float v = acc[ot];
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1)
+      v += __shfl_down_sync(0xffffffffu, v, offset);
+    if (lane == 0)
+      partial[(warp * OutLength) + ot] = v;
+  }
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    const float shift = bias[oc];
+#pragma unroll
+    for (int ot = 0; ot < OutLength; ++ot) {
+      float sum = shift;
+      for (int w = 0; w < warps; ++w)
+        sum += partial[(w * OutLength) + ot];
+      y[(static_cast<std::size_t>(oc) * static_cast<std::size_t>(OutLength)) + ot] = sum;
+    }
+  }
 }
 
 __global__ void conv_transpose1d_kernel(const float* x, const float* weight, const float* bias,
@@ -933,6 +1061,11 @@ void matmul_f32_device(const float* in, const float* w, float* out, std::size_t 
   if (rows == 0 || in_dim == 0 || out_dim == 0 || in == nullptr || w == nullptr || out == nullptr)
     return;
   census_hit("gemm", static_cast<int>(rows), static_cast<int>(in_dim), static_cast<int>(out_dim));
+  if (rows == 1) {
+    matmul_f32_row_kernel<<<grid(static_cast<int>(out_dim)), 256>>>(
+        in, w, out, static_cast<int>(in_dim), static_cast<int>(out_dim));
+    return;
+  }
   dim3 block(16, 16);
   dim3 grid_dim(static_cast<unsigned>((out_dim + 15) / 16),
                 static_cast<unsigned>((rows + 15) / 16));
@@ -1132,7 +1265,11 @@ void conv1d_device(const float* x, const float* weight, const float* bias, float
   const int out_len = static_cast<int>(output_length);
   const int pad = static_cast<int>(padding);
   if (ic >= 32) {
-    const int workers = ic >= 128 ? 128 : 32;
+    int workers = 32;
+    if (ic >= 256)
+      workers = 256;
+    else if (ic >= 128)
+      workers = 128;
     if (kernel == 5 && stride == 1 && output_length == 4) {
       conv1d_splitk_kernel<5, 1, 4><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
       return;
@@ -1143,6 +1280,14 @@ void conv1d_device(const float* x, const float* weight, const float* bias, float
     }
     if (kernel == 1 && stride == 1 && output_length == 4) {
       conv1d_splitk_kernel<1, 1, 4><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
+      return;
+    }
+    if (kernel == 5 && stride == 1 && output_length == 8) {
+      conv1d_splitk_kernel<5, 1, 8><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
+      return;
+    }
+    if (kernel == 1 && stride == 1 && output_length == 8) {
+      conv1d_splitk_kernel<1, 1, 8><<<oc, workers>>>(x, weight, bias, y, ic, oc, in_len, pad);
       return;
     }
   }
@@ -1177,6 +1322,18 @@ void conv_transpose1d_device(const float* x, const float* weight, const float* b
              static_cast<int>(input_length), static_cast<int>(output_length),
              static_cast<int>(kernel), k_major_weights ? 1 : 0);
   const int oc = static_cast<int>(out_channels);
+  const int ic = static_cast<int>(in_channels);
+  if (k_major_weights && ic >= 32 && kernel == 4 && stride == 2 && output_length == 8) {
+    int workers = 32;
+    if (ic >= 256)
+      workers = 256;
+    else if (ic >= 128)
+      workers = 128;
+    conv_transpose1d_splitk_kernel<4, 2, 8><<<oc, workers>>>(
+        x, weight, bias, y, ic, oc, static_cast<int>(input_length), static_cast<int>(padding),
+        k_major_weights ? 1 : 0);
+    return;
+  }
   dim3 block;
   dim3 grid_dim;
   dense_conv_grid(static_cast<int>(output_length), oc, block, grid_dim);

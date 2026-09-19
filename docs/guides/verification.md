@@ -101,3 +101,22 @@ cmake --build build/install-consumer -j
 
 New kernels, protocols, adapters, event types, and exporters require a focused test plus inclusion in
 `verify_all.sh` when they add a runnable surface.
+
+## CUDA kernel loop
+
+One hypothesis per rebuild. Keep the patch only when the targeted
+`flowedge_cuda_dp_mix` isolate row **and** native 10-step DDIM p50 both move.
+If isolate moves and native does not, revert (#178). Then run matched CUDA
+policy replay vs PyTorch; max abs must stay within the existing 1e-3 gate.
+
+```bash
+./build-cuda/flowedge_cuda_dp_mix models/diffusion_pusht.flowedge.safetensors
+# patch the hottest remaining census/mix row in src/core/kernels/cuda/kernels_cuda.cu
+./build-cuda/flowedge_cuda_dp_mix models/diffusion_pusht.flowedge.safetensors
+python -m flowedge_dev bench policy models/diffusion_pusht.flowedge.safetensors \
+  --source models/diffusion_pusht --device cuda --build-dir /path/to/cuda-build \
+  --observations bench/artifacts/policy/diffusion-pusht-cpu-replay.observations.npz
+```
+
+Do not retry L=16 conv split-K without a new launch shape; it lost twice.
+Do not replace the README `threads=1` 851 vs 1409 ms CPU figure from a CUDA mix.
