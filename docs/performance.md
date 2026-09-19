@@ -101,7 +101,7 @@ Native 10-step DDIM on the same GTX 1650, same checkpoint, `flowedge_cuda_dp_mix
 
 Short-horizon launch (`block.x` matches `L`) and closed-form `conv_transpose1d` ([#174](https://github.com/elprofesoriqo/FlowEdge/issues/174)).
 
-Warp split-K on **L=4 only** (lanes split `IC`, one warp-group per output channel). L=8/16 stay on the 2D launch; split-K lost there.
+Warp split-K on **L=4 and L=8** (lanes split `IC`, one block per output channel). L=16 stays on the 2D launch; split-K lost there twice.
 
 | Kernel | #174 p50 | split-K p50 | ms/sample |
 |---|---:|---:|---:|
@@ -119,7 +119,21 @@ Block-per-group GroupNorm ([#179](https://github.com/elprofesoriqo/FlowEdge/issu
 | group_norm 2048 L4 | 118 us | **10 us** | 0.8 |
 | native DDIM ×10 | 156 ms | **136 ms** | 136 |
 
-Matched policy p50 is **131 ms vs 345 ms** on this same host after the GroupNorm launch change (replay JSON regenerated; encoder still in LeRobot). Use the native DDIM census for the next kernel pick.
+Matched policy p50 is **131 ms vs 345 ms** on this same host after the GroupNorm launch change (replay JSON regenerated; encoder still in LeRobot).
+
+L=8 split-K, 256-thread L=4, k-major upsample split-K, and a rows=1 GEMM launch, measured on a cooler GTX 1650 clock than the 136 ms GN run. Compare to this session's mix baseline, not to 136 ms:
+
+| Kernel | session before | after | ms/sample |
+|---|---:|---:|---:|
+| conv 1024 L4 K5 | 234 us | 196 us | 5.9 |
+| conv 2048 L4 K5 | 935 us | **748 us** | 52 |
+| conv 512 L8 K5 | 193 us | **102 us** | 3.1 |
+| conv 1024 L8 K5 | 664 us | **336 us** | 10.1 |
+| upsample 1024 k-major | 489 us | **315 us** | 3.1 |
+| gemm 1x260x4096 | 98 us | 76 us | 3.0 |
+| native DDIM ×10 | 266 ms | **174 ms** | 174 |
+
+L=16 split-K was rejected (215→897 us; native 183→229 ms). Same-day matched replay on this clock was 158 vs 434 ms, max abs 3.05e-5; that does not replace the published 131 vs 345 JSON. Next pick is still `conv 2048 L4` (70 launches).
 
 ### How to get them
 

@@ -33,6 +33,7 @@ not Tenstorrent-first. Jetson/ARM (#70) still needs a board JSON.
 | 5c | CUDA DP conv occupancy | PushT-shape `flowedge_cuda_dp_mix` before/after; native DDIM median ([#174](https://github.com/elprofesoriqo/FlowEdge/issues/174)) |
 | 5d | CUDA DP split-K conv | L=4 warp split-K; `conv 2048` and native DDIM medians ([#176](https://github.com/elprofesoriqo/FlowEdge/issues/176)) |
 | 5e | CUDA DDIM launch census | One native sample shape counts from `flowedge_cuda_dp_mix`; block-per-group GroupNorm ([#179](https://github.com/elprofesoriqo/FlowEdge/issues/179)) |
+| 5f | CUDA L=8 split-K | L=8 conv and k-major upsample split-K; 256-thread L=4; mix isolate and native DDIM ([#182](https://github.com/elprofesoriqo/FlowEdge/issues/182)) |
 | 6 | Jetson / ARM replay | Device JSON for [#70](https://github.com/elprofesoriqo/FlowEdge/issues/70); x86 JSON is not ARM evidence |
 | 7 | Tenstorrent / π0 / ACT | After CUDA evidence; see deferred table |
 
