@@ -31,7 +31,7 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 
 | Area | Capabilities |
 |---|---|
-| Backends | CPU scalar / AVX2 / NEON. `FLOWEDGE_BACKEND=cuda` (nvcc): Mamba, flow, and DP heads device-resident. Tenstorrent (TT-Metal) is a research track, not a download |
+| Backends | CPU scalar / AVX2 / NEON. `FLOWEDGE_BACKEND=cuda` (nvcc): Mamba, flow, and DP heads device-resident; CUDA OOM at load keeps CPU kernels. Tenstorrent (TT-Metal) is a research track, not a download |
 | Backbones | Mamba. Transformer CPU decoder fixture (not a policy) |
 | Heads | flow matching (Euler / Heun / RK4); Diffusion Policy (DDIM / DDPM); SmolVLA expert soon |
 | Models | `mamba_flow`; `diffusion_pusht`. π0 / DiT / native VLM no |
@@ -49,6 +49,7 @@ Use Core when the policy and the controller share a process. Use Relay when a se
 | Contract | Expectation |
 |---|---|
 | Allocation | Nothing after setup on supported hot paths |
+| CUDA attach | Device-resident upload is best-effort; CPU kernels remain unless `FLOWEDGE_CUDA_REQUIRED=1` |
 | Mutable state | One engine per concurrent lane |
 | Action delivery | Binding, overlap, bounds, per-step delta |
 | Deadlines | Predictive admission, not an OS hard guarantee |

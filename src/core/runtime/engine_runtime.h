@@ -51,6 +51,14 @@ public:
   EngineRuntime& operator=(EngineRuntime&&) = delete;
 
   [[nodiscard]] bool valid() const noexcept { return ready_; }
+  [[nodiscard]] bool cuda_capable() const noexcept
+  {
+    return model_.valid() || flow_.valid() || diffusion_.valid();
+  }
+  [[nodiscard]] bool cuda_resident() const noexcept
+  {
+    return model_.cuda_resident() || flow_.cuda_resident() || diffusion_.cuda_resident();
+  }
   [[nodiscard]] bool has_compatible_flow_head() const noexcept;
   [[nodiscard]] std::size_t d_model() const noexcept;
   [[nodiscard]] std::size_t n_layers() const noexcept;

@@ -5,6 +5,7 @@
 #include "loader/weight_ops.h"
 #ifdef FLOWEDGE_CUDA
 #include "heads/diffusion/diffusion_cuda.h"
+#include "runtime/cuda_attach.h"
 #endif
 
 #include <algorithm>
@@ -541,15 +542,13 @@ DiffusionHead::DiffusionHead(std::span<const TensorView> weights, Arena& persist
   workspace_floats_ = required_workspace_floats(weights);
   ok_ = workspace_floats_ != 0uz;
 #ifdef FLOWEDGE_CUDA
-  if (!ok_)
+  if (!ok_ || !should_attach_cuda())
     return;
   static_assert(DiffusionHead::kMaxStages == CudaDiffusionResident::kMaxStages);
   void* const storage =
       persistent.alloc<alignof(CudaDiffusionResident)>(sizeof(CudaDiffusionResident));
-  if (storage == nullptr) {
-    ok_ = false;
+  if (storage == nullptr)
     return;
-  }
   std::memset(storage, 0, sizeof(CudaDiffusionResident));
   cuda_ = static_cast<CudaDiffusionResident*>(storage);
   std::byte* const upload_mark = persistent.mark();
@@ -630,7 +629,6 @@ DiffusionHead::DiffusionHead(std::span<const TensorView> weights, Arena& persist
   if (!linears_ok || !cuda_->load(spec)) {
     cuda_->release();
     cuda_ = nullptr;
-    ok_ = false;
   }
   persistent.reset_to(upload_mark);
 #endif

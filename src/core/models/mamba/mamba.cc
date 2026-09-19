@@ -6,6 +6,7 @@
 #include "loader/weight_ops.h"
 #ifdef FLOWEDGE_CUDA
 #include "models/mamba/mamba_cuda.h"
+#include "runtime/cuda_attach.h"
 #endif
 
 #include <array>
@@ -176,14 +177,12 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
   cfg_.n_layers = n;
   ok_ = n > 0uz;
 #ifdef FLOWEDGE_CUDA
-  if (!ok_)
+  if (!ok_ || !should_attach_cuda())
     return;
   static_assert(Mamba::kMaxLayers == CudaMambaResident::kMaxLayers);
   void* const storage = scratch.alloc<alignof(CudaMambaResident)>(sizeof(CudaMambaResident));
-  if (storage == nullptr) {
-    ok_ = false;
+  if (storage == nullptr)
     return;
-  }
   std::memset(storage, 0, sizeof(CudaMambaResident));
   cuda_ = static_cast<CudaMambaResident*>(storage);
   std::byte* const upload_mark = scratch.mark();
@@ -217,7 +216,6 @@ Mamba::Mamba(std::span<const TensorView> weights, Arena& scratch) noexcept : scr
                                  cfg_.d_conv, cfg_.dt_rank, norm_f_, hosts)) {
     cuda_->release();
     cuda_ = nullptr;
-    ok_ = false;
   }
   scratch.reset_to(upload_mark);
 #endif

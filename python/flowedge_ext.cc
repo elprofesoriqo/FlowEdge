@@ -128,6 +128,7 @@ public:
   [[nodiscard]] std::size_t action_horizon() const { return fe_engine_action_horizon(engine_); }
   [[nodiscard]] std::size_t condition_dim() const { return fe_engine_condition_dim(engine_); }
   [[nodiscard]] unsigned thread_count() const { return fe_engine_thread_count(engine_); }
+  [[nodiscard]] bool cuda_resident() const { return fe_engine_cuda_resident(engine_) != 0; }
   [[nodiscard]] py::dict diffusion_metadata() const
   {
     fe_diffusion_metadata metadata{};
@@ -794,6 +795,7 @@ PYBIND11_MODULE(flowedge, m)
       .def_property_readonly("condition_dim", &Engine::condition_dim)
       .def_property_readonly("d_model", &Engine::d_model)
       .def_property_readonly("thread_count", &Engine::thread_count)
+      .def_property_readonly("cuda_resident", &Engine::cuda_resident)
       .def_property_readonly("model_metadata", &Engine::model_metadata)
       .def_property_readonly("diffusion_metadata", &Engine::diffusion_metadata)
       .def("run", &Engine::run, py::arg("tokens"))

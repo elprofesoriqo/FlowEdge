@@ -18,7 +18,14 @@ class FlowEdgePolicy(PreTrainedPolicy):
     def __init__(self, config: FlowEdgeConfig, *args, **kwargs):
         super().__init__(config, *args, **kwargs)
         config.validate_features()
-        self._policy = FlowEdgeDiffusionPolicy.from_checkpoint(config.checkpoint_path)
+        device = "cpu"
+        if config.input_mode == "visual":
+            from flowedge_lerobot.device import config_device
+
+            device = config_device(config)
+        self._policy = FlowEdgeDiffusionPolicy.from_checkpoint(
+            config.checkpoint_path, device=device
+        )
         if config.action_steps is None:
             config.action_steps = self._policy.action_steps
         if config.action_steps > self._policy.action_steps:
@@ -39,7 +46,7 @@ class FlowEdgePolicy(PreTrainedPolicy):
             if str(device).startswith("cuda"):
                 import flowedge
 
-                require_native_device("cuda", flowedge)
+                require_native_device("cuda", flowedge, engine=self._policy)
                 if not torch.cuda.is_available():
                     raise RuntimeError("CUDA requested but torch.cuda is unavailable")
             validate_source_pair(config.checkpoint_path, config.source_checkpoint_path)

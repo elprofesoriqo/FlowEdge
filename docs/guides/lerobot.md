@@ -51,8 +51,10 @@ python -m flowedge_dev pipeline rollout models/diffusion_pusht.flowedge.safetens
   --steps 20 --threads 1 --period-ms 10 --on-miss hold --device cuda
 ```
 
-`input_mode=visual` keeps the source RGB encoder in LeRobot/PyTorch (`device=cuda`).
-GTX 1650, 10 ms hold: 20 / 20 misses. Not a Jetson/ARM claim.
+`--device cuda` requires a CUDA Core binary **and** `Engine.cuda_resident`. A 4 GB
+card that cannot upload the U-Net stays on CPU kernels; that is a load success,
+not a CUDA replay. `FLOWEDGE_CUDA_REQUIRED=1` fails closed. GTX 1650, 10 ms hold:
+20 / 20 misses. Not a Jetson/ARM claim.
 
 | `--on-miss` | On overrun |
 |---|---|

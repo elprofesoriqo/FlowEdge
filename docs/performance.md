@@ -195,6 +195,11 @@ CUDA DP kernel mix (WSL, `FLOWEDGE_BACKEND=cuda`, GTX 1650 `sm_75`):
 | Prefix | `[1, 2, 3, 4]` (correctness, not a p50) |
 | Matched policy p50 | — |
 
+There is no published flow-matching policy p50. The default head is gated by ULP
+(~1e-6 rel vs the same PyTorch reference). Do not treat that prefix check as a
+robot number. A matched replay vs PyTorch would be the measurement if one is
+needed; `flow_sample` wall time is not it.
+
 ### How to get them
 
 ```bash

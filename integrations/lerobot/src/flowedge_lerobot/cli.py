@@ -202,20 +202,26 @@ def _cuda_device_name() -> str | None:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    flowedge_module = None
     if args.device == "cuda":
         try:
-            import flowedge
+            import flowedge as flowedge_module
 
-            require_native_device(args.device, flowedge)
+            require_native_device(args.device, flowedge_module)
         except ImportError:
             parser.error("CUDA requested but FlowEdge is not importable")
         except (ValueError, RuntimeError) as error:
             parser.error(str(error))
     started = time.perf_counter()
     policy = FlowEdgeDiffusionPolicy.from_checkpoint(
-        args.checkpoint, threads=args.threads
+        args.checkpoint, threads=args.threads, device=args.device
     )
     startup_ms = (time.perf_counter() - started) * 1_000
+    if args.device == "cuda":
+        try:
+            require_native_device(args.device, flowedge_module, engine=policy)
+        except (ValueError, RuntimeError) as error:
+            parser.error(str(error))
     result = run_simulator(
         policy,
         steps=args.steps,

@@ -1,12 +1,14 @@
 #include "engine.h"
 
 #include "runtime/engine_runtime.h"
+#include "runtime/environment.h"
 
 #include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <exception>
 #include <limits>
@@ -126,6 +128,23 @@ fe_engine* create_engine(std::shared_ptr<const fe::ModelWeights> weights, unsign
       last_error() = "Model architecture initialization failed";
       return nullptr;
     }
+    if (fe::environment_flag("FLOWEDGE_CUDA_REQUIRED")) {
+#ifndef FLOWEDGE_CUDA
+      last_error() = "FLOWEDGE_CUDA_REQUIRED=1 but this binary has no CUDA kernels "
+                     "(CPU wheel or CPU source build)";
+      return nullptr;
+#else
+      if (engine->runtime.cuda_capable() && !engine->runtime.cuda_resident()) {
+        last_error() = "FLOWEDGE_CUDA_REQUIRED=1 but device-resident CUDA did not attach";
+        return nullptr;
+      }
+#endif
+    }
+#ifdef FLOWEDGE_CUDA
+    else if (engine->runtime.cuda_capable() && !engine->runtime.cuda_resident()) {
+      std::fprintf(stderr, "FlowEdge: CUDA resident load did not attach; CPU kernels are active\n");
+    }
+#endif
     return engine.release();
   } catch (const std::exception&) {
     last_error() = "Exception during engine load (likely OOM)";
@@ -236,6 +255,11 @@ void fe_engine_dims(const fe_engine* engine, std::size_t* d_model, std::size_t* 
 unsigned fe_engine_thread_count(const fe_engine* engine)
 {
   return engine != nullptr ? engine->runtime.thread_count() : 0u;
+}
+
+int fe_engine_cuda_resident(const fe_engine* engine)
+{
+  return engine != nullptr && engine->runtime.cuda_resident() ? 1 : 0;
 }
 
 int fe_engine_model_metadata(const fe_engine* engine, fe_model_metadata* metadata)

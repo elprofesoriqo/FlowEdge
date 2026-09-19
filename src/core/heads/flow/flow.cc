@@ -6,6 +6,7 @@
 #include "loader/weight_ops.h"
 #ifdef FLOWEDGE_CUDA
 #include "heads/flow/flow_cuda.h"
+#include "runtime/cuda_attach.h"
 #endif
 
 #include <algorithm>
@@ -104,12 +105,12 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
   freqs_ = f;
   ok_ = true;
 #ifdef FLOWEDGE_CUDA
+  if (!should_attach_cuda())
+    return;
   static_assert(FlowHead::kMaxMlp == CudaFlowResident::kMaxMlp);
   void* const storage = scratch.alloc<alignof(CudaFlowResident)>(sizeof(CudaFlowResident));
-  if (storage == nullptr) {
-    ok_ = false;
+  if (storage == nullptr)
     return;
-  }
   std::memset(storage, 0, sizeof(CudaFlowResident));
   cuda_ = static_cast<CudaFlowResident*>(storage);
 
@@ -135,7 +136,6 @@ FlowHead::FlowHead(std::span<const TensorView> weights, Arena& scratch) noexcept
                    in_h, time_h, cond_h, out_h, layer_ptrs, freqs_)) {
     cuda_->release();
     cuda_ = nullptr;
-    ok_ = false;
   }
   scratch.reset_to(upload_mark);
 #endif

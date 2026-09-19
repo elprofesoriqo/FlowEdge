@@ -17,6 +17,7 @@ size_t fe_engine_action_dim(const fe_engine*);
 size_t fe_engine_action_horizon(const fe_engine*);
 size_t fe_engine_condition_dim(const fe_engine*);
 unsigned fe_engine_thread_count(const fe_engine*);
+int      fe_engine_cuda_resident(const fe_engine*);
 int fe_engine_model_metadata(const fe_engine*, fe_model_metadata*);
 int fe_engine_deployment_profile(const fe_engine*, fe_deployment_profile*);
 
@@ -70,6 +71,9 @@ Rules:
 - `fe_engine_load` reads `FLOWEDGE_THREADS=0..8` when present and otherwise uses a
   bandwidth-aware automatic default. `fe_engine_load_with_threads` bypasses the environment;
   zero selects caller-thread-only execution.
+- `fe_engine_cuda_resident` is 1 only when Mamba, flow, or Diffusion Policy weights
+  are device-resident. A CUDA binary still returns 0 after OOM, no GPU, or
+  `FLOWEDGE_CUDA_FORCE_HOST=1`; load keeps CPU kernels unless `FLOWEDGE_CUDA_REQUIRED=1`.
 - No exception crosses the boundary. Errors return `nullptr` or a non-zero code.
 - `method` is 0 for Euler, 1 for Heun, 2 for RK4.
 - Prefer the named constants `FE_SOLVER_EULER`, `FE_SOLVER_HEUN`, and `FE_SOLVER_RK4` from

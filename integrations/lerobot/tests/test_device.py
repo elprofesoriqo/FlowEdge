@@ -18,6 +18,17 @@ class NativeDeviceTests(unittest.TestCase):
             require_native_device("cuda", SimpleNamespace(cuda=False))
         require_native_device("cuda", SimpleNamespace(cuda=True))
         require_native_device("cuda:0", SimpleNamespace(cuda=True))
+        require_native_device(
+            "cuda", SimpleNamespace(cuda=True), engine=SimpleNamespace(cuda_resident=True)
+        )
+
+    def test_cuda_requires_resident_engine(self):
+        with self.assertRaisesRegex(RuntimeError, "CPU kernels"):
+            require_native_device(
+                "cuda",
+                SimpleNamespace(cuda=True),
+                engine=SimpleNamespace(cuda_resident=False),
+            )
 
     def test_unknown_device_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "cpu or cuda"):
