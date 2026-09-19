@@ -2,9 +2,9 @@ blank_issues_enabled: true
 
 contact_links:
   - name: Ask a question
-    url: https://github.com/elprofesoriqo/FlowEdge/discussions
+    url: https://github.com/reforcemind/FlowEdge/discussions
     about: Usage, integration, or architecture questions. Use Research issues for scoped design work.
 
   - name: "📚 FlowEdge documentation"
-    url: https://elprofesoriqo.github.io/FlowEdge/
+    url: https://reforcemind.github.io/FlowEdge/
     about: Check the documentation, architecture, APIs, and guides before opening an issue.

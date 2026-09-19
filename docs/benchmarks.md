@@ -43,4 +43,4 @@ JSON + Markdown together. Reference is LeRobot/PyTorch; candidate is FlowEdge na
 | Zero hot allocations | Native path instrumentation |
 | Hardware result | Artifact names the board |
 
-**CPU available · CUDA matched PushT replay on GTX 1650 · Tenstorrent planned**. CUDA policy p50 is not the README CPU headline. Not TensorRT/ONNX. Not Jetson/ARM ([#70](https://github.com/elprofesoriqo/FlowEdge/issues/70)).
+**CPU available · CUDA matched PushT replay on GTX 1650 · Tenstorrent planned**. CUDA policy p50 is not the README CPU headline. Not TensorRT/ONNX. Not Jetson/ARM ([#70](https://github.com/reforcemind/FlowEdge/issues/70)).

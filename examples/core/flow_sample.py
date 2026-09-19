@@ -20,7 +20,7 @@ def _load_flowedge():
         import flowedge
     except ImportError as error:
         raise RuntimeError(
-            "install FlowEdge first: pip install a v0.1.1 CPU wheel from GitHub Releases, "
+            "install FlowEdge first: pip install a v0.1.2 CPU wheel from GitHub Releases, "
             "or from a clone: python -m pip install ."
         ) from error
     return flowedge

@@ -69,24 +69,24 @@
 <ul class="fe-news">
   <li class="fe-news-item">
     <span class="fe-news-date">19</span>
-    <p>CPU wheels pinned onto the <a href="https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1">v0.1.1</a> Release (<a href="https://github.com/elprofesoriqo/FlowEdge/issues/184">#184</a>). Filenames are <code>flowedge-0.1.0-*</code>. Not PyPI. CUDA stays a source backend.</p>
+    <p>Repo lives at <a href="https://github.com/reforcemind/FlowEdge">reforcemind/FlowEdge</a>. <a href="https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.2">v0.1.2</a> CPU wheels are <code>flowedge-0.1.2-*</code>. Not PyPI. CUDA stays a source backend.</p>
   </li>
   <li class="fe-news-item">
     <span class="fe-news-date">19</span>
-    <p>Split-K CUDA Conv1D on horizon 8 (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/183">#183</a>). GTX 1650 matched DDIM replay stays <strong>131 vs 345 ms</strong> vs PyTorch CUDA. Not a 10 ms loop.</p>
+    <p>Split-K CUDA Conv1D on horizon 8 (<a href="https://github.com/reforcemind/FlowEdge/pull/183">#183</a>). GTX 1650 matched DDIM replay stays <strong>131 vs 345 ms</strong> vs PyTorch CUDA. Not a 10 ms loop.</p>
   </li>
   <li class="fe-news-item">
     <span class="fe-news-date">18</span>
-    <p>Device-resident CUDA after load: flow (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/167">#167</a>), Diffusion Policy (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/168">#168</a>, <a href="https://github.com/elprofesoriqo/FlowEdge/pull/169">#169</a>), Mamba (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/173">#173</a>). Same-process CUDA vs PyTorch CUDA (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/170">#170</a>). <code>--device cuda</code> period rollouts (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/171">#171</a>).</p>
+    <p>Device-resident CUDA after load: flow (<a href="https://github.com/reforcemind/FlowEdge/pull/167">#167</a>), Diffusion Policy (<a href="https://github.com/reforcemind/FlowEdge/pull/168">#168</a>, <a href="https://github.com/reforcemind/FlowEdge/pull/169">#169</a>), Mamba (<a href="https://github.com/reforcemind/FlowEdge/pull/173">#173</a>). Same-process CUDA vs PyTorch CUDA (<a href="https://github.com/reforcemind/FlowEdge/pull/170">#170</a>). <code>--device cuda</code> period rollouts (<a href="https://github.com/reforcemind/FlowEdge/pull/171">#171</a>).</p>
   </li>
   <li class="fe-news-item">
     <span class="fe-news-date">17</span>
-    <p><a href="https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1">v0.1.1</a> CPU wheels (manylinux, Windows, macOS ARM). Not on PyPI. <code>--on-miss hold|drop|raise</code> (<a href="https://github.com/elprofesoriqo/FlowEdge/pull/152">#152</a>). CPU fair-compare <strong>851 vs 1409 ms</strong>, <code>threads=1</code>.</p>
+    <p><a href="https://github.com/reforcemind/FlowEdge/releases/tag/v0.1.1">v0.1.1</a> CPU wheels (manylinux, Windows, macOS ARM). Not on PyPI. <code>--on-miss hold|drop|raise</code> (<a href="https://github.com/reforcemind/FlowEdge/pull/152">#152</a>). CPU fair-compare <strong>851 vs 1409 ms</strong>, <code>threads=1</code>.</p>
   </li>
 </ul>
 ```
 
-<p class="fe-inline-links"><a href="https://github.com/elprofesoriqo/FlowEdge/releases">GitHub Releases</a> · <a href="performance.html">Performance</a> · <a href="https://github.com/elprofesoriqo/FlowEdge">Source</a></p>
+<p class="fe-inline-links"><a href="https://github.com/reforcemind/FlowEdge/releases">GitHub Releases</a> · <a href="performance.html">Performance</a> · <a href="https://github.com/reforcemind/FlowEdge">Source</a></p>
 
 ## The problem
 

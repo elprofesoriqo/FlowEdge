@@ -20,7 +20,7 @@ jobs:
           ver=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n1)
           echo "pyproject version=$ver"
           if [ "${{ github.event_name }}" != "release" ]; then
-            echo "workflow_dispatch: skip tag match (last GitHub tag v0.1.1 shipped 0.1.0 wheel names)"
+            echo "workflow_dispatch: skip tag match (v0.1.1 shipped 0.1.0 wheel names; v0.1.2 matches pyproject)"
             exit 0
           fi
           tag="${GITHUB_REF_NAME#v}"

@@ -86,7 +86,7 @@ A 4GB card cannot hold both U-Nets; the runner frees FlowEdge before loading the
 |---|---|---:|---|
 | 10 ms | hold | 20 / 20 | 589 / 1571 / 1795 ms |
 
-Synthetic encoded zeros, no warmup, GTX 1650. Miss counts, not task success. Not Jetson/ARM. This period JSON is the [#164](https://github.com/elprofesoriqo/FlowEdge/issues/164) log, not the split-K replay.
+Synthetic encoded zeros, no warmup, GTX 1650. Miss counts, not task success. Not Jetson/ARM. This period JSON is the [#164](https://github.com/reforcemind/FlowEdge/issues/164) log, not the split-K replay.
 
 Native 10-step DDIM on the same GTX 1650, same checkpoint, `flowedge_cuda_dp_mix`
 (`cudaEvent` p50, not policy p50, not vs PyTorch):
@@ -99,7 +99,7 @@ Native 10-step DDIM on the same GTX 1650, same checkpoint, `flowedge_cuda_dp_mix
 | upsample 1024 k-major | 1684 us | 386 us | 3.9 |
 | native DDIM ×10 | 448 ms | **321 ms** | 321 |
 
-Short-horizon launch (`block.x` matches `L`) and closed-form `conv_transpose1d` ([#174](https://github.com/elprofesoriqo/FlowEdge/issues/174)).
+Short-horizon launch (`block.x` matches `L`) and closed-form `conv_transpose1d` ([#174](https://github.com/reforcemind/FlowEdge/issues/174)).
 
 Warp split-K on **L=4 and L=8** (lanes split `IC`, one block per output channel). L=16 stays on the 2D launch; split-K lost there twice.
 
@@ -112,7 +112,7 @@ Warp split-K on **L=4 and L=8** (lanes split `IC`, one block per output channel)
 
 One native DDIM sample launches 1490 device ops. `conv 2048 L4` is 70 of them (the CPU `xN` was right). GroupNorm is 250 launches across five shapes, not the mix's old `x80`. FiLM GEMM is `1×260×C`, not the packed `4×10240×2048` isolate.
 
-Block-per-group GroupNorm ([#179](https://github.com/elprofesoriqo/FlowEdge/issues/179)):
+Block-per-group GroupNorm ([#179](https://github.com/reforcemind/FlowEdge/issues/179)):
 
 | Kernel | split-K p50 | block GN p50 | ms/sample |
 |---|---:|---:|---:|
