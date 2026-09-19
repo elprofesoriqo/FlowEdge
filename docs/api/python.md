@@ -3,8 +3,12 @@
 Built with pybind11. Install with pip.
 
 ```bash
-pip install .
+python -m pip install flowedge-0.1.1-*.whl   # CPU wheel from GitHub Releases
+# or, from a clone with a C++23 toolchain:
+python -m pip install .
 ```
+
+Wheels are CPU. CUDA is a source build. PyPI is not published. [Python quickstart](../python-quickstart).
 
 ```python
 import numpy as np, flowedge

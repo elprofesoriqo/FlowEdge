@@ -12,3 +12,4 @@ __pycache__/
 /data/*.parquet
 /data/*.json
 /data/*.csv
+/research/

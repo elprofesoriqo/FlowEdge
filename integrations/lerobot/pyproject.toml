@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lerobot_policy_flowedge"
-version = "0.1.0"
+version = "0.1.1"
 description = "LeRobot out-of-tree deployment plugin for FlowEdge Diffusion Policy and SmolVLA"
 readme = "README.md"
 requires-python = ">=3.10"

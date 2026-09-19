@@ -4,12 +4,18 @@ Thanks for considering contributing to FlowEdge.
 
 Contributions are welcome across model support, kernels, backends, benchmarking, APIs, documentation, and robotics integrations.
 
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+If GitHub shows “Issue creation is restricted,” use [Discussions](https://github.com/elprofesoriqo/FlowEdge/discussions) for questions. Maintainers: GitHub Settings → Moderation → Interaction limits, and collaborator-only issue creation, must be off for public reports.
+
 ## Where to start
 
 If you're new to the project, look for issues labeled:
 
 * `good first issue` — small, well-scoped tasks suitable for first-time contributors
 * `help wanted` — work where community contributions are especially welcome
+
+Current starters: [#184](https://github.com/elprofesoriqo/FlowEdge/issues/184) (Release wheels), [#185](https://github.com/elprofesoriqo/FlowEdge/issues/185) (Windows first-run), [#186](https://github.com/elprofesoriqo/FlowEdge/issues/186) (gym PushT GIF).
 
 For large features or architectural changes, please open or comment on an issue first so the scope and interface can be agreed before implementation.
 

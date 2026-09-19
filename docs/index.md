@@ -2,13 +2,28 @@
 
 <img class="fe-hero-img" src="_static/hero.png" alt="FlowEdge" />
 
-<p class="fe-lede">FlowEdge is a C++23 inference engine for two real-time robotics policy heads: <strong>flow matching</strong> (a short ODE from noise to action) and <strong>Diffusion Policy</strong> (DDIM on a Conv1D U-Net). It loads a converted checkpoint into a fixed memory arena and produces an action chunk under a control period. LeRobot still owns training, cameras, and the robot driver.</p>
+<p class="fe-lede">FlowEdge is a C++23 inference runtime for robotics policies with fixed memory, deterministic execution, and explicit deadline handling. It runs two heads: <strong>flow matching</strong> (a short ODE from noise to action) and <strong>Diffusion Policy</strong> (DDIM on a Conv1D U-Net). LeRobot still owns training, cameras, and the robot driver.</p>
+
+```{image} _static/perf.gif
+:alt: Matched replay loading, CUDA then CPU. FlowEdge CUDA 131 ms vs PyTorch 345 ms; FlowEdge CPU 851 ms vs PyTorch 1409 ms.
+:class: fe-fig
+```
+
+## 📰 News
+
+**🗓️ September 2026**
+
+- ⚡ **19** — Split-K CUDA Conv1D on horizon 8 ([#183](https://github.com/elprofesoriqo/FlowEdge/pull/183)). GTX 1650 matched DDIM replay stays **131 vs 345 ms** vs PyTorch CUDA. Not a 10 ms loop.
+- 🚀 **18** — Device-resident CUDA after load: flow ([#167](https://github.com/elprofesoriqo/FlowEdge/pull/167)), Diffusion Policy ([#168](https://github.com/elprofesoriqo/FlowEdge/pull/168), [#169](https://github.com/elprofesoriqo/FlowEdge/pull/169)), Mamba ([#173](https://github.com/elprofesoriqo/FlowEdge/pull/173)). Same-process CUDA vs PyTorch CUDA ([#170](https://github.com/elprofesoriqo/FlowEdge/pull/170)). `--device cuda` period rollouts ([#171](https://github.com/elprofesoriqo/FlowEdge/pull/171)).
+- 📦 **17** — [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) CPU wheels (manylinux, Windows, macOS ARM). Not on PyPI. ⏱️ `--on-miss hold|drop|raise` ([#152](https://github.com/elprofesoriqo/FlowEdge/pull/152)). CPU fair-compare **851 vs 1409 ms**, `threads=1`.
+
+🏷️ [GitHub Releases](https://github.com/elprofesoriqo/FlowEdge/releases) · 📈 [Performance](performance)
 
 ## The problem
 
-A manipulator or mobile base does not care about median throughput. It cares whether *this* cycle finished before the next tick. If the policy is late, the controller still has to send an action, and you have to be able to explain which action that was.
+A robot loop is a deadline. At 100 Hz the motors want a new command every 10 ms. If this sample is late, they still need a defined action — hold, skip, or fault — and that choice has to be replayable (`--on-miss`). Matched Diffusion Policy replay is faster than PyTorch: CPU **851 vs 1409 ms**, CUDA **131 vs 345 ms**. That is the fair compare. The 10 ms figure is the robot’s tick, not this checkpoint’s p50.
 
-The usual deploy path is “export the training graph and hope”: PyTorch or a general compiler, heap traffic after warmup, a dispatcher, sometimes a KV cache that grows with the horizon. That stack is the right tool for training and for broad model zoos. It is the wrong contract for a 10 ms loop with a replayable miss policy.
+The usual deploy path is “export the training graph and hope”: PyTorch or a general compiler, heap traffic after warmup, a dispatcher, sometimes a KV cache that grows with the horizon. That stack is the right tool for training and for broad model zoos. It is the wrong contract for a period loop with a replayable miss policy.
 
 ## How FlowEdge solves it
 
@@ -32,6 +47,21 @@ The usual deploy path is “export the training graph and hope”: PyTorch or a 
 :class: fe-fig
 ```
 
+```{image} _static/flowedge.gif
+:alt: Flow matching Euler steps from noise to action, malloc = 0
+:class: fe-fig
+```
+
+```{image} _static/figures/policies.svg
+:alt: Flow matching ODE versus Diffusion Policy DDIM
+:class: fe-fig
+```
+
+```{image} _static/figures/workflow.svg
+:alt: convert, load arena, sample flow or DDIM, period, act
+:class: fe-fig
+```
+
 ## Why not the alternatives
 
 ```{image} _static/figures/why-this.svg
@@ -48,27 +78,7 @@ The usual deploy path is “export the training graph and hope”: PyTorch or a 
 
 Flow matching is the default head because a short deterministic ODE is cheaper, in NFE, than a long DDIM walk. Diffusion Policy is first-class when that is the trained checkpoint. Mamba is the default backbone for the flow path because its state does not grow with time.
 
-```{image} _static/figures/policies.svg
-:alt: Flow matching ODE versus Diffusion Policy DDIM
-:class: fe-fig
-```
-
-```{image} _static/flowedge.gif
-:alt: Flow matching Euler steps from noise to action, malloc = 0
-:class: fe-fig
-```
-
-Matched PushT **Diffusion Policy** replay, CPU, `threads=1`: policy p50 **851 ms** vs LeRobot/PyTorch **1409 ms**. Not a 10 ms loop. **Flow matching** matches the same PyTorch reference on ULP (~1e-6 rel); that is not a policy p50. [Performance](performance).
-
-```{image} _static/perf.gif
-:alt: Matched PushT replay bars, FlowEdge 851 ms vs PyTorch 1409 ms
-:class: fe-fig
-```
-
-```{image} _static/figures/workflow.svg
-:alt: convert, load arena, sample flow or DDIM, period, act
-:class: fe-fig
-```
+Matched PushT **Diffusion Policy** replay, CPU, `threads=1`: policy p50 **851 ms** vs LeRobot/PyTorch **1409 ms**. Not a 10 ms loop. On GTX 1650 the same matched replay is **131 ms** vs PyTorch CUDA **345 ms**. **Flow matching** matches the same PyTorch reference on ULP (~1e-6 rel); that is not a policy p50. [Performance](performance).
 
 Not a trainer. Not a graph runtime. Not a safety controller.
 
@@ -77,6 +87,7 @@ Not a trainer. Not a graph runtime. Not a safety controller.
 | Goal | Entry point |
 |---|---|
 | Run flow matching | [Getting Started](getting-started) |
+| Install the Python wheel | [Python](python-quickstart) |
 | Deploy LeRobot Diffusion Policy | [LeRobot adapter](guides/lerobot) |
 | Numbers vs PyTorch | [Performance](performance) |
 | Convert a checkpoint | [Converter](guides/converter) |
@@ -93,19 +104,30 @@ Not a trainer. Not a graph runtime. Not a safety controller.
 
 ```{toctree}
 :hidden:
-:caption: Start
+:caption: Use
 Overview <self>
 getting-started
-capabilities
+python-quickstart
 guides/lerobot
-guides/policy-evaluation
 performance
+guides/converter
+```
+
+```{toctree}
+:hidden:
+:caption: Contribute
+contributing
+guides/add-a-head
+guides/add-a-backbone
+guides/verification
+guides/edge-benchmarks
+guides/policy-evaluation
 benchmarks
 ```
 
 ```{toctree}
 :hidden:
-:caption: Architecture
+:caption: Internals
 architecture/overview
 architecture/memory
 architecture/loader
@@ -117,39 +139,20 @@ architecture/heads
 architecture/cooperative-execution
 architecture/model-porting
 decisions/index
-```
-
-```{toctree}
-:hidden:
-:caption: API
+capabilities
 api/c-abi
 api/python
-```
-
-```{toctree}
-:hidden:
-:caption: Guides
-guides/add-a-head
-guides/add-a-backbone
-guides/converter
 guides/checkpoint-preflight
 guides/diffusion-policy
 guides/transformer-backbone
 guides/model-import
-guides/edge-benchmarks
 guides/deadline-profile
 guides/sanitizers
-guides/verification
 guides/observability
 guides/cooperative-jobs
 guides/relay-quickstart
 guides/action-delivery
 guides/generic-job-daemon
-```
-
-```{toctree}
-:hidden:
-:caption: Reference
 roadmap
 product-direction
 guides/deadline-flow

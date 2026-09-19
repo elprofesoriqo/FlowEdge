@@ -1,7 +1,7 @@
 project = "FlowEdge"
 author = "FlowEdge"
 copyright = "2026, FlowEdge"
-release = "0.1.0"
+release = "0.1.1"
 
 extensions = [
     "myst_parser",
