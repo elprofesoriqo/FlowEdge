@@ -3,7 +3,7 @@
 Built with pybind11. Install with pip.
 
 ```bash
-python -m pip install flowedge-0.1.1-*.whl   # CPU wheel from GitHub Releases
+python -m pip install flowedge-0.1.0-*.whl   # CPU wheel from the v0.1.1 GitHub Release
 # or, from a clone with a C++23 toolchain:
 python -m pip install .
 ```

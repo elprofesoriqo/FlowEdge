@@ -6,9 +6,32 @@ on:
       - published
   workflow_dispatch:
 
+# CPU wheels only. CUDA stays FLOWEDGE_BACKEND=cuda from source, including
+# after a future PyPI upload. Do not add a CUDA extra this workflow cannot ship.
 jobs:
+  check-version:
+    name: Tag matches pyproject version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare v-tag to pyproject.toml
+        run: |
+          set -euo pipefail
+          ver=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n1)
+          echo "pyproject version=$ver"
+          if [ "${{ github.event_name }}" != "release" ]; then
+            echo "workflow_dispatch: skip tag match (last GitHub tag v0.1.1 shipped 0.1.0 wheel names)"
+            exit 0
+          fi
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::release tag v$tag does not match pyproject version $ver"
+            exit 1
+          fi
+
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
+    needs: [check-version]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -32,6 +55,7 @@ jobs:
 
   build_sdist:
     name: Build source distribution
+    needs: [check-version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +69,29 @@ jobs:
         with:
           name: cibw-sdist
           path: dist/*.tar.gz
+
+  attach-to-release:
+    name: Attach CPU wheels to the GitHub Release
+    if: github.event_name == 'release'
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-*
+          path: dist
+          merge-multiple: true
+
+      - name: Upload Release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          gh release upload "${{ github.event.release.tag_name }}" dist/* \
+            --repo "${{ github.repository }}" --clobber
 
   publish-to-pypi:
     if: vars.FLOWEDGE_PUBLISH_PYPI == 'true'

@@ -26,6 +26,7 @@ A C++23 inference runtime for robotics policies with fixed memory, deterministic
 
 **🗓️ September 2026**
 
+- 📦 **19** — CPU wheels pinned onto the [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) Release ([#184](https://github.com/elprofesoriqo/FlowEdge/issues/184)). Filenames are `flowedge-0.1.0-*`. Not PyPI. CUDA stays a source backend.
 - ⚡ **19** — Split-K CUDA Conv1D on horizon 8 ([#183](https://github.com/elprofesoriqo/FlowEdge/pull/183)). Published GTX 1650 matched DDIM replay stays **131 vs 345 ms** vs PyTorch CUDA. Not a 10 ms loop.
 - 🚀 **18** — Device-resident CUDA after load: flow head ([#167](https://github.com/elprofesoriqo/FlowEdge/pull/167)), Diffusion Policy U-Net + DDIM ([#168](https://github.com/elprofesoriqo/FlowEdge/pull/168), [#169](https://github.com/elprofesoriqo/FlowEdge/pull/169)), Mamba ([#173](https://github.com/elprofesoriqo/FlowEdge/pull/173)). Same-process CUDA vs PyTorch CUDA replay ([#170](https://github.com/elprofesoriqo/FlowEdge/pull/170)). LeRobot `--device cuda` period rollouts, same `--on-miss` ([#171](https://github.com/elprofesoriqo/FlowEdge/pull/171)).
 - 📦 **17** — [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1) CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM). Not on PyPI. ⏱️ `--on-miss hold|drop|raise` in the LeRobot adapter ([#152](https://github.com/elprofesoriqo/FlowEdge/pull/152)). CPU fair-compare Diffusion Policy remains **851 vs 1409 ms**, `threads=1`.
@@ -82,10 +83,10 @@ Matched **Diffusion Policy** PushT replay, CPU, `threads=1`: policy p50 **851 ms
 
 ## First run
 
-CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM) ship with [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1). They are **not** on PyPI yet; download the wheel for your platform from the [cibuildwheel run](https://github.com/elprofesoriqo/FlowEdge/actions/runs/35243534582) linked in that release, then:
+CPU wheels for CPython 3.10–3.12 (manylinux x86_64/aarch64, Windows AMD64, macOS ARM) are assets on [v0.1.1](https://github.com/elprofesoriqo/FlowEdge/releases/tag/v0.1.1). They are **not** on PyPI. Filenames are `flowedge-0.1.0-*` because `pyproject.toml` on that tag was not bumped. CUDA is not in the wheel.
 
 ```bash
-python -m pip install flowedge-*.whl
+python -m pip install flowedge-0.1.0-*.whl
 mkdir -p models
 curl -L "https://huggingface.co/ReForceMind/mamba_flow/resolve/main/mamba_flow.safetensors" \
   -o models/mamba_flow.safetensors
